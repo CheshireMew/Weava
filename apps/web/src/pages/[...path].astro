@@ -1,0 +1,283 @@
+---
+import { site, siteExtension } from '../runtime.ts';
+import {
+  normalizePath,
+  renderBlocks,
+  renderDocument,
+  renderFields,
+  responsiveImages,
+  imageAttributes,
+  escape as e,
+} from '@weava/core';
+import '../styles/site.css';
+const preview = Astro.url.pathname.startsWith('/__preview/');
+const token = Astro.cookies.get('weava-session')?.value ?? '';
+if (preview && !site.authenticate(token)) return new Response('请先登录后台。', { status: 401 });
+let release =
+  site.release() ??
+  (preview
+    ? {
+        id: 'preview',
+        createdAt: new Date().toISOString(),
+        label: '草稿预览',
+        entries: [],
+        types: site.store.list('type').map((r) => r.value),
+        settings: site.settings().value,
+      }
+    : null);
+if (!release) return new Response('网站尚未发布，请登录后台发布内容。', { status: 503 });
+let entry;
+if (preview) {
+  const id = decodeURIComponent(Astro.url.pathname.slice(11).replace(/\/$/, ''));
+  const version = Number(Astro.url.searchParams.get('revision'));
+  const stored = version
+    ? site.store.raw
+        .prepare('SELECT data FROM revisions WHERE scope=? AND id=? AND revision=?')
+        .get('entry', id, version)
+    : null;
+  const value = version
+    ? stored
+      ? JSON.parse((stored as any).data)
+      : null
+    : site.store.get('entry', id)?.value;
+  entry = value ? { ...value, html: renderDocument(value.document) } : null;
+  if (!entry) return new Response('草稿修订不存在。', { status: 404 });
+  release = {
+    ...release,
+    settings: site.settings().value,
+    types: site.store.list('type').map((r) => r.value),
+  };
+} else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname));
+if (Astro.url.pathname === '/sitemap.xml')
+  return new Response(
+    '<?xml version="1.0" encoding="utf-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+      release.entries
+        .filter((v) => v.indexable)
+        .map(
+          (v) =>
+            `<url><loc>${e(release.settings.domain.replace(/\/$/, '') + v.path)}</loc><lastmod>${v.modifiedAt?.slice(0, 10) ?? release.createdAt.slice(0, 10)}</lastmod></url>`,
+        )
+        .join('') +
+      '</urlset>',
+    { headers: { 'Content-Type': 'application/xml' } },
+  );
+if (Astro.url.pathname === '/robots.txt')
+  return new Response(
+    `User-agent: *\nDisallow: /admin/\nDisallow: /__preview/\nSitemap: ${release.settings.domain.replace(/\/$/, '')}/sitemap.xml\n`,
+    { headers: { 'Content-Type': 'text/plain' } },
+  );
+if (Astro.url.pathname === '/rss.xml')
+  return new Response(
+    '<?xml version="1.0"?><rss version="2.0"><channel><title>' +
+      e(release.settings.name) +
+      '</title><link>' +
+      e(release.settings.domain) +
+      '</link><description>' +
+      e(release.settings.description) +
+      '</description>' +
+      release.entries
+        .filter((v) => v.kind === 'content' && v.indexable)
+        .sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)))
+        .slice(0, 30)
+        .map((v) => {
+          const date = v.publishedAt
+            ? '<pubDate>' + new Date(v.publishedAt).toUTCString() + '</pubDate>'
+            : '';
+          return `<item><title>${e(v.title)}</title><link>${e(release.settings.domain + v.path)}</link><guid isPermaLink="false">${e(v.id)}</guid><description>${e(v.description)}</description>${date}</item>`;
+        })
+        .join('') +
+      '</channel></rss>',
+    { headers: { 'Content-Type': 'application/xml' } },
+  );
+if (entry) {
+  const custom = await (await siteExtension)?.render?.(entry, release);
+  if (custom) {
+    const html = preview
+      ? custom
+          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace('</head>', '<meta name="robots" content="noindex,nofollow"></head>')
+      : custom;
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        ...(preview
+          ? {
+              'Content-Security-Policy': "script-src 'none'; connect-src 'none'; object-src 'none'",
+            }
+          : {}),
+      },
+    });
+  }
+}
+const settings = release.settings,
+  theme = settings.themeConfig;
+const missing = !entry && Astro.url.pathname !== '/search/';
+if (missing) Astro.response.status = 404;
+const canonical = settings.domain.replace(/\/$/, '') + (entry?.path ?? Astro.url.pathname);
+const title = entry?.title ?? (missing ? '页面未找到' : '搜索');
+const description = entry?.description ?? settings.description;
+const content = responsiveImages(
+  site,
+  entry?.blocks.length
+    ? renderBlocks(entry.blocks, release, entry, (await siteExtension)?.blocks)
+    : (entry?.html ?? ''),
+);
+const results =
+  Astro.url.pathname === '/search/'
+    ? site.search(Astro.url.searchParams.get('q') ?? '', release.id)
+    : [];
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': entry?.kind === 'content' ? 'Article' : 'WebPage',
+  name: title,
+  url: canonical,
+  description,
+  inLanguage: settings.language,
+  ...(entry?.kind === 'content'
+    ? {
+        headline: title,
+        datePublished: entry.publishedAt,
+        dateModified: entry.modifiedAt,
+        author: { '@type': 'Person', name: entry.author || settings.name },
+      }
+    : {}),
+};
+---
+
+<!doctype html>
+<html lang={settings.language}>
+  <head
+    ><meta charset="utf-8" /><meta
+      name="viewport"
+      content="width=device-width,initial-scale=1"
+    /><title>{title} · {settings.name}</title><meta name="description" content={description} /><meta
+      name="robots"
+      content={preview || missing || entry?.indexable === false
+        ? 'noindex,nofollow'
+        : 'index,follow'}
+    /><link rel="canonical" href={canonical} /><link
+      rel="alternate"
+      type="application/rss+xml"
+      href="/rss.xml"
+    /><meta property="og:title" content={title} /><meta
+      property="og:description"
+      content={description}
+    /><meta property="og:url" content={canonical} />{
+      entry?.cover && (
+        <meta property="og:image" content={new URL(entry.cover, settings.domain).href} />
+      )
+    }<script
+      type="application/ld+json"
+      set:html={JSON.stringify(schema).replaceAll('<', '\u003c')}
+    /></head
+  >
+  <body
+    style={`--accent:${theme.accent};--paper:${theme.background};--width:${theme.width}px;--radius:${theme.radius}px;--space:${theme.spacing}px;font-family:${theme.font}`}
+    data-release={release.id}
+    data-track={!preview && entry?.kind === 'content' ? 'true' : 'false'}
+  >
+    <a class="skip" href="#main">跳到正文</a><header class="site-header wrap">
+      <a class="brand" href="/"
+        >{
+          settings.logo ? (
+            <img src={settings.logo} alt="" width="30" height="30" />
+          ) : (
+            <span class="brand-icon">w</span>
+          )
+        }{settings.name}</a
+      ><button class="menu-button" aria-expanded="false" aria-controls="nav">菜单</button><nav
+        id="nav"
+      >
+        {
+          settings.navigation.map((n) => (
+            <a href={n.url} aria-current={entry?.path === n.url ? 'page' : undefined}>
+              {n.label}
+            </a>
+          ))
+        }<a href="/search/" aria-label="搜索">⌕</a>
+      </nav>
+    </header>
+    <main id="main" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
+      {
+        entry?.kind === 'content' && (
+          <header class="article-heading">
+            <div class="meta">
+              {entry.author} ·{' '}
+              {entry.publishedAt
+                ? new Intl.DateTimeFormat(settings.language, {
+                    timeZone: settings.timezone,
+                    dateStyle: 'medium',
+                  }).format(new Date(entry.publishedAt))
+                : ''}
+            </div>
+            {entry.cover && <img {...imageAttributes(site, entry.cover)} alt="" class="cover" />}
+          </header>
+        )
+      }
+      {
+        entry && (
+          <div class:list={[entry.kind === 'content' ? 'prose' : 'page-body']} set:html={content} />
+        )
+      }
+      {
+        entry?.kind === 'content' && (
+          <aside
+            class="prose"
+            set:html={renderFields(
+              release.types.find((type) => type.id === entry.type)?.fields ?? [],
+              entry.fields,
+              release,
+            )}
+          />
+        )
+      }
+      {
+        missing && (
+          <section class="hero">
+            <>
+              <h1>页面未找到</h1>
+              <p>这个地址还没有公开内容。</p>
+              <a href="/" class="button">
+                返回首页
+              </a>
+            </>
+          </section>
+        )
+      }
+      {
+        Astro.url.pathname === '/search/' && (
+          <section class="search-page">
+            <>
+              <h1>搜索</h1>
+              <form method="get">
+                <>
+                  <input
+                    type="search"
+                    name="q"
+                    placeholder="搜索文章、作品或资源"
+                    value={Astro.url.searchParams.get('q') ?? ''}
+                  />
+                  <button class="button">搜索</button>
+                </>
+              </form>
+              <div class="search-results">
+                {results.map((r: any) => (
+                  <a href={r.path}>
+                    <h2>{r.title}</h2>
+                    <p>{r.description}</p>
+                  </a>
+                ))}
+              </div>
+            </>
+          </section>
+        )
+      }
+    </main><footer class="wrap site-footer">
+      <span>{settings.footer}</span><a href={settings.sourceUrl || '/about/'}
+        >{settings.sourceUrl ? '源代码' : '关于'}</a
+      ><a href="/rss.xml">RSS</a>
+    </footer>
+    {!preview && <script src="/weava-ui.js" defer is:inline />}
+    {!preview && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
+  </body>
+</html>

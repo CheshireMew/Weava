@@ -1,0 +1,44 @@
+import { Site, Analytics, atomicJson, now, extension } from '@weava/core';
+import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+const root = resolve(
+  process.env.WEAVA_SITE ??
+    resolve(process.env.WEAVA_FRAMEWORK ?? process.cwd(), '../WeavaSites/demo'),
+);
+const runtimeFile = join(root, 'runtime.json');
+if (existsSync(runtimeFile)) {
+  const old = JSON.parse(readFileSync(runtimeFile, 'utf8'));
+  if (old.status !== 'stopped' && old.pid !== process.pid) {
+    let alive = false;
+    try {
+      process.kill(old.pid, 0);
+      alive = true;
+    } catch {}
+    if (alive) throw new Error('这个站点已经由另一个进程运行。');
+  }
+}
+export const site = new Site(root);
+export const analytics = new Analytics(root);
+site.recoverJobs();
+const jobWatch = setInterval(() => site.recoverJobs(), 5000);
+jobWatch.unref();
+const state = {
+  pid: process.pid,
+  status: 'running',
+  startedAt: now(),
+  port: Number(process.env.PORT ?? 4322),
+};
+atomicJson(runtimeFile, state);
+const stop = () => {
+  atomicJson(runtimeFile, { ...state, status: 'stopped' });
+};
+process.once('exit', stop);
+process.once('SIGTERM', () => {
+  stop();
+  process.exit(0);
+});
+process.once('SIGINT', () => {
+  stop();
+  process.exit(0);
+});
+export const siteExtension = extension(site, { analytics });

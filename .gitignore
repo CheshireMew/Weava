@@ -1,0 +1,10 @@
+node_modules/
+node_modules.retained-*/
+dist/
+.astro/
+.env
+*.tsbuildinfo
+reports/
+.cache/
+dist.retained-*/
+**/dist.retained-*/

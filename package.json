@@ -1,0 +1,63 @@
+{
+  "name": "weava",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=24.12 <25"
+  },
+  "scripts": {
+    "dev": "tsx packages/cli/src/index.ts dev",
+    "build": "tsx scripts/build.ts",
+    "start": "tsx packages/cli/src/index.ts start",
+    "weava": "tsx packages/cli/src/index.ts",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:browser": "tsx scripts/browser-check.ts"
+  },
+  "dependencies": {
+    "@astrojs/node": "11.1.9",
+    "astro": "7.4.2",
+    "@weava/contracts": "workspace:*",
+    "@weava/core": "workspace:*",
+    "better-sqlite3": "13.0.3",
+    "drizzle-orm": "0.45.4",
+    "zod": "4.6.7",
+    "sharp": "0.35.5",
+    "markdown-it": "14.1.0",
+    "sanitize-html": "2.17.0",
+    "cheerio": "1.1.2",
+    "yaml": "2.8.1",
+    "commander": "14.0.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "lexical": "0.52.0",
+    "@lexical/react": "0.52.0",
+    "@lexical/rich-text": "0.52.0",
+    "@lexical/list": "0.52.0",
+    "@lexical/link": "0.52.0",
+    "@lexical/code": "0.52.0",
+    "@lexical/table": "0.52.0",
+    "@lexical/markdown": "0.52.0",
+    "@lexical/headless": "0.52.0",
+    "@lexical/html": "0.52.0",
+    "lucide-react": "0.468.0"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "tsx": "4.23.15",
+    "vite": "8.3.5",
+    "@vitejs/plugin-react": "6.1.2",
+    "esbuild": "0.25.12",
+    "vitest": "5.0.5",
+    "playwright": "1.64.1",
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/markdown-it": "14.1.2",
+    "@types/sanitize-html": "2.16.0"
+  }
+}

@@ -1,0 +1,9 @@
+Weava — Copyright (c) 2026 Weava contributors.
+Project license: AGPL-3.0-only. See LICENSE.
+
+Third-party packages retain their original copyright and licenses.
+The direct dependency inventory is documented in docs/dependencies.json and pnpm-lock.yaml.
+The license text was obtained from the SPDX license-list-data project:
+https://github.com/spdx/license-list-data/blob/main/text/AGPL-3.0-only.txt
+
+Site content, third-party media, private configuration, and migrated archives are not part of this source distribution.

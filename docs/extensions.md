@@ -1,0 +1,46 @@
+# 主题与扩展
+
+官方主题在 Astro 页面和 core 渲染器中提供。网站设置中的 themeConfig 是运行时数据，包含颜色、字体、版心、圆角和间距。修改设置不需要构建；新增组件或主题实现需要构建。
+
+站点自己的代码放在站点目录的 extensions/index.ts。它导出工厂函数，工厂接收 site、apiVersion、renderDocument、renderBlocks 和 analytics 等服务，返回 API 版本为 1 的扩展声明。源码与编译后的 index.mjs 都属于站点，不放入框架公开仓库。
+
+```ts
+export default ({ site }) => ({
+  id: 'studio',
+  apiVersion: 1,
+  themes: [{ id: 'studio', label: '工作室' }],
+  contentTypes: [{
+    id: 'project', label: '项目', pathPrefix: '/work/', template: 'article',
+    fields: [{ key: 'year', label: '年份', type: 'number' }],
+  }],
+  panels: [{
+    id: 'studio', label: '工作室设置',
+    fields: [{ key: 'contact', label: '联系地址', type: 'text' }],
+  }],
+  blocks: {
+    'studio:notice': (block) => '<aside>工作室公告</aside>',
+  },
+  schedules: [{ id: 'refresh', intervalMs: 900000, run: async () => {} }],
+  route: async (request, release) => null,
+  render: async (entry, release) => null,
+  start() {},
+  stop() {},
+});
+```
+
+render 返回完整 HTML 时由扩展负责主题展示；返回 null 时继续使用官方主题。route 返回 Response 时接管该请求，返回 null 继续普通路由。panels 自动进入后台外观设置，值保存在 settings.extensions[面板编号]。定时任务防止同一任务重入，服务停止时清理计时器。
+
+themes 声明进入后台主题选择。扩展 render 应按 release.settings.theme 决定是否处理当前页面；切换主题不删除内容或布局。加密网站扩展展示了这一用法。
+
+区块名称必须以扩展编号加冒号开头。renderBlocks 可接收扩展渲染器映射。开发者应通过核心服务保存内容与设置，不直接写数据库内部表。已有内容类型不会被扩展初始化静默覆盖；修改字段需通过 saveType 验证兼容性。
+
+在停止当前站点后，为它构建代码：
+
+```powershell
+$env:WEAVA_SITE='E:\Code\WeavaSites\my-site'
+powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 build
+```
+
+后台区块搭建器内置区块提供专用表单。自定义代码区块可由外部工具通过 API 配置，再由声明的渲染器输出。首版不提供在线安装代码或插件市场。
+
+加密网站的模板、刷新任务和来源服务是一个站点扩展案例。框架核心不包含交易所名单、邀请码或视频来源记录。迁移器提供适配模板，实际配置和媒体留在私有实例中。

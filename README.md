@@ -1,0 +1,53 @@
+# Weava
+
+一个以内容为中心的通用建站框架。Astro 提供访客页面，React 提供管理后台，TypeScript 核心负责内容、修订、发布、搜索与维护。
+
+支持博客、官网、作品集、文档和资源目录。文章可以可视化编辑或使用 Markdown；页面使用区块组合。日常内容和设置通过数据库发布，无需重新构建程序。普通前台页面不加载 React 管理后台或 Lexical 编辑器。
+
+## 当前机器快速使用
+
+源码在 `E:\Code\Weava`；通用示例和迁移站分别在 `E:\Code\WeavaSites\demo`、`E:\Code\WeavaSites\crypto-blacknico`。本地站主密码保存在 `D:\Tools\weava\demo-owner-password.txt` 和 `D:\Tools\weava\crypto-owner-password.txt`，不属于源码或公开网站。
+
+```powershell
+powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 --site E:\Code\WeavaSites\demo start
+powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 --site E:\Code\WeavaSites\crypto-blacknico start
+```
+
+通用示例：http://127.0.0.1:4322/ ，后台：http://127.0.0.1:4322/admin/ 。迁移站对应端口为 4323。同一个站点只运行一份服务，端口占用时不会替换已有服务。
+
+## 新建站点
+
+运行环境为 Node 24。Windows 可运行 `scripts/setup.ps1` 安装锁定依赖，下载和缓存默认使用 D 盘。`better-sqlite3` 13 自带原生模块，本项目禁止其安装时重复编译；启动和测试会实际验证数据库可用。
+
+```powershell
+powershell -NoProfile -File scripts/run.ps1 --site E:\Code\WeavaSites\my-site init --demo --password-file D:\Tools\weava\my-password.txt --port 4325
+powershell -NoProfile -File scripts/run.ps1 build
+powershell -NoProfile -File scripts/run.ps1 --site E:\Code\WeavaSites\my-site start
+```
+
+密码文件需要先由站主准备，内容为至少 10 个字符的密码。程序只保存密码派生值。初始化不会自动发布到互联网。
+
+## 开发与验证
+
+工作区使用 pnpm 12。`build` 生成程序运行需要的前后台文件，不制作安装包。旧构建目录保留为 `dist.retained-*`，不进入 Git。内容发布只切换公开版本，不执行这个构建。
+
+```powershell
+pnpm check
+pnpm test
+pnpm build
+pnpm weava --site E:\Code\WeavaSites\demo dev
+```
+
+真实浏览器检查要求本机 Chrome 和两个示例服务已运行：`pnpm test:browser`。`scripts/api-check.ts` 检查修订冲突、任务幂等、运行时新增网址、设置发布和真实备份。隔离测试和截图存放于 `D:\Tools\cache\weava`。
+
+## 文档
+
+- [使用与编辑](docs/authoring.md)
+- [架构与数据](docs/architecture.md)
+- [API 与 CLI](docs/interfaces.md)
+- [主题与扩展](docs/extensions.md)
+- [运行、备份和恢复](docs/operations.md)
+- [旧站迁移](docs/migration.md)
+- [实施与验收记录](docs/implementation.md)
+
+框架采用 AGPL-3.0-only，完整许可见 [LICENSE](LICENSE)。第三方组件保留各自许可，见 [依赖声明](docs/dependencies.json)。站点文章、来源媒体、统计和私有配置由各站点自行管理，不纳入框架许可或公开示例。
