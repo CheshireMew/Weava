@@ -1,10 +1,11 @@
 import type { APIRoute } from 'astro';
-import { site, analytics, siteExtension } from '../../runtime.ts';
+import { site, analytics, engagement, siteExtension } from '../../runtime.ts';
 import { stageMedia, csv, storageUsage } from '@weava/core';
 import { WeavaError as DomainError, VERSION as frameworkVersion } from '@weava/contracts';
 import { join } from 'node:path';
 import { existsSync, readFileSync, openSync, closeSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 function json(value: any, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -64,20 +65,48 @@ async function execute(operation: string, payload: any, key?: string) {
   });
   return site.job(job.id);
 }
-export const ALL: APIRoute = async ({ request, params, cookies, url }) => {
+export const ALL: APIRoute = async (context) => {
+  const { request, params, cookies, url } = context;
   try {
-    const custom = await (await siteExtension)?.route?.(request, site.release());
+    const custom = await (await siteExtension)?.route?.(request, site.visibleRelease());
     if (custom) return custom;
     const route = params.route ?? '';
     const method = request.method;
+    if (['v1/engagement', 'v1/like', 'v1/comment', 'v1/comment-captcha'].includes(route)) {
+      const write = method === 'POST';
+      if ((route === 'v1/engagement' && method !== 'GET') || (route !== 'v1/engagement' && !write))
+        return json({ error: '请求方法无效。' }, 405);
+      if (write && request.headers.get('Origin') && new URL(request.headers.get('Origin')!).host !== (request.headers.get('host') ?? url.host))
+        throw new DomainError('请求来源无效。', 403);
+      const data = write ? await request.json() : null;
+      const id = String(data?.id ?? url.searchParams.get('id') ?? '');
+      const entry = site.visibleRelease()?.entries.find((item) => item.id === id && item.kind === 'content');
+      if (!entry) throw new DomainError('文章不存在。', 404);
+      let reader = cookies.get('weava-reader')?.value ?? '';
+      if (!/^[a-f0-9]{64}$/.test(reader)) {
+        reader = randomBytes(32).toString('hex');
+        cookies.set('weava-reader', reader, { path: '/', httpOnly: true, sameSite: 'lax', secure: url.protocol === 'https:', maxAge: 31536000 });
+      }
+      if (route === 'v1/engagement')
+        return json(engagement.summary(id, reader, Number(url.searchParams.get('page')) || 1, url.searchParams.get('sort') === 'oldest' ? 'oldest' : 'latest'));
+      let network = 'unknown';
+      try { network = context.clientAddress; } catch {}
+      if (route === 'v1/comment-captcha') return json(await engagement.createCaptcha(reader, network));
+      if (route === 'v1/like') {
+        if (typeof data.liked !== 'boolean') throw new DomainError('点赞状态无效。');
+        return json(engagement.setLike(id, reader, data.liked, network));
+      }
+      const comment = engagement.postComment(id, reader, network, data);
+      return json({ ...engagement.summary(id, reader), comment });
+    }
     if (route === 'v1/search' && method === 'GET')
       return json(site.search(url.searchParams.get('q') ?? ''));
     if (route === 'v1/content' && method === 'GET')
       return json(
         site
-          .release()
+          .visibleRelease()
           ?.entries.filter((e) => e.kind === 'content')
-          .map(({ document, compatibility, html, ...e }) => e) ?? [],
+          .map(({ document, compatibility, html, source, ...e }) => e) ?? [],
       );
     if (route === 'v1/analytics' && method === 'POST') {
       if (
@@ -91,7 +120,7 @@ export const ALL: APIRoute = async ({ request, params, cookies, url }) => {
           request.headers.get('user-agent') ?? '',
           new Set(
             site
-              .release()
+              .visibleRelease()
               ?.entries.filter((e) => e.kind === 'content')
               .map((e) => e.path) ?? [],
           ),
@@ -140,11 +169,19 @@ export const ALL: APIRoute = async ({ request, params, cookies, url }) => {
         media: site.store.list('media'),
         jobs: site.jobs(),
         releases: site.releases(),
-        themes: [{ id: 'weava', label: 'Weava' }, ...((await siteExtension)?.themes ?? [])],
+        themes: [{ id: 'weava', label: 'Weava' }, { id: 'newsletter', label: 'Newsletter' }, ...((await siteExtension)?.themes ?? [])],
         extensionPanels: (await siteExtension)?.panels ?? [],
         extensionBlocks: Object.keys((await siteExtension)?.blocks ?? {}),
       });
     if (action === 'entries') return json(site.entries());
+    if (action === 'comments' && method === 'GET') {
+      const result = engagement.comments(url.searchParams.get('status') ?? 'all', Number(url.searchParams.get('page')) || 1);
+      return json({ ...result, items: result.items.map((comment) => {
+        const entry = site.store.get('entry', comment.entryId)?.value;
+        return { ...comment, title: entry?.title ?? comment.entryId, path: entry?.path ?? '' };
+      }) });
+    }
+    if (action === 'comment' && method === 'POST') return json(engagement.moderate(data.id, data.status));
     if (action === 'maintenance') return json(storageUsage(site));
     if (action === 'entry' && method === 'POST')
       return json(site.saveEntry(data.value, data.revision ?? null));

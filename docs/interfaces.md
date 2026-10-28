@@ -20,11 +20,19 @@
 | jobs、job/id、logs?id=… | 查询任务；logs 支持 offset，每页最多 20000 字符 |
 | backup、verify | POST `{path}` 创建或校验目录备份 |
 | analytics、analytics/export | GET 报告或 CSV，支持 start、end、path |
+| comments?status=all\|visible\|hidden&page=1 | GET 评论管理列表，每页 30 条，返回 items、total、hasMore |
+| comment | POST `{id,status:"visible"\|"hidden"}` 显示或隐藏评论 |
 | export | GET 站点设置、类型与内容的 JSON 交换格式 |
 
 异步操作可以带 Idempotency-Key，同一个标识只领取一次执行权。重试相同任务取得同一个编号，不再启动另一个进程。
 
 公开接口为 `/api/v1/content`、`/api/v1/search?q=…`、`/api/v1/analytics`。内容列表不返回草稿、兼容模板或编辑器状态。
+
+文章互动仅对已发布的公开内容开放，响应禁止缓存。首次请求设置 HttpOnly 的 `weava-reader` Cookie，后续请求须保留该 Cookie。`GET /api/v1/engagement?id=文章编号&page=1&sort=latest|oldest` 返回点赞数、评论数、当前访客点赞状态及评论列表（每页 20 条）。`POST /api/v1/like` 接收 `{id,liked:boolean}`，设置状态可安全重试。
+
+`POST /api/v1/comment-captcha` 接收 `{id}`，返回验证码编号 `id`、PNG data URL `image` 和毫秒时间戳 `expiresAt`。答案仅保存为摘要，不随接口返回。`POST /api/v1/comment` 接收 `{id,author,body,captchaId,captcha,clientId}`；称呼最多 40 字、评论最多 4000 字，验证码不区分大小写，五分钟内单次使用。`clientId` 使用 UUID，同一访客重试同一已成功的请求不会重复创建评论。错误验证码也会消耗验证机会。
+
+评论每位访客至少间隔 15 秒、每小时最多 10 条，同一网络地址每小时最多 30 条；验证码每位访客每分钟最多 10 次、每个网络地址每分钟最多 40 次；点赞请求每个网络地址每分钟最多 120 次。达到限制返回 429。访客与网络标识经站点密钥摘要后保存，不保存原始 IP。Newsletter 目录设置保存在 `settings.extensions.newsletter.tocDefaultOpen` 布尔值中，随设置发布生效。
 
 CLI 默认返回 JSON，`--human` 输出格式化 JSON；成功为 0，失败为 1，等待超时且任务仍在执行为 2。使用 `--site` 指定实例，`--url` 可以覆盖本机服务地址。
 
@@ -40,3 +48,5 @@ scripts/run.ps1 --site E:\Code\WeavaSites\demo export --output D:\Tools\weava\ex
 `page`、`settings`、`media` 同样有 list/save；保存输入遵循对应 API。JSON import 用于新内容导入，已有编号需要通过带修订号的 save 更新。Markdown 内容保存为 `{version:1, format:"markdown", source:"正文"}`，由 content save 写入。外部工具通过 CLI 或 API 工作，产品没有内置 Agent 或模型服务。
 
 `media save` 会等待后台媒体处理完成后返回任务结果。API 调用者可以用 Idempotency-Key 重试同一上传请求，并通过 job/id 查询派生图片生成进度。原文件按内容散列保存，媒体处理失败时文件仍然保留，空间检查可以定位未引用文件。
+
+内容记录的 `visibility` 为 `public` 或 `private`，缺省为 `public`；它与 `status` 独立。后台与 CLI 均可保存该字段，再通过 publish 发布可见性变更。公开 API 永远不返回私密文章，站主可通过带认证的 `entry/id` 获取完整工作稿。

@@ -87,6 +87,7 @@ export const entrySchema = z.object({
   document: documentSchema.default({ version: 1, format: 'markdown', source: '' }),
   blocks: z.array(blockSchema).default([]),
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
+  visibility: z.enum(['public', 'private']).default('public'),
   indexable: z.boolean().default(true),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),

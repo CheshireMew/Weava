@@ -1,4 +1,4 @@
-import { Site, Analytics, atomicJson, now, extension } from '@weava/core';
+import { Site, Analytics, Engagement, atomicJson, now, extension } from '@weava/core';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 const root = resolve(
@@ -19,6 +19,7 @@ if (existsSync(runtimeFile)) {
 }
 export const site = new Site(root);
 export const analytics = new Analytics(root);
+export const engagement = new Engagement(site.store.raw, site.cliToken());
 site.recoverJobs();
 const jobWatch = setInterval(() => site.recoverJobs(), 5000);
 jobWatch.unref();

@@ -4,28 +4,32 @@
 
 支持博客、官网、作品集、文档和资源目录。文章可以可视化编辑或使用 Markdown；页面使用区块组合。日常内容和设置通过数据库发布，无需重新构建程序。普通前台页面不加载 React 管理后台或 Lexical 编辑器。
 
-## 当前机器快速使用
+## 功能
 
-源码在 `E:\Code\Weava`；通用示例和迁移站分别在 `E:\Code\WeavaSites\demo`、`E:\Code\WeavaSites\crypto-blacknico`。本地站主密码保存在 `D:\Tools\weava\demo-owner-password.txt` 和 `D:\Tools\weava\crypto-owner-password.txt`，不属于源码或公开网站。
+- 可视化与 Markdown 编辑、草稿自动保存、修订历史、预览和发布回退。
+- 通用区块页面、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
+- 公开与私密文章、媒体访问控制、图片派生尺寸、浏览统计与目录备份恢复。
+- Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、后台评论管理。
+- WordPress 文章、原网址、分类标签、封面及历史浏览量迁移。
 
-```powershell
-powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 --site E:\Code\WeavaSites\demo start
-powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 --site E:\Code\WeavaSites\crypto-blacknico start
-```
-
-通用示例：http://127.0.0.1:4322/ ，后台：http://127.0.0.1:4322/admin/ 。迁移站对应端口为 4323。同一个站点只运行一份服务，端口占用时不会替换已有服务。
+仓库仅包含框架源码、文档和测试。站点数据库、文章、图片、密码、统计及迁移档案保存在独立实例目录中，不属于此仓库。
 
 ## 新建站点
 
-运行环境为 Node 24。Windows 可运行 `scripts/setup.ps1` 安装锁定依赖，下载和缓存默认使用 D 盘。`better-sqlite3` 13 自带原生模块，本项目禁止其安装时重复编译；启动和测试会实际验证数据库可用。
+运行环境为 Node 24 和 pnpm 12。当前验收平台为 Windows。克隆仓库后，可运行 `scripts/setup.ps1` 安装锁定依赖，下载和缓存默认使用 D 盘；Node 路径可通过 `WEAVA_NODE` 指定。`better-sqlite3` 13 自带原生模块，本项目禁止其安装时重复编译；启动和测试会实际验证数据库可用。
 
 ```powershell
-powershell -NoProfile -File scripts/run.ps1 --site E:\Code\WeavaSites\my-site init --demo --password-file D:\Tools\weava\my-password.txt --port 4325
+git clone https://github.com/CheshireMew/Weava.git
+cd Weava
+powershell -NoProfile -File scripts/setup.ps1
+powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site init --demo --password-file D:\Tools\weava\my-password.txt --port 4322
 powershell -NoProfile -File scripts/run.ps1 build
-powershell -NoProfile -File scripts/run.ps1 --site E:\Code\WeavaSites\my-site start
+powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site start
 ```
 
 密码文件需要先由站主准备，内容为至少 10 个字符的密码。程序只保存密码派生值。初始化不会自动发布到互联网。
+
+打开 [本地后台](http://127.0.0.1:4322/admin/)，编辑并发布内容后可从 [网站首页](http://127.0.0.1:4322/) 查看。同一个站点只运行一份服务，端口占用时不会替换已有服务。
 
 ## 开发与验证
 

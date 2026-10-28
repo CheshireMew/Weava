@@ -1006,6 +1006,14 @@ pre {
     transform: rotate(360deg);
   }
 }
+.comments-panel .panel-title h1 { flex-shrink: 0; white-space: nowrap; }
+.comments-panel .panel-title select { width: 150px; }
+.admin-comment { margin-bottom: 16px; }
+.admin-comment header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.admin-comment header time, .admin-comment header span { color: #777; font-size: 12px; }
+.admin-comment p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.admin-comment > a { display: block; margin-top: 8px; }
+.comment-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 24px 0; }
 .muted {
   color: #93a288;
 }

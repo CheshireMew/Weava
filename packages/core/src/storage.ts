@@ -77,7 +77,17 @@ export class Storage {
       CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(release_id UNINDEXED,entry_id UNINDEXED,tokens,tokenize='unicode61');
       INSERT OR IGNORE INTO schema_migrations VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     const version = this.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get() as any;
-    if (version.v > 1) throw new WeavaError('站点数据库版本比当前程序新，请更新 Weava。');
+    if (version.v > 2) throw new WeavaError('站点数据库版本比当前程序新，请更新 Weava。');
+    if (version.v < 2) this.raw.transaction(() => {
+      this.raw.exec(`CREATE TABLE article_likes(entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(entry_id,reader_key));
+        CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));
+        CREATE INDEX comments_entry ON article_comments(entry_id,status,created_at);
+        CREATE INDEX comments_reader ON article_comments(reader_key,created_at);
+        CREATE INDEX comments_network ON article_comments(network_key,created_at);
+        CREATE TABLE comment_captchas(id TEXT PRIMARY KEY,reader_key TEXT NOT NULL,answer_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,used INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE engagement_limits(id TEXT PRIMARY KEY,count INTEGER NOT NULL,reset_at INTEGER NOT NULL);
+        INSERT INTO schema_migrations VALUES(2,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+    }).immediate();
     this.db = drizzle(this.raw);
     for (const dir of ['media', 'themes', 'extensions', 'logs', 'archives', 'imports'])
       mkdirSync(join(this.root, dir), { recursive: true });

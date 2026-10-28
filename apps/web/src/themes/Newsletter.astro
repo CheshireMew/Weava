@@ -1,0 +1,173 @@
+---
+import type { Release, PublishedEntry } from '@weava/contracts';
+import { site, analytics, engagement } from '../runtime.ts';
+import { imageAttributes, renderFields, articleOutline } from '@weava/core';
+import ArticleActions from './ArticleActions.astro';
+import ArticleComments from './ArticleComments.astro';
+import '../styles/newsletter.css';
+
+interface Props {
+  release: Release;
+  entry?: PublishedEntry;
+  title: string;
+  description: string;
+  canonical: string;
+  schema: Record<string, any>;
+  content: string;
+  results: any[];
+  preview: boolean;
+  missing: boolean;
+  owner: boolean;
+}
+const { release, entry, title, description, canonical, schema, content, results, preview, missing, owner } = Astro.props;
+const settings = release.settings;
+const privateArticle = entry?.visibility === 'private';
+const posts = release.entries.filter((item) => item.kind === 'content' && item.visibility !== 'private')
+  .map((item) => ({ ...item, cover: item.cover || item.html.match(/<img\b[^>]*\bsrc=["']([^"']+)/i)?.[1] || '' }))
+  .sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)));
+const totals = analytics.viewTotals(posts);
+const views = (item: PublishedEntry) => totals.get(item.id) ?? 0;
+const formattedViews = (item: PublishedEntry) => new Intl.NumberFormat(settings.language).format(views(item));
+const popular = [...posts].sort((a, b) => views(b) - views(a) || String(b.publishedAt).localeCompare(String(a.publishedAt)));
+const feature = posts[0];
+const side = posts.slice(1, 5);
+const isHome = entry?.path === '/';
+const isSearch = Astro.url.pathname === '/search/';
+const listBlock = entry?.blocks.find((block) => block.type === 'content-list' || block.type === 'cards');
+const isListing = !isHome && entry?.kind === 'page' && !!listBlock;
+const sort = Astro.url.searchParams.get('sort') === 'popular' ? 'popular' : 'latest';
+const ordered = sort === 'popular' ? popular : posts;
+const grid = sort === 'popular' ? popular.slice(0, 9) : posts.slice(5, 14);
+const listing = ordered.filter((item) =>
+  (!listBlock?.props.category || item.categories.includes(listBlock.props.category)) &&
+  (!listBlock?.props.tag || item.tags.includes(listBlock.props.tag)) &&
+  (!listBlock?.props.contentType || item.type === listBlock.props.contentType));
+const date = (item: PublishedEntry, year = false) => item.publishedAt
+  ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: settings.timezone }).format(new Date(item.publishedAt))
+  : '';
+const image = (item: PublishedEntry, sizes: string) => ({ ...imageAttributes(site, item.cover), sizes });
+const archive = release.entries.find((item) => item.kind === 'page' && item.fields.newsletterLayout === 'archive');
+const archiveUrl = archive?.path ?? '/search/';
+const categories = settings.taxonomies.map((category) => ({
+  ...category, count: posts.filter((post) => post.categories.includes(category.label)).length,
+  path: release.entries.find((page) => page.kind === 'page' && page.blocks.some((block) => block.props.category === category.label))?.path,
+})).filter((category) => category.count && category.path);
+const recommended = { popular: popular.filter((item) => item.id !== entry?.id).slice(0, 10), latest: posts.filter((item) => item.id !== entry?.id).slice(0, 10) };
+const activePath = entry?.path ?? Astro.url.pathname;
+const isArticle = entry?.kind === 'content';
+const outline = isArticle ? articleOutline(content) : { html: content, items: [] };
+const tocOpen = settings.extensions.newsletter?.tocDefaultOpen === true;
+const interactive = isArticle && !privateArticle && !preview;
+const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, comments: 0, liked: false, items: [], hasMore: false };
+---
+
+<html lang={settings.language} style="background:#fff">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{isHome ? settings.name : `${title} · ${settings.name}`}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content={preview || privateArticle || missing || entry?.indexable === false ? 'noindex,nofollow' : 'index,follow'} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" type="application/rss+xml" title={settings.name} href="/rss.xml" />
+    <meta property="og:title" content={isHome ? settings.name : title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content={entry?.kind === 'content' ? 'article' : 'website'} />
+    {entry?.cover && <meta property="og:image" content={new URL(entry.cover, settings.domain).href} />}
+    <script type="application/ld+json" set:html={JSON.stringify(schema).replaceAll('<', '\u003c')} />
+  </head>
+  <body class="newsletter" data-theme="newsletter" data-release={release.id}
+    data-article-id={interactive ? entry?.id : undefined} data-canonical={canonical} data-language={settings.language} data-timezone={settings.timezone}
+    data-track={!preview && !privateArticle && entry?.kind === 'content' ? 'true' : 'false'}
+    style={`--nl-accent:${settings.themeConfig.accent};--nl-width:${settings.themeConfig.width}px;--paper:#fff;font-family:${settings.themeConfig.font}`}>
+    <a class="skip" href="#main">跳到正文</a>
+    <header class="nl-header">
+      <a class="nl-home-mark" href="/" aria-label={settings.name}>
+        {settings.logo ? <img src={settings.logo} alt="" width="34" height="34" /> : <span class="nl-monogram">{settings.name.slice(0, 1)}</span>}
+      </a>
+      <a class="nl-publication" href="/">{settings.name}</a>
+      <div class="nl-header-actions">
+        <a class="nl-icon" href="/search/" aria-label="搜索文章"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
+        <a class="nl-dashboard" href="/admin/">{owner ? '写作后台' : '登录'}</a>
+      </div>
+    </header>
+    <nav class="nl-navigation" aria-label="主导航">
+      {settings.navigation.map((item) => <a href={item.url} aria-current={activePath === item.url ? 'page' : undefined}>{item.label}</a>)}
+    </nav>
+    <main id="main" class:list={['nl-wrap', { 'nl-reading': entry?.kind === 'content' }]}>
+      {isHome && feature ? <>
+        <section class="nl-lead" aria-label="头条文章">
+          <article class="nl-feature">
+            {feature.cover && <a class="nl-feature-image" href={feature.path} tabindex="-1" aria-hidden="true"><img {...image(feature, '(max-width: 700px) 100vw, 530px')} alt="" loading="eager" fetchpriority="high" /></a>}
+            <div class="nl-feature-copy">
+              <h1><a href={feature.path}>{feature.title}</a></h1>
+              <p>{feature.description}</p>
+              <time datetime={feature.publishedAt}>{date(feature)}</time>
+            </div>
+          </article>
+          <div class="nl-lead-list">
+            {side.map((item) => <article class="nl-lead-item">
+              <div><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p><time datetime={item.publishedAt}>{date(item)}</time></div>
+              {item.cover && <a class="nl-small-image" href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '150px')} alt="" loading="eager" /></a>}
+            </article>)}
+          </div>
+        </section>
+        <section class="nl-popular" aria-label="热门文章">
+          <div class="nl-section-heading"><h2>热门文章</h2><a href={`${archiveUrl}?sort=popular`}>查看全部 <span aria-hidden="true">↗</span></a></div>
+          <div class="nl-popular-list">{popular.slice(0, 4).map((item) => <article>
+            <div><h3><a href={item.path}>{item.title}</a></h3><div class="nl-popular-meta"><time datetime={item.publishedAt}>{date(item, true)}</time><span>{formattedViews(item)} 次阅读</span></div></div>
+            {item.cover && <a href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '56px')} alt="" loading="lazy" /></a>}
+          </article>)}</div>
+        </section>
+        <div class="nl-feed-layout" id="articles">
+          <section class="nl-feed" aria-label="文章">
+            <div class="nl-feed-heading">
+              <nav class="nl-tabs" aria-label="文章排序"><a href="/?sort=latest#articles" aria-current={sort === 'latest' ? 'true' : undefined}>最新</a><a href="/?sort=popular#articles" aria-current={sort === 'popular' ? 'true' : undefined}>热门</a></nav>
+              <a class="nl-icon" href="/search/" aria-label="搜索全部文章"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
+            </div>
+            <div class="nl-grid">{grid.map((item) => <article class="nl-card">
+              {item.cover && <a class="nl-card-image" href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '(max-width: 550px) 100vw, (max-width: 900px) 45vw, 260px')} alt="" loading="lazy" /></a>}
+              <h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p><time datetime={item.publishedAt}>{date(item)}</time>
+            </article>)}</div>
+            <a class="nl-see-all" href={archiveUrl}>查看全部文章 <span aria-hidden="true">›</span></a>
+          </section>
+          <aside class="nl-sidebar">
+            <div class="nl-profile">
+              {settings.logo ? <img class="nl-profile-logo" src={settings.logo} alt="" width="38" height="38" /> : <span class="nl-monogram">{settings.name.slice(0, 1)}</span>}
+              <h2>{settings.name}</h2><p>{settings.description}</p><a class="nl-subscribe" href="/rss.xml"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="4" cy="16" r="1" fill="currentColor" /><path d="M3 9a8 8 0 0 1 8 8M3 3a14 14 0 0 1 14 14" /></svg>订阅 RSS</a>
+            </div>
+            <section class="nl-categories"><h2>分类</h2>{categories.map((category) => <a href={category.path}><span>{category.label}</span><span>{category.count}</span></a>)}</section>
+          </aside>
+        </div>
+      </> : entry?.kind === 'content' ? <>
+        <header class="article-heading nl-article-heading"><h1>{entry.title}</h1>
+          {privateArticle && <span class="nl-private">私密</span>}
+          <time class="nl-article-date" datetime={entry.publishedAt}>{date(entry, true)}</time>
+        </header>
+        {interactive && <ArticleActions position="top" counts={discussion} />}
+        {outline.items.length > 0 && <aside class="nl-toc" data-toc data-open={String(tocOpen)}>
+          <button type="button" class="nl-toc-handle" data-toc-toggle aria-label="展开文章目录" aria-expanded={String(tocOpen)} aria-controls="article-toc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 6h14M7 12h14M7 18h14M2 6h1M2 12h1M2 18h1" /></svg></button>
+          <div class="nl-toc-backdrop" data-toc-close hidden={!tocOpen}></div>
+          <div class="nl-toc-panel" id="article-toc" hidden={!tocOpen}><div class="nl-toc-heading"><span>目录</span><button type="button" data-toc-close aria-label="收起文章目录">×</button></div><nav aria-label="文章目录">{outline.items.map((item) => <a href={`#${encodeURIComponent(item.id)}`} data-heading-id={item.id} style={`--toc-depth:${item.level - 2}`}>{item.title}</a>)}</nav></div>
+        </aside>}
+        <article class="prose nl-prose" data-article-body set:html={outline.html} />
+        <aside class="nl-prose" set:html={renderFields(release.types.find((type) => type.id === entry.type)?.fields ?? [], entry.fields, release)} />
+        {interactive && <><ArticleActions position="bottom" counts={discussion} /><ArticleComments items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} /></>}
+        {posts.length > 1 && <section class="nl-article-recommendations" id="more-articles"><div class="nl-feed-heading"><nav class="nl-tabs" aria-label="推荐文章排序"><button type="button" data-recommend-sort="popular" aria-pressed="true">热门</button><button type="button" data-recommend-sort="latest" aria-pressed="false">最新</button></nav><a class="nl-icon" href="/search/" aria-label="搜索文章"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a></div>
+          {Object.entries(recommended).map(([order, items]) => <div data-recommend-list={order} hidden={order !== 'popular'}>{items.map((item) => <article class="nl-recommend-item"><div><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p><time datetime={item.publishedAt}>{date(item, true)}{item.author ? ` · ${item.author}` : ''}</time></div>{item.cover && <a href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '150px')} alt="" loading="lazy" /></a>}</article>)}</div>)}
+          <a class="nl-see-all" href={archiveUrl}>查看全部文章 <span aria-hidden="true">›</span></a>
+        </section>}
+      </> : isListing ? <section class="nl-archive">
+        <div class="nl-archive-heading"><h1>{entry!.title}</h1><nav class="nl-tabs" aria-label="文章排序"><a href={`${entry!.path}?sort=latest`} aria-current={sort === 'latest' ? 'true' : undefined}>最新</a><a href={`${entry!.path}?sort=popular`} aria-current={sort === 'popular' ? 'true' : undefined}>热门</a></nav></div>
+        {listing.map((item) => <article class="nl-archive-item"><time datetime={item.publishedAt}>{date(item, true)}</time><div><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p></div>{item.cover && <a href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '140px')} alt="" loading="lazy" /></a>}</article>)}
+      </section> : isSearch ? <section class="nl-search"><h1>搜索</h1><form method="get"><input type="search" name="q" aria-label="搜索文章" placeholder="搜索文章" value={Astro.url.searchParams.get('q') ?? ''} /><button type="submit">搜索</button></form>{results.map((item) => <article><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p></article>)}</section>
+        : missing ? <section class="nl-not-found"><h1>页面未找到</h1><a class="nl-see-all" href="/">返回首页</a></section>
+        : <section class="nl-page"><div class="prose nl-prose" set:html={content} /></section>}
+    </main>
+    <footer class="nl-footer nl-wrap"><a href="/">{settings.name}</a><nav aria-label="页脚"><a href="/">首页</a><a href={archiveUrl}>归档</a><a href="/rss.xml">RSS</a><a href="/sitemap.xml">站点地图</a></nav><span>{settings.footer}</span></footer>
+    {!preview && <script src="/weava-ui.js" defer is:inline />}
+    {!preview && isArticle && <script src="/weava-article.js" defer is:inline />}
+    {!preview && !privateArticle && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
+  </body>
+</html>

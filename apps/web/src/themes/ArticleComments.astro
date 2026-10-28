@@ -1,0 +1,27 @@
+---
+import type { ArticleComment } from '@weava/core';
+interface Props { items: ArticleComment[]; hasMore: boolean; language: string; timezone: string; }
+const { items, hasMore, language, timezone } = Astro.props;
+const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+---
+<section id="comments" class="nl-comments" aria-labelledby="comments-heading">
+  <div class="nl-comments-heading"><h2 id="comments-heading">评论</h2><select aria-label="评论排序" data-comment-sort><option value="latest">最新</option><option value="oldest">最早</option></select></div>
+  <form class="nl-comment-form" data-comment-form>
+    <span class="nl-comment-avatar" aria-hidden="true">我</span>
+    <div class="nl-comment-inputs">
+      <textarea name="body" aria-label="评论内容" placeholder="写下你的评论…" required maxlength="4000" rows="3"></textarea>
+      <div class="nl-comment-fields">
+        <input name="author" aria-label="称呼" placeholder="你的称呼" autocomplete="nickname" required maxlength="40" />
+        <div class="nl-captcha" data-captcha-row hidden><button type="button" data-refresh-captcha aria-label="更换验证码"><img data-captcha-image alt="评论验证码" width="180" height="58" /><span>换一张</span></button><input name="captcha" aria-label="验证码" placeholder="验证码" autocomplete="off" spellcheck="false" maxlength="8" required disabled /></div>
+        <button type="submit" class="nl-submit-comment" disabled>发布评论</button>
+      </div>
+      <p class="nl-comment-message" data-comment-message role="status" aria-live="polite"></p>
+      <noscript><p>启用 JavaScript 后可加载验证码并发表评论。</p></noscript>
+    </div>
+  </form>
+  <div class="nl-comment-list" data-comment-list>
+    {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{comment.author.slice(0, 1)}</span><div><header><strong>{comment.author}</strong><time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header><p>{comment.body}</p></div></article>)}
+  </div>
+  <p class="nl-empty-comments" data-empty-comments hidden={items.length > 0}>暂无评论</p>
+  <button type="button" class="nl-load-comments" data-load-comments hidden={!hasMore}>更多评论</button>
+</section>

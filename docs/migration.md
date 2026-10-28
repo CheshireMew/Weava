@@ -1,5 +1,29 @@
 # 旧站迁移
 
+## WordPress 博客
+
+使用已下载并核对的 WordPress 内容目录。迁移命令先核对每篇 Markdown 和全部图片的 SHA-256，再保留原文章路径、作者、日期、分类标签、封面和可见性。原始内容与元数据归档于实例的 `imports/wordpress`，正文只改写链接与图片目的地址，保留可见文字。
+
+```powershell
+scripts/run.ps1 --site E:\WeavaSites\my-blog init --password-file D:\Tools\weava\my-password.txt --port 4324
+scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress --source D:\Data\wordpress-export\download --dry-run
+scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress --source D:\Data\wordpress-export\download
+```
+
+公开文章保持公开，私密文章以仅站主可读的已发布内容保存，空自动草稿只保留原始资料。图片按内容散列去重并生成响应式尺寸，原上传地址、WordPress ID 查询链接和旧 slug 建立本地跳转。来源检查失败或目标内容已被人工修改时停止；重复导入相同资料不创建重复文章或新公开版本。运行迁移前停止目标实例。
+
+迁移报告为 `imports/wordpress-migration-report.json`。`scripts/wordpress-check.ts` 核对所有文章原文可见文字、原路径、分类标签、封面校验值、图片 HTTP 入口及私密文章对访客的隔离。数据导入和本地预览不切换线上 WordPress。
+
+WordPress 累计阅读量可独立导入，避免为更新计数覆盖已经编辑的文章或站点设置：
+
+```powershell
+scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress-views --input D:\Data\wordpress-view-totals.json
+```
+
+输入格式为 `wordpress-view-totals-v1`，包含 `sourceId`、`capturedAt` 和 `entries: [{postId, views}]`。按 WordPress 原编号对应已经迁移的文章。导入前保存统计库副本，原快照及结果留在 imports；重复导入相同快照不会重复累计，较旧快照或同篇文章的其他重叠统计来源会被拒绝。历史累计浏览保存在独立计数表，不伪造访问日期、访客或每日趋势；热门排序使用历史累计加 Weava 新记录的浏览量。原文中的旧元数据仅作为档案，不再直接决定主题排序。
+
+## 加密网站
+
 当前加密网站位于 E:\Code\crypto.blacknico.com，作为只读来源。迁移实例为 E:\Code\WeavaSites\crypto-blacknico。框架仓库没有复制文章、第三方媒体、原邀请码或统计数据库。
 
 先运行一次隔离捕获：

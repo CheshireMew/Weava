@@ -4,6 +4,7 @@ export * from './documents.ts';
 export * from './render.ts';
 export * from './media.ts';
 export * from './analytics.ts';
+export * from './engagement.ts';
 export * from './backup.ts';
 export * from './extensions.ts';
 export * from './maintenance.ts';

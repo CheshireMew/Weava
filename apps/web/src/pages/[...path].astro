@@ -10,11 +10,14 @@ import {
   escape as e,
 } from '@weava/core';
 import '../styles/site.css';
+import Newsletter from '../themes/Newsletter.astro';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
-if (preview && !site.authenticate(token)) return new Response('请先登录后台。', { status: 401 });
+const owner = site.authenticate(token);
+if (preview && !owner) return new Response('请先登录后台。', { status: 401 });
+const publicDocument = ['/sitemap.xml', '/rss.xml', '/robots.txt', '/search/'].includes(Astro.url.pathname);
 let release =
-  site.release() ??
+  site.visibleRelease(owner && !publicDocument) ??
   (preview
     ? {
         id: 'preview',
@@ -48,6 +51,11 @@ if (preview) {
     types: site.store.list('type').map((r) => r.value),
   };
 } else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname));
+const privateArticle = entry?.visibility === 'private';
+if (preview || privateArticle) {
+  Astro.response.headers.set('Cache-Control', 'private, no-store');
+  Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+}
 if (Astro.url.pathname === '/sitemap.xml')
   return new Response(
     '<?xml version="1.0" encoding="utf-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
@@ -105,6 +113,7 @@ if (entry) {
               'Content-Security-Policy': "script-src 'none'; connect-src 'none'; object-src 'none'",
             }
           : {}),
+        ...(preview || privateArticle ? { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' } : {}),
       },
     });
   }
@@ -145,6 +154,7 @@ const schema = {
 ---
 
 <!doctype html>
+{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={canonical} schema={schema} content={content} results={results} preview={preview} missing={missing} owner={owner} /> : <>
 <html lang={settings.language}>
   <head
     ><meta charset="utf-8" /><meta
@@ -152,7 +162,7 @@ const schema = {
       content="width=device-width,initial-scale=1"
     /><title>{title} · {settings.name}</title><meta name="description" content={description} /><meta
       name="robots"
-      content={preview || missing || entry?.indexable === false
+      content={preview || privateArticle || missing || entry?.indexable === false
         ? 'noindex,nofollow'
         : 'index,follow'}
     /><link rel="canonical" href={canonical} /><link
@@ -174,7 +184,7 @@ const schema = {
   <body
     style={`--accent:${theme.accent};--paper:${theme.background};--width:${theme.width}px;--radius:${theme.radius}px;--space:${theme.spacing}px;font-family:${theme.font}`}
     data-release={release.id}
-    data-track={!preview && entry?.kind === 'content' ? 'true' : 'false'}
+    data-track={!preview && !privateArticle && entry?.kind === 'content' ? 'true' : 'false'}
   >
     <a class="skip" href="#main">跳到正文</a><header class="site-header wrap">
       <a class="brand" href="/"
@@ -201,6 +211,8 @@ const schema = {
       {
         entry?.kind === 'content' && (
           <header class="article-heading">
+            <h1>{entry.title}</h1>
+            {privateArticle && <span>私密</span>}
             <div class="meta">
               {entry.author} ·{' '}
               {entry.publishedAt
@@ -273,11 +285,12 @@ const schema = {
         )
       }
     </main><footer class="wrap site-footer">
-      <span>{settings.footer}</span><a href={settings.sourceUrl || '/about/'}
-        >{settings.sourceUrl ? '源代码' : '关于'}</a
-      ><a href="/rss.xml">RSS</a>
+      <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/')) &&
+        <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? '源代码' : '关于'}</a>}
+      <a href="/rss.xml">RSS</a>
     </footer>
     {!preview && <script src="/weava-ui.js" defer is:inline />}
-    {!preview && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
+    {!preview && !privateArticle && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
   </body>
 </html>
+</>}

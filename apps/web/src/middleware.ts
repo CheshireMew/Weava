@@ -52,6 +52,10 @@ const serve = defineMiddleware(async (context, next) => {
     });
   }
   if (path.startsWith('/media/')) {
+    const privateMedia = site.isPrivateMedia(path);
+    if (privateMedia && !site.authenticate(context.cookies.get('weava-session')?.value ?? '') &&
+      context.request.headers.get('authorization') !== 'Bearer ' + site.cliToken())
+      return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'private, no-store', 'Vary': 'Cookie, Authorization' } });
     const file = inside(join(site.root, 'media'), decodeURIComponent(path.slice(7)));
     if (!existsSync(file) || !statSync(file).isFile())
       return new Response('Not found', { status: 404 });
@@ -59,7 +63,8 @@ const serve = defineMiddleware(async (context, next) => {
       type = mime[extname(file)] ?? 'application/octet-stream';
     const headers: Record<string, string> = {
       'Content-Type': type,
-      'Cache-Control': 'public, max-age=86400',
+      'Cache-Control': privateMedia ? 'private, no-store' : 'public, max-age=0, must-revalidate',
+      'Vary': 'Cookie, Authorization',
       'Accept-Ranges': 'bytes',
     };
     if (type === 'text/html')
@@ -86,7 +91,9 @@ const serve = defineMiddleware(async (context, next) => {
     return new Response(bytes, { headers });
   }
   if (!path.startsWith('/api/')) {
-    const custom = await (await siteExtension)?.route?.(context.request, site.release());
+    const redirect = site.redirect(context.url, site.authenticate(context.cookies.get('weava-session')?.value ?? ''));
+    if (redirect) return new Response(null, { status: 301, headers: { Location: redirect } });
+    const custom = await (await siteExtension)?.route?.(context.request, site.visibleRelease());
     if (custom) return custom;
   }
   const response = await next();
@@ -95,6 +102,13 @@ const serve = defineMiddleware(async (context, next) => {
 });
 export const onRequest = defineMiddleware(async (context, next) => {
   const response = (await serve(context, next)) ?? new Response(null, { status: 500 });
+  if (!context.url.pathname.startsWith('/_astro/')) {
+    const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    vary.add('Cookie');
+    response.headers.set('Vary', [...vary].join(', '));
+    if (site.authenticate(context.cookies.get('weava-session')?.value ?? ''))
+      response.headers.set('Cache-Control', 'private, no-store');
+  }
   const type = response.headers.get('content-type') ?? '';
   if (
     context.request.method === 'HEAD' ||

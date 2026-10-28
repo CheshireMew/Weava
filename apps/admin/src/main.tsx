@@ -19,6 +19,7 @@ import {
   Eye,
   Upload,
   Archive,
+  MessageSquare,
 } from 'lucide-react';
 import {
   entrySchema,
@@ -33,11 +34,13 @@ import { api, waitJob } from './api.ts';
 import { Blocks } from './Blocks.tsx';
 import './style.css';
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
+const Comments = lazy(() => import('./Comments.tsx'));
 const tabs = [
   ['content', '内容', FileText],
   ['pages', '页面', PanelsTopLeft],
   ['types', '内容类型', Shapes],
   ['media', '媒体', Images],
+  ['comments', '评论', MessageSquare],
   ['appearance', '外观与导航', Palette],
   ['analytics', '访问统计', ChartNoAxesCombined],
   ['operations', '运行与备份', Settings2],
@@ -57,6 +60,7 @@ function App() {
     [saving, setSaving] = useState(false),
     [filter, setFilter] = useState(''),
     [status, setStatus] = useState('all'),
+    [visibility, setVisibility] = useState('all'),
     [preview, setPreview] = useState(''),
     [narrow, setNarrow] = useState(false),
     [history, setHistory] = useState<any[] | null>(null),
@@ -347,6 +351,7 @@ function App() {
     (r: any) =>
       r.value.kind === (tab === 'pages' ? 'page' : 'content') &&
       (r.value.title + r.value.description).toLowerCase().includes(filter.toLowerCase()) &&
+      (visibility === 'all' || (r.value.visibility ?? 'public') === visibility) &&
       (status === 'all' ||
         (status === 'published'
           ? r.published
@@ -458,6 +463,11 @@ function App() {
                     <option value="draft">草稿</option>
                     <option value="archived">已归档</option>
                   </select>
+                  <select aria-label="内容可见性" value={visibility} onChange={(e) => setVisibility(e.target.value)}>
+                    <option value="all">全部可见性</option>
+                    <option value="public">公开</option>
+                    <option value="private">私密</option>
+                  </select>
                   <div className="entry-list">
                     {items.map((r: any) => (
                       <button
@@ -484,6 +494,7 @@ function App() {
                           </time>
                         </div>
                         <h3>{r.value.title}</h3>
+                        {r.value.visibility === 'private' && <span>私密</span>}
                         <p>{r.value.description || r.value.path}</p>
                       </button>
                     ))}
@@ -590,6 +601,13 @@ function App() {
                         <aside className="entry-settings">
                           <h2>发布设置</h2>
                           <label>
+                            可见性
+                            <select aria-label="文章可见性" value={record.value.visibility ?? 'public'} onChange={(e) => update({ visibility: e.target.value as Entry['visibility'] })}>
+                              <option value="public">公开</option>
+                              <option value="private">私密（仅站主）</option>
+                            </select>
+                          </label>
+                          <label>
                             网址
                             <input
                               value={record.value.path}
@@ -683,7 +701,8 @@ function App() {
                           <label className="checkbox">
                             <input
                               type="checkbox"
-                              checked={record.value.indexable}
+                              checked={record.value.visibility !== 'private' && record.value.indexable}
+                              disabled={record.value.visibility === 'private'}
                               onChange={(e) => update({ indexable: e.target.checked })}
                             />
                             允许搜索引擎收录
@@ -806,6 +825,7 @@ function App() {
               />
             )}
             {tab === 'analytics' && <AnalyticsPanel onError={setError} />}
+            {tab === 'comments' && <Suspense fallback={<p>加载中…</p>}><Comments onError={setError} /></Suspense>}
             {tab === 'operations' && (
               <Operations state={state} task={task} refresh={refresh} onError={setError} />
             )}
@@ -1236,6 +1256,14 @@ function SettingsPanel({
             </label>
           ))}
         </section>
+        {value.theme === 'newsletter' && <section className="form-card">
+          <h2>文章目录</h2>
+          <label className="checkbox">
+            <input type="checkbox" checked={value.extensions.newsletter?.tocDefaultOpen === true}
+              onChange={(e) => set({ extensions: { ...value.extensions, newsletter: { ...value.extensions.newsletter, tocDefaultOpen: e.target.checked } } })} />
+            默认展开侧边目录
+          </label>
+        </section>}
         <section className="form-card">
           <h2>导航</h2>
           {value.navigation.map((n, i) => (
@@ -1421,6 +1449,11 @@ function AnalyticsPanel({ onError }: { onError: (s: string) => void }) {
             </div>
           </div>
           <TableView rows={data.pages} />
+          {data.historicalViews > 0 && <>
+            <h2>累计文章浏览</h2>
+            <p>累计 {data.lifetimeViews.toLocaleString()} 次，其中迁移历史浏览 {data.historicalViews.toLocaleString()} 次。历史计数没有每日明细，不计入上方日期区间。</p>
+            <TableView rows={data.lifetimePages} />
+          </>}
           <h2>链接点击</h2>
           <TableView rows={data.links} />
           {data.legacySources.length > 0 && (
@@ -1447,6 +1480,8 @@ function TableView({ rows }: { rows: any[] }) {
                       path: '页面',
                       views: '浏览',
                       clicks: '点击',
+                      historicalViews: '历史浏览',
+                      recordedViews: '新增浏览',
                       url: '链接',
                       zone: '位置',
                       label: '文字',

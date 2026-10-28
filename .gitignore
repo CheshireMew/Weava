@@ -8,3 +8,12 @@ reports/
 .cache/
 dist.retained-*/
 **/dist.retained-*/
+.runs/
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+cli-token
+runtime.json

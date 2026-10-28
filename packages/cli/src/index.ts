@@ -14,6 +14,7 @@ import {
 } from '@weava/core';
 import { seedDemo } from '../../core/src/demo.ts';
 import { migrateCrypto } from '../../core/src/migrate.ts';
+import { migrateWordPress, migrateWordPressViews } from '../../core/src/migrate-wordpress.ts';
 const framework =
   process.env.WEAVA_FRAMEWORK ??
   (import.meta.dirname.endsWith('dist')
@@ -250,15 +251,27 @@ program
       site.close();
     }
   });
-program
-  .command('migrate')
-  .command('crypto')
+const migrate = program.command('migrate');
+migrate.command('crypto')
   .requiredOption('--source <path>')
   .requiredOption('--capture <path>')
   .option('--dry-run')
   .action(async (opts) => {
     assertOffline(root());
     output(await migrateCrypto(resolve(opts.source), root(), resolve(opts.capture), !!opts.dryRun));
+  });
+migrate.command('wordpress')
+  .requiredOption('--source <path>', '已下载的 WordPress 内容目录')
+  .option('--dry-run')
+  .action(async (opts) => {
+    assertOffline(root());
+    output(await migrateWordPress(resolve(opts.source), root(), !!opts.dryRun));
+  });
+migrate.command('wordpress-views')
+  .requiredOption('--input <file>', 'WordPress 文章累计浏览量快照')
+  .action(async (opts) => {
+    assertOffline(root());
+    output(await migrateWordPressViews(resolve(opts.input), root()));
   });
 try {
   await program.parseAsync();

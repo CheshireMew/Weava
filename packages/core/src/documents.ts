@@ -138,6 +138,21 @@ export function plain(html: string) {
     .replace(/\s+/g, ' ')
     .trim();
 }
+export function articleOutline(html: string) {
+  const $ = load(html, null, false);
+  const seen = new Set<string>($('[id]').filter((_index, element) => !/^h[234]$/.test(element.tagName) || !$(element).text().trim()).map((_index, element) => $(element).attr('id')!).get());
+  const items: { id: string; title: string; level: number }[] = [];
+  $('h2,h3,h4').each((_index, element) => {
+    const node = $(element), title = node.text().trim();
+    if (!title) return;
+    const base = node.attr('id') || 'section-' + createHash('sha256').update(title).digest('hex').slice(0, 12);
+    let id = base, suffix = 2;
+    while (seen.has(id)) id = base + '-' + suffix++;
+    seen.add(id); node.attr('id', id);
+    items.push({ id, title, level: Number(element.tagName.slice(1)) });
+  });
+  return { html: $.html(), items };
+}
 export function tokens(text: string) {
   const lower = text.normalize('NFKC').toLowerCase();
   const base: string[] = Array.from(lower.match(/[a-z0-9_-]+|[\p{Script=Han}]/gu) ?? []);

@@ -21,6 +21,7 @@ import { load } from 'cheerio';
 export class Site {
   store: Storage;
   private releaseCache = new Map<string, Release>();
+  private mediaPolicyCache?: { key: string; privatePaths: Set<string> };
   constructor(public root: string) {
     this.root = resolve(root);
     this.store = new Storage(root);
@@ -83,7 +84,7 @@ export class Site {
       const { document, blocks, compatibility, fields, source, ...summary } = r.value;
       return {
         ...r,
-        value: summary,
+        value: { ...summary, visibility: summary.visibility ?? 'public' },
         published: published.has(r.id),
         hasChanges: published.get(r.id)?.revisionId !== r.revision,
       };
@@ -166,7 +167,69 @@ export class Site {
       .prepare('SELECT id,created_at FROM releases ORDER BY created_at DESC')
       .all();
   }
+  visibleRelease(includePrivate = false, id?: string): Release | null {
+    const release = this.release(id);
+    if (!release || includePrivate) return release;
+    const hidden = new Set(
+      release.entries.filter((e) => e.visibility === 'private').map((e) => e.path),
+    );
+    const navigation = (items: Settings['navigation']): Settings['navigation'] =>
+      items.filter((item) => {
+        try {
+          const url = new URL(item.url, release.settings.domain);
+          return url.origin !== new URL(release.settings.domain).origin || !hidden.has(normalizePath(url.pathname));
+        } catch { return true; }
+      }).map((item) => ({ ...item, ...(item.children ? { children: navigation(item.children) } : {}) }));
+    return {
+      ...release,
+      entries: release.entries.filter((e) => e.visibility !== 'private'),
+      settings: { ...release.settings, navigation: navigation(release.settings.navigation) },
+    };
+  }
+  isPrivateMedia(path: string) {
+    const revision = (this.store.raw.prepare('SELECT MAX(revision) revision FROM revisions').get() as any).revision;
+    const key = `${this.store.state('release') ?? ''}:${revision}`;
+    if (this.mediaPolicyCache?.key !== key) {
+      const publicPaths = new Set<string>(), privatePaths = new Set<string>();
+      const collect = (value: unknown, into: Set<string>) => {
+        for (const match of JSON.stringify(value).matchAll(/\/media\/[\w%./@+~-]+/g))
+          into.add(decodeURIComponent(match[0].replace(/[\\]+$/, '')));
+      };
+      const entryMedia = (entry: Entry, into: Set<string>) =>
+        collect([entry.cover, entry.document, entry.blocks, entry.fields], into);
+      const release = this.release();
+      for (const entry of release?.entries ?? [])
+        entryMedia(entry, entry.visibility === 'private' ? privatePaths : publicPaths);
+      collect(release?.settings ?? {}, publicPaths);
+      for (const row of this.store.list('entry'))
+        if (row.value.visibility === 'private') entryMedia(row.value, privatePaths);
+      const privateHistory = this.store.raw.prepare("SELECT data FROM revisions WHERE scope='entry' AND json_extract(data,'$.visibility')='private'").all() as { data: string }[];
+      for (const row of privateHistory) entryMedia(JSON.parse(row.data), privatePaths);
+      // Originals and responsive derivatives have the same access policy.
+      for (const row of this.store.list('media')) {
+        const family: string[] = [row.value.url, ...(row.value.derivatives ?? []).map((d: any) => d.url)];
+        if (family.some((url) => privatePaths.has(url))) family.forEach((url) => privatePaths.add(url));
+        if (family.some((url) => publicPaths.has(url))) family.forEach((url) => publicPaths.add(url));
+      }
+      publicPaths.forEach((url) => privatePaths.delete(url));
+      this.mediaPolicyCache = { key, privatePaths };
+    }
+    return this.mediaPolicyCache.privatePaths.has(decodeURIComponent(path));
+  }
+  redirect(url: URL, includePrivate = false) {
+    const path = normalizePath(url.pathname);
+    const queryKey = path === '/' && url.searchParams.has('p') ? '/?p=' + url.searchParams.get('p') : path;
+    const value = this.store.get('redirect', queryKey)?.value;
+    if (!value) return null;
+    const release = this.visibleRelease(includePrivate);
+    if (value.entryId && !release?.entries.some((e) => e.id === value.entryId)) return null;
+    if (!includePrivate && value.target.startsWith('/media/') && this.isPrivateMedia(value.target)) return null;
+    const query = new URLSearchParams(url.search);
+    if (queryKey !== path) query.delete('p');
+    return value.target + (query.size ? '?' + query.toString() : '');
+  }
   publish(
+    // Visibility is independent of the draft/published lifecycle.
     options: {
       ids?: string[];
       label?: string;
@@ -247,8 +310,10 @@ export class Site {
           const href = $(el).attr('href') ?? '';
           if (href.startsWith('#') || !href.startsWith('/')) return;
           const path = normalizePath(href);
+          const redirect = this.store.get('redirect', path)?.value;
           if (
             !paths.has(path) &&
+            !(redirect && (paths.has(redirect.target) || redirect.target.startsWith('/media/') || ['/rss.xml','/sitemap.xml'].includes(redirect.target))) &&
             !/^\/(media|api|video|search)(\/|$)/.test(path) &&
             !['/rss.xml', '/sitemap.xml'].includes(path)
           )
@@ -276,7 +341,7 @@ export class Site {
         const insert = this.store.raw.prepare('INSERT INTO search_documents VALUES(?,?,?,?,?)'),
           fts = this.store.raw.prepare('INSERT INTO search_fts VALUES(?,?,?)');
         for (const e of release.entries) {
-          if (!e.indexable) continue;
+          if (!e.indexable || e.visibility === 'private') continue;
           insert.run(release.id, e.id, e.path, e.title, e.description);
           fts.run(
             release.id,
@@ -354,11 +419,12 @@ export class Site {
     const terms = tokens(query).split(' ').filter(Boolean);
     if (!release || !terms.length) return [];
     const match = terms.map((t) => '"' + t.replace(/"/g, '') + '"').join(' AND ');
+    const publicIds = new Set(this.visibleRelease(false, release)?.entries.map((e) => e.id) ?? []);
     return this.store.raw
       .prepare(
         `SELECT d.entry_id id,d.path,d.title,d.description FROM search_fts s JOIN search_documents d ON d.release_id=s.release_id AND d.entry_id=s.entry_id WHERE search_fts MATCH ? AND s.release_id=? ORDER BY rank LIMIT 60`,
       )
-      .all(match, release);
+      .all(match, release).filter((row: any) => publicIds.has(row.id));
   }
   setOwner(password: string) {
     if (password.length < 10) throw new WeavaError('密码至少 10 个字符。');
