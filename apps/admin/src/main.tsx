@@ -32,13 +32,28 @@ import {
 } from '@weava/contracts';
 import { api, waitJob } from './api.ts';
 import { Blocks } from './Blocks.tsx';
+import { NavigationEditor } from './NavigationEditor.tsx';
+import { TermPicker } from './TermPicker.tsx';
+import { SelectorsProvider, useSelectors } from './Selectors.tsx';
+import { ReferenceField } from './ReferenceField.tsx';
 import './style.css';
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 const Comments = lazy(() => import('./Comments.tsx'));
+const PageDesigner = lazy(() => import('./PageDesigner.tsx').then((module) => ({ default: module.PageDesigner })));
+const LayoutManager = lazy(() => import('./LayoutManager.tsx'));
+const MediaManager = lazy(() => import('./MediaManager.tsx'));
+const ImportManager = lazy(() => import('./ImportManager.tsx'));
+const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
+const TaxonomyManager = lazy(() => import('./TaxonomyManager.tsx'));
+const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
+const RevisionDialog = lazy(() => import('./Revisions.tsx').then((module) => ({ default: module.RevisionDialog })));
+const MergeDialog = lazy(() => import('./Revisions.tsx').then((module) => ({ default: module.MergeDialog })));
 const tabs = [
   ['content', '内容', FileText],
   ['pages', '页面', PanelsTopLeft],
+  ['layouts', '布局', PanelsTopLeft],
   ['types', '内容类型', Shapes],
+  ['terms', '分类与标签', Shapes],
   ['media', '媒体', Images],
   ['comments', '评论', MessageSquare],
   ['appearance', '外观与导航', Palette],
@@ -46,6 +61,7 @@ const tabs = [
   ['operations', '运行与备份', Settings2],
 ] as const;
 function App() {
+  const selectors = useSelectors();
   const [session, setSession] = useState<any>(null),
     [password, setPassword] = useState(''),
     [error, setError] = useState(''),
@@ -66,6 +82,15 @@ function App() {
     [history, setHistory] = useState<any[] | null>(null),
     [restoreLocal, setRestoreLocal] = useState<any>(null);
   const [editorEpoch, setEditorEpoch] = useState(0);
+  const [conflict, setConflict] = useState<any>(null), [conflictPaused, setConflictPaused] = useState(false);
+  const paused = useRef(false);
+  const childSave = useRef<(() => Promise<any>) | null>(null);
+  const [publication, setPublication] = useState<any>(null);
+  const [scheduleDueAt, setScheduleDueAt] = useState('');
+  const [libraryPage, setLibraryPage] = useState(1);
+  const [library, setLibrary] = useState<any>({ items: [], total: 0, pages: 0 });
+  const [libraryType, setLibraryType] = useState('');
+  const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
   const current = useRef(record),
     saved = useRef(''),
     running = useRef<Promise<any> | null>(null),
@@ -76,7 +101,7 @@ function App() {
     setTimeout(() => setToast(''), 3500);
   };
   async function refresh() {
-    const data = await api('state');
+    const data = await api('state?summary=1');
     setState(data);
     return data;
   }
@@ -88,6 +113,22 @@ function App() {
   useEffect(() => {
     if (session?.authenticated) refresh().catch((e) => setError(e.message));
   }, [session]);
+  useEffect(() => { setLibraryPage(1); }, [tab, filter, status, visibility, libraryType, fieldFilters]);
+  useEffect(() => { setLibraryType(''); setFieldFilters({}); }, [tab]);
+  const pendingSchedule = state?.schedules?.some((row: any) => row.value.status === 'scheduled');
+  useEffect(() => {
+    if (!pendingSchedule) return;
+    const timer = setInterval(() => { api('schedules').then((schedules) => setState((old: any) => ({ ...old, schedules }))).catch((error) => setError(error.message)); }, 5000);
+    return () => clearInterval(timer);
+  }, [pendingSchedule]);
+  useEffect(() => {
+    if (!state || !['content', 'pages'].includes(tab)) return;
+    let active = true;
+    const params = new URLSearchParams({ kind: tab === 'pages' ? 'page' : 'content', q: filter, status, visibility,
+      type: libraryType, page: String(libraryPage), pageSize: '25', sort: 'title', ...Object.fromEntries(Object.entries(fieldFilters).filter(([,value]) => value !== '').map(([key,value]) => ['field.' + key,value])) });
+    api('entries/query?' + params).then((result) => { if (active) setLibrary(result); }).catch((error) => { if (active) setError(error.message); });
+    return () => { active = false; };
+  }, [state, tab, filter, status, visibility, libraryType, libraryPage, fieldFilters]);
   async function persist(): Promise<any> {
     if (running.current) {
       await running.current;
@@ -95,6 +136,7 @@ function App() {
     }
     const row = current.current;
     if (!row || JSON.stringify(row.value) === saved.current) return row;
+    if (paused.current) { await showConflict(row); throw new Error('请先处理保存冲突。'); }
     const snapshot = structuredClone(row);
     setSaving(true);
     const task = api('entry', { value: snapshot.value, revision: snapshot.revision || null })
@@ -112,9 +154,10 @@ function App() {
         }
         return result;
       })
-      .catch((e) => {
+      .catch(async (e) => {
         setError(e.message);
         errorRef.current = e.message;
+        if (e.status === 409 && snapshot.revision) await showConflict(current.current ?? snapshot).catch((error) => setError(error.message));
         throw e;
       })
       .finally(() => {
@@ -135,9 +178,10 @@ function App() {
     try {
       localStorage.setItem('weava-draft:' + record.id, JSON.stringify(record));
     } catch {}
+    if (conflictPaused) return;
     const timer = setTimeout(() => persist().catch(() => {}), 1200);
     return () => clearTimeout(timer);
-  }, [record, dirty]);
+  }, [record, dirty, conflictPaused]);
   useEffect(() => {
     const leave = (e: BeforeUnloadEvent) => {
       if (dirty) {
@@ -161,6 +205,17 @@ function App() {
   function update(patch: Partial<Entry>) {
     setRecord((old) => (old ? { ...old, value: { ...old.value, ...patch } } : old));
     setDirty(true);
+  }
+  async function showConflict(row: Revision<Entry>) {
+    paused.current = true; setConflictPaused(true);
+    const plan = await api('entry/merge', { id: row.id, baseRevision: row.revision, value: row.value });
+    setConflict(plan);
+  }
+  function adopt(row: Revision<Entry>) {
+    current.current = row; saved.current = JSON.stringify(row.value);
+    setRecord(row); setDirty(false); setEditorEpoch((value) => value + 1);
+    paused.current = false; setConflictPaused(false); setConflict(null); setRestoreLocal(null);
+    localStorage.removeItem('weava-draft:' + row.id); setError(''); errorRef.current = '';
   }
   async function select(id: string) {
     try {
@@ -187,6 +242,7 @@ function App() {
   }
   async function navigate(next: string) {
     try {
+      await childSave.current?.();
       await persist();
       setTab(next);
       setMenu(false);
@@ -252,10 +308,15 @@ function App() {
       setError(e.message);
     }
   }
-  async function task(operation: string, payload: any = {}) {
+  async function task(operation: string, payload: any = {}, reviewed = false) {
     setBusy(true);
     setError('');
     try {
+      if (operation === 'publish' && !reviewed) {
+        const review = await api('publication', payload);
+        setPublication(review);
+        return review;
+      }
       const result = await waitJob(await api(operation, payload), setJob);
       await refresh();
       notify('操作已完成');
@@ -347,18 +408,7 @@ function App() {
         <a href="/">查看网站 ↗</a>
       </main>
     );
-  const items = (state?.entries ?? []).filter(
-    (r: any) =>
-      r.value.kind === (tab === 'pages' ? 'page' : 'content') &&
-      (r.value.title + r.value.description).toLowerCase().includes(filter.toLowerCase()) &&
-      (visibility === 'all' || (r.value.visibility ?? 'public') === visibility) &&
-      (status === 'all' ||
-        (status === 'published'
-          ? r.published
-          : status === 'changed'
-            ? r.published && r.hasChanges
-            : r.value.status === status && !r.published)),
-  );
+  const items = library.items;
   return (
     <div className="app">
       <aside className={'sidebar ' + (menu ? 'open' : '')}>
@@ -437,7 +487,7 @@ function App() {
                   <div className="library-header">
                     <div>
                       <h1>{tab === 'pages' ? '页面' : '内容'}</h1>
-                      <span>{items.length} 项</span>
+                      <span>{library.total} 项</span>
                     </div>
                     <button className="icon-primary" aria-label="新建" onClick={newEntry}>
                       <Plus size={19} />
@@ -468,6 +518,8 @@ function App() {
                     <option value="public">公开</option>
                     <option value="private">私密</option>
                   </select>
+                  {tab === 'content' && <select aria-label="筛选内容类型" value={libraryType} onChange={(event) => { setLibraryType(event.target.value); setFieldFilters({}); }}><option value="">全部类型</option>{state.types.map((type: any) => <option key={type.id} value={type.id}>{type.value.label}</option>)}</select>}
+                  {tab === 'content' && state.types.find((row: any) => row.id === libraryType)?.value.fields.filter((field: FieldDefinition) => field.filterable).map((field: FieldDefinition) => <label className="library-field-filter" key={field.key}>{field.label}{field.type === 'select' || field.type === 'boolean' ? <select aria-label={'筛选' + field.label} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })}><option value="">全部</option>{(field.type === 'boolean' ? ['true','false'] : field.options ?? []).map((option) => <option key={option} value={option}>{field.type === 'boolean' ? option === 'true' ? '是' : '否' : option}</option>)}</select> : <input aria-label={'筛选' + field.label} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })} />}</label>)}
                   <div className="entry-list">
                     {items.map((r: any) => (
                       <button
@@ -499,6 +551,7 @@ function App() {
                       </button>
                     ))}
                   </div>
+                  {library.pages > 1 && <nav className="library-pagination" aria-label="内容列表分页"><button disabled={libraryPage <= 1} onClick={() => setLibraryPage((page) => page - 1)}>上一页</button><span>{libraryPage} / {library.pages}</span><button disabled={libraryPage >= library.pages} onClick={() => setLibraryPage((page) => page + 1)}>下一页</button></nav>}
                 </section>
                 <section className="editing-area">
                   {!record ? (
@@ -522,32 +575,35 @@ function App() {
                           <button
                             title="历史版本"
                             onClick={async () => {
-                              await persist();
-                              setHistory(await api('history?id=' + record.id));
+                              try{await persist();setHistory(await api('history?id=' + record.id));}catch(error:any){setError(error.message);}
                             }}
                           >
                             <History size={16} />
                           </button>
                           <button
                             onClick={async () => {
-                              const row = await persist();
-                              setPreview('/__preview/' + record.id + '?revision=' + row.revision);
+                              try{const row = await persist();setPreview('/__preview/' + record.id + '?revision=' + row.revision);}catch(error:any){setError(error.message);}
                             }}
                           >
                             <Eye size={16} />
                             预览
                           </button>
-                          <button className="primary" disabled={busy || saving} onClick={publish}>
+                          <button className="primary" disabled={busy || saving} onClick={()=>publish().catch((error)=>setError(error.message))}>
                             发布
                           </button>
                         </div>
                       </div>
+                      {conflictPaused && <div className="recovery-banner">本地修改尚未保存，服务器已有新版本。<button onClick={() => { if (current.current) showConflict(current.current).catch((error) => setError(error.message)); }}>比较并解决</button></div>}
                       {restoreLocal && (
                         <div className="recovery-banner">
                           浏览器保留了一份未保存内容。
                           <button
-                            onClick={() => {
-                              update(restoreLocal.value);
+                            onClick={async () => {
+                              const local = restoreLocal;
+                              if (local.revision !== record.revision) {
+                                current.current = local; setRecord(local); setDirty(true);
+                                await showConflict(local).catch((error) => setError(error.message));
+                              } else update(local.value);
                               setEditorEpoch((v) => v + 1);
                               setRestoreLocal(null);
                             }}
@@ -564,7 +620,7 @@ function App() {
                           </button>
                         </div>
                       )}
-                      <div className="editor-grid">
+                      <div className={'editor-grid' + (record.value.kind === 'page' || record.value.blocks.length > 0 ? ' page-editing' : '')}>
                         <div className="writing">
                           <input
                             className="title-input"
@@ -581,18 +637,21 @@ function App() {
                             value={record.value.description}
                             onChange={(e) => update({ description: e.target.value })}
                           />
-                          {record.value.kind === 'page' ? (
-                            <Blocks
+                          {record.value.kind === 'page' || record.value.blocks.length > 0 ? (
+                            <Suspense fallback={<p>正在载入页面编辑…</p>}><PageDesigner
+                              entryId={record.id}
+                              previewKey={JSON.stringify([record.value.template, record.value.title, record.value.description, record.value.fields])}
                               value={record.value.blocks}
                               onChange={(blocks) => update({ blocks })}
-                            />
+                              save={persist} onError={setError} catalog={state}
+                            /></Suspense>
                           ) : (
                             <Suspense fallback={<p>正在载入编辑器…</p>}>
                               <Editor
                                 key={record.id + ':' + editorEpoch}
                                 value={record.value.document}
                                 onChange={(document) => update({ document })}
-                                onMedia={upload}
+                                onMedia={() => selectors.media()}
                                 onError={setError}
                               />
                             </Suspense>
@@ -600,6 +659,20 @@ function App() {
                         </div>
                         <aside className="entry-settings">
                           <h2>发布设置</h2>
+                          {record.value.compatibility?.wordpress?.unresolved?.length > 0 && <section className="import-review"><h3>来源功能检查</h3><ul>{record.value.compatibility!.wordpress.unresolved.map((reason: string) => <li key={reason}>{reason}</li>)}</ul><label className="checkbox"><input type="checkbox" checked={!!record.value.compatibility!.wordpress.reviewed} onChange={(event) => update({ compatibility: { ...record.value.compatibility, wordpress: { ...record.value.compatibility!.wordpress, reviewed: event.target.checked } } })} />我已检查并处理这些内容</label></section>}
+                          <label>页面模板<select value={record.value.template ?? ''} onChange={(event) => update({ template: event.target.value || undefined })}><option value="">使用默认模板</option>{(state.layouts ?? []).filter((row: any) => row.value.kind === 'template' && ['any', record.value.kind].includes(row.value.appliesTo)).map((row: any) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select></label>
+                          <label>定时发布<input type="datetime-local" aria-label="定时发布时间" value={scheduleDueAt} onChange={(event) => setScheduleDueAt(event.target.value)} /></label>
+                          <button disabled={!scheduleDueAt || busy} onClick={async () => {
+                            try { const row = await persist();
+                              await api('schedule', { id: row.id, revision: row.revision, dueAt: new Date(scheduleDueAt).toISOString() });
+                              setScheduleDueAt(''); await refresh(); notify('定时发布已安排');
+                            } catch (error: any) { setError(error.message); }
+                          }}>安排发布</button>
+                          {(state.schedules ?? []).filter((item: any) => item.value.entryId === record.id && ['scheduled', 'failed'].includes(item.value.status)).map((item: any) => <div className="schedule-item" key={item.id}>
+                            <time>{new Date(item.value.dueAt).toLocaleString()}</time><p>{item.value.status === 'failed' ? item.value.error : '等待发布指定修订'}</p>
+                            <button onClick={async () => { try { await api('schedule/cancel', { id: item.id, revision: item.revision }); await refresh(); } catch (error: any) { setError(error.message); } }}>取消计划</button>
+                            {item.value.status === 'failed' && <button onClick={async () => { try { await api('schedule/retry', { id: item.id, revision: item.revision }); await refresh(); } catch (error: any) { setError(error.message); } }}>重试</button>}
+                          </div>)}
                           <label>
                             可见性
                             <select aria-label="文章可见性" value={record.value.visibility ?? 'public'} onChange={(e) => update({ visibility: e.target.value as Entry['visibility'] })}>
@@ -636,34 +709,8 @@ function App() {
                                   onChange={(e) => update({ author: e.target.value })}
                                 />
                               </label>
-                              <label>
-                                分类
-                                <input
-                                  value={record.value.categories.join(', ')}
-                                  onChange={(e) =>
-                                    update({
-                                      categories: e.target.value
-                                        .split(/[,，]/)
-                                        .map((s) => s.trim())
-                                        .filter(Boolean),
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label>
-                                标签
-                                <input
-                                  value={record.value.tags.join(', ')}
-                                  onChange={(e) =>
-                                    update({
-                                      tags: e.target.value
-                                        .split(/[,，]/)
-                                        .map((s) => s.trim())
-                                        .filter(Boolean),
-                                    })
-                                  }
-                                />
-                              </label>
+                              <TermPicker label="分类" kind="category" terms={(state.terms ?? []).map((row: any) => row.value)} value={record.value.categories} selectedIds={record.value.termIds?.categories} onChange={(categories, ids) => update({ categories, termIds: { categories: ids, tags: record.value.termIds?.tags ?? [] } })} />
+                              <TermPicker label="标签" kind="tag" terms={(state.terms ?? []).map((row: any) => row.value)} value={record.value.tags} selectedIds={record.value.termIds?.tags} onChange={(tags, ids) => update({ tags, termIds: { tags: ids, categories: record.value.termIds?.categories ?? [] } })} />
                               <Fields
                                 definitions={
                                   state.types.find((t: any) => t.id === record.value.type)?.value
@@ -691,12 +738,12 @@ function App() {
                           </label>
                           <button
                             onClick={async () => {
-                              const media = await upload();
+                              const media = await selectors.media('image');
                               if (media) update({ cover: media.url });
                             }}
                           >
                             <Upload size={14} />
-                            上传封面
+                            选择封面
                           </button>
                           <label className="checkbox">
                             <input
@@ -762,9 +809,12 @@ function App() {
                 </section>
               </div>
             )}
+            {tab === 'layouts' && <Suspense fallback={<p>正在载入布局…</p>}><LayoutManager catalog={state} refresh={refresh} publish={() => task('publish', { scope: 'layouts' })} onError={setError} registerSave={(save) => { childSave.current = save; }} /></Suspense>}
+            {tab === 'terms' && <Suspense fallback={<p>正在载入分类…</p>}><TaxonomyManager rows={state.terms ?? []} refresh={refresh} publish={() => task('publish', { scope: 'terms' })} onError={setError} registerSave={(save) => { childSave.current = save; }} /></Suspense>}
             {tab === 'types' && (
               <TypeManager
                 types={state.types}
+                templates={state.layouts ?? []}
                 onSave={async (value, revision) => {
                   await api('types', { value, revision });
                   await refresh();
@@ -773,49 +823,14 @@ function App() {
                 onError={setError}
               />
             )}
-            {tab === 'media' && (
-              <div className="panel">
-                <div className="panel-title">
-                  <div>
-                    <h1>媒体</h1>
-                    <p>图片与附件，集中在这里。</p>
-                  </div>
-                  <button className="primary" onClick={upload}>
-                    <Upload size={16} />
-                    上传媒体
-                  </button>
-                </div>
-                <div className="media-grid">
-                  {state.media.map((m: any) => (
-                    <article key={m.id}>
-                      {/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(m.value.url) ? (
-                        <img src={m.value.url} loading="lazy" alt={m.value.name} />
-                      ) : (
-                        <div className="file-placeholder">
-                          <FileText size={32} />
-                        </div>
-                      )}
-                      <strong>{m.value.name}</strong>
-                      <small>{(m.value.bytes / 1024).toFixed(1)} KB</small>
-                      <button
-                        onClick={() => {
-                          navigator.clipboard.writeText(m.value.url);
-                          notify('地址已复制');
-                        }}
-                      >
-                        复制地址
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            )}
+            {tab === 'media' && <Suspense fallback={<p>正在载入媒体…</p>}><MediaManager onError={setError} onOpen={(id) => { api('entry/' + encodeURIComponent(id)).then((row) => { setTab(row.value.kind === 'page' ? 'pages' : 'content'); void select(id); }).catch((error) => setError(error.message)); }} /></Suspense>}
             {tab === 'appearance' && (
               <SettingsPanel
                 row={state.settings}
                 themes={state.themes ?? []}
                 panels={state.extensionPanels ?? []}
-                publish={() => task('publish', {})}
+                layouts={state.layouts ?? []}
+                publish={() => task('publish', { scope: 'settings' })}
                 save={async (value, revision) => {
                   await api('settings', { value, revision });
                   await refresh();
@@ -837,37 +852,30 @@ function App() {
           {toast}
         </div>
       )}
-      {history && record && (
-        <div className="modal-backdrop">
-          <section className="modal">
-            <div className="modal-title">
-              <h2>历史版本</h2>
-              <button onClick={() => setHistory(null)}>关闭</button>
-            </div>
-            {history.map((v) => (
-              <div className="history-row" key={v.revision}>
-                <span>
-                  {new Date(v.createdAt).toLocaleString()}
-                  <small>{v.label}</small>
-                </span>
-                <button
-                  onClick={async () => {
-                    await api('restore', {
-                      id: record.id,
-                      version: v.revision,
-                      revision: record.revision,
-                    });
-                    setHistory(null);
-                    await select(record.id);
-                  }}
-                >
-                  恢复为工作稿
-                </button>
-              </div>
-            ))}
-          </section>
-        </div>
+      {publication && (
+        <div className="modal-backdrop"><section className="modal" aria-label="发布变更">
+          <div className="modal-title"><h2>发布变更</h2><button disabled={busy} onClick={() => setPublication(null)}>关闭</button></div>
+          {publication.settingsChanged && <p>网站设置</p>}
+          {publication.layoutsChanged && <p>页面模板与共享区域</p>}
+          {publication.termsChanged && <p>分类与标签</p>}
+          {publication.entries.map((entry: any) => <p key={entry.id}>{entry.action === 'add' ? '新增' : '更新'} · {entry.title}<small>{entry.path}</small></p>)}
+          {publication.removed.map((entry: any) => <p key={entry.id}>撤下 · {entry.title}</p>)}
+          {!publication.settingsChanged && !publication.layoutsChanged && !publication.termsChanged && !publication.entries.length && !publication.removed.length && <p>没有需要发布的修改。</p>}
+          <button className="primary" disabled={busy || (!publication.settingsChanged && !publication.layoutsChanged && !publication.termsChanged && !publication.entries.length && !publication.removed.length)} onClick={async () => {
+            const result = await task('publish', publication.options, true);
+            if (result) { setPublication(null); if (current.current) await select(current.current.id); }
+          }}>{busy ? '正在发布…' : '确认发布'}</button>
+        </section></div>
       )}
+      {history && record && <Suspense fallback={null}><RevisionDialog id={record.id} history={history} onClose={() => setHistory(null)} onError={setError} onRestore={async (version) => {
+        const row = await api('restore', { id: record.id, version, revision: record.revision });
+        adopt(row); setHistory(null); await refresh(); notify('历史版本已恢复为工作稿，公开页面保持原版本。');
+      }} /></Suspense>}
+      {conflict && <Suspense fallback={null}><MergeDialog plan={conflict} onClose={() => setConflict(null)} onError={setError} onRemote={() => adopt(conflict.remote)} onSave={async (choices) => {
+        try { const row = await api('entry/merge/save', { id: conflict.id, baseRevision: conflict.base.revision, currentRevision: conflict.remote.revision, value: conflict.local, choices });
+          adopt(row); await refresh(); notify('已保存合并结果。');
+        } catch (error: any) { if (error.status === 409 && current.current) await showConflict(current.current); throw error; }
+      }} /></Suspense>}
       {preview && (
         <div className="modal-backdrop">
           <section className="preview-modal">
@@ -897,6 +905,7 @@ function Fields({
   values: any;
   onChange: (v: any) => void;
 }) {
+  const selectors = useSelectors();
   return (
     <>
       {definitions.map((d) => {
@@ -945,7 +954,7 @@ function Fields({
                   <option key={o}>{o}</option>
                 ))}
               </select>
-            ) : d.type === 'richtext' ? (
+            ) : d.type === 'reference' ? <ReferenceField value={value ?? ''} onChange={set} /> : d.type === 'media' ? <span className="selector-field"><input value={value ?? ''} onChange={(event) => set(event.target.value)} /><button type="button" onClick={async () => { const media = await selectors.media(); if (media) set(media.url); }}>选择媒体</button></span> : d.type === 'richtext' ? (
               <textarea value={value ?? ''} onChange={(e) => set(e.target.value)} />
             ) : (
               <input
@@ -962,10 +971,12 @@ function Fields({
 }
 function TypeManager({
   types,
+  templates,
   onSave,
   onError,
 }: {
   types: any[];
+  templates: any[];
   onSave: (value: ContentType, revision: number | null) => Promise<void>;
   onError: (s: string) => void;
 }) {
@@ -1044,6 +1055,7 @@ function TypeManager({
                 setSelected({ ...selected, value: { ...selected.value, fields } })
               }
             />
+            <label>默认模板<select value={selected.value.template} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, template: event.target.value } })}>{templates.filter((row) => row.value.kind === 'template' && row.value.appliesTo !== 'page').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select></label>
             <button
               className="primary"
               onClick={() =>
@@ -1132,6 +1144,7 @@ function FieldDefinitions({
               />
               可重复
             </label>
+            {['text', 'number', 'boolean', 'date', 'select', 'reference'].includes(f.type) && <label><input type="checkbox" checked={!!f.filterable} onChange={(event) => update(i, { filterable: event.target.checked })} />可用于列表筛选</label>}
             <button onClick={() => onChange(value.filter((_, j) => i !== j))}>移除字段</button>
           </div>
           {f.type === 'group' && (
@@ -1154,6 +1167,7 @@ function SettingsPanel({
   row,
   themes,
   panels,
+  layouts,
   save,
   publish,
   onError,
@@ -1161,6 +1175,7 @@ function SettingsPanel({
   row: any;
   themes: any[];
   panels: any[];
+  layouts: any[];
   save: (v: Settings, r: number) => Promise<void>;
   publish: () => any;
   onError: (s: string) => void;
@@ -1221,6 +1236,7 @@ function SettingsPanel({
         </section>
         <section className="form-card">
           <h2>主题</h2>
+          {(['header', 'before', 'after', 'footer'] as const).map((position) => <label key={position}>{({ header: '页头', before: '正文上方', after: '正文下方', footer: '页脚' })[position]}<select value={value.regions?.[position] ?? ''} onChange={(event) => set({ regions: { ...value.regions, [position]: event.target.value || undefined } })}><option value="">使用默认</option>{layouts.filter((row) => row.value.kind === 'region').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select></label>)}
           <label>
             主题
             <select value={value.theme} onChange={(e) => set({ theme: e.target.value })}>
@@ -1266,59 +1282,7 @@ function SettingsPanel({
         </section>}
         <section className="form-card">
           <h2>导航</h2>
-          {value.navigation.map((n, i) => (
-            <div className="navigation-row" key={i}>
-              <label>
-                文字
-                <input
-                  value={n.label}
-                  onChange={(e) =>
-                    set({
-                      navigation: value.navigation.map((v, j) =>
-                        i === j ? { ...v, label: e.target.value } : v,
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <label>
-                网址
-                <input
-                  value={n.url}
-                  onChange={(e) =>
-                    set({
-                      navigation: value.navigation.map((v, j) =>
-                        i === j ? { ...v, url: e.target.value } : v,
-                      ),
-                    })
-                  }
-                />
-              </label>
-              <button
-                onClick={() => set({ navigation: value.navigation.filter((_, j) => j !== i) })}
-              >
-                移除
-              </button>
-              {i > 0 && (
-                <button
-                  onClick={() => {
-                    const rows = [...value.navigation];
-                    [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]];
-                    set({ navigation: rows });
-                  }}
-                >
-                  上移
-                </button>
-              )}
-            </div>
-          ))}
-          <button
-            onClick={() =>
-              set({ navigation: [...value.navigation, { label: '新导航', url: '/' }] })
-            }
-          >
-            添加导航
-          </button>
+          <NavigationEditor value={value.navigation} onChange={(navigation) => set({ navigation })} />
         </section>
         <section className="form-card">
           <h2>分类目录</h2>
@@ -1527,6 +1491,7 @@ function Operations({
         <div>
           <h1>运行与备份</h1>
           <p>发布记录、任务状态与内容备份。</p>
+          {state.program && <p>程序 {state.program.framework} · 数据版本 {state.program.databaseSchema}{state.program.selected ? ' · 使用已检查的独立版本' : ''}</p>}
         </div>
         <button onClick={refresh}>刷新</button>
       </div>
@@ -1552,6 +1517,9 @@ function Operations({
           <button onClick={() => task('verify', { path: verify })}>校验</button>
         </section>
       </div>
+      <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense>
+      <Suspense fallback={<p>正在载入扩展…</p>}><ExtensionManager rows={state.extensions ?? []} refresh={refresh} /></Suspense>
+      <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>
       <section className="form-card">
         <h2>空间占用</h2>
         <button
@@ -1632,4 +1600,4 @@ function Operations({
     </div>
   );
 }
-createRoot(document.getElementById('root')!).render(<App />);
+createRoot(document.getElementById('root')!).render(<SelectorsProvider><App /></SelectorsProvider>);

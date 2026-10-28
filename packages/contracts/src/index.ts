@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export * from './blocks.ts';
 export const VERSION = '0.1.0';
 export const API_VERSION = 1;
 export const fieldSchema: z.ZodType<FieldDefinition> = z.lazy(() =>
@@ -19,6 +20,7 @@ export const fieldSchema: z.ZodType<FieldDefinition> = z.lazy(() =>
     required: z.boolean().optional(),
     multiple: z.boolean().optional(),
     options: z.array(z.string()).optional(),
+    filterable: z.boolean().optional(),
     fields: z.array(fieldSchema).optional(),
   }),
 );
@@ -38,6 +40,7 @@ export interface FieldDefinition {
   required?: boolean;
   multiple?: boolean;
   options?: string[];
+  filterable?: boolean;
   fields?: FieldDefinition[];
 }
 export const typeSchema = z.object({
@@ -63,6 +66,12 @@ export interface Block {
   type: string;
   props: Record<string, any>;
   children?: Block[];
+  bindings?: Record<string, { source: 'entry' | 'field' | 'site'; key: string }>;
+  style?: {
+    width?: 'normal' | 'wide' | 'full'; align?: 'left' | 'center' | 'right';
+    padding?: number; gap?: number; background?: string;
+    columns?: { desktop: number; tablet: number; mobile: number };
+  };
 }
 export const blockSchema: z.ZodType<Block> = z.lazy(() =>
   z.object({
@@ -70,8 +79,14 @@ export const blockSchema: z.ZodType<Block> = z.lazy(() =>
     type: z.string().min(1),
     props: z.record(z.string(), z.any()).default({}),
     children: z.array(blockSchema).optional(),
+    bindings: z.record(z.string(), z.object({ source: z.enum(['entry', 'field', 'site']), key: z.string().min(1) })).optional(),
+    style: z.object({ width: z.enum(['normal', 'wide', 'full']).optional(), align: z.enum(['left', 'center', 'right']).optional(),
+      padding: z.number().min(0).max(160).optional(), gap: z.number().min(0).max(120).optional(),
+      background: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
+      columns: z.object({ desktop: z.number().int().min(1).max(6), tablet: z.number().int().min(1).max(4), mobile: z.number().int().min(1).max(2) }).optional() }).optional(),
   }),
 );
+const timestamp = z.string().refine((value) => Number.isFinite(Date.parse(value)), '日期无效');
 export const entrySchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['content', 'page']),
@@ -83,19 +98,27 @@ export const entrySchema = z.object({
   cover: z.string().default(''),
   categories: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
+  termIds: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }).optional(),
   fields: z.record(z.string(), z.any()).default({}),
   document: documentSchema.default({ version: 1, format: 'markdown', source: '' }),
   blocks: z.array(blockSchema).default([]),
+  template: z.string().optional(),
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
   visibility: z.enum(['public', 'private']).default('public'),
   indexable: z.boolean().default(true),
-  createdAt: z.string().optional(),
-  updatedAt: z.string().optional(),
-  publishedAt: z.string().optional(),
+  createdAt: timestamp.optional(),
+  updatedAt: timestamp.optional(),
+  publishedAt: timestamp.optional(),
   compatibility: z.record(z.string(), z.any()).optional(),
   source: z.record(z.string(), z.any()).optional(),
 });
 export type Entry = z.infer<typeof entrySchema>;
+export const layoutSchema = z.object({
+  id: z.string().regex(/^[a-zA-Z][\w:-]*$/), label: z.string().min(1),
+  kind: z.enum(['template', 'region', 'pattern']),
+  appliesTo: z.enum(['page', 'content', 'any']).default('any'), blocks: z.array(blockSchema),
+});
+export type Layout = z.infer<typeof layoutSchema>;
 export interface Revision<T> {
   id: string;
   revision: number;
@@ -108,6 +131,13 @@ export interface Navigation {
   label: string;
   url: string;
   children?: Navigation[];
+}
+export interface Term {
+  id: string;
+  kind: 'category' | 'tag';
+  label: string;
+  slug: string;
+  parentId?: string;
 }
 export interface Settings {
   name: string;
@@ -127,9 +157,10 @@ export interface Settings {
     radius: number;
     spacing: number;
   };
-  taxonomies: { id: string; label: string; description?: string }[];
+  taxonomies: { id: string; label: string; description?: string; slug?: string; parentId?: string; kind?: 'category' | 'tag' }[];
   extensions: Record<string, any>;
   sourceUrl: string;
+  regions?: { header?: string; before?: string; after?: string; footer?: string };
 }
 export const defaultSettings: Settings = {
   name: 'Weava',
@@ -179,6 +210,13 @@ export const blockTypes = [
   'divider',
   'spacer',
   'compatibility',
+  'entry-heading',
+  'entry-body',
+  'entry-fields',
+  'entry-toc',
+  'shared',
+  'site-brand',
+  'navigation',
 ];
 export interface PublishedEntry extends Entry {
   html: string;
@@ -192,6 +230,39 @@ export interface Release {
   entries: PublishedEntry[];
   types: ContentType[];
   label: string;
+  redirects?: Record<string, { target: string; entryId?: string }>;
+  terms?: Term[];
+  layouts?: Layout[];
+}
+export interface PublishOptions {
+  scope?: 'all' | 'entries' | 'settings' | 'layouts' | 'terms';
+  ids?: string[];
+  label?: string;
+  failAt?: string;
+  jobId?: string;
+  revisions?: Record<string, number>;
+  settingsRevision?: number;
+  baseReleaseId?: string | null;
+  reviewRevision?: number;
+  versions?: Record<string, number>;
+}
+export interface ContentQuery {
+  page?: number;
+  pageSize?: number;
+  kind?: 'content' | 'page';
+  type?: string;
+  category?: string;
+  tag?: string;
+  query?: string;
+  sort?: 'date' | 'oldest' | 'title';
+  fields?: Record<string, string | number | boolean>;
+}
+export interface PageResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+  pages: number;
 }
 export interface Job {
   id: string;

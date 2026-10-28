@@ -1,15 +1,16 @@
 import type { APIRoute } from 'astro';
 import { site, analytics, engagement, siteExtension } from '../../runtime.ts';
-import { stageMedia, csv, storageUsage } from '@weava/core';
+import { stageMedia, csv, storageUsage, queryPublished, queryDrafts, contentQuery, exportSite, importSite, schedules, schedulePublication, cancelSchedule, retrySchedule, projectTerms, layouts, saveLayout, queryMedia, saveMediaMetadata, mediaReferences, archiveMedia, entryRevision, entryChanges, mergeEntry, saveMergedEntry, importWordPressWxr, digest } from '@weava/core';
 import { WeavaError as DomainError, VERSION as frameworkVersion } from '@weava/contracts';
+import { planHistoryArchive, historyArchives, historyArchiveContents, programStatus, SCHEMA_VERSION, preparePublication } from '@weava/core';
 import { join } from 'node:path';
-import { existsSync, readFileSync, openSync, closeSync } from 'node:fs';
+import { existsSync, readFileSync, openSync, closeSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-function json(value: any, status = 200) {
+function json(value: any, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers },
   });
 }
 function authorized(request: Request, cookies: any) {
@@ -34,8 +35,10 @@ async function execute(operation: string, payload: any, key?: string) {
   const log = join(site.root, 'logs', job.id + '.log');
   // Worker tasks use their own DB connection. Publication remains a single transaction.
   const framework = process.env.WEAVA_FRAMEWORK ?? process.cwd();
-  const worker = join(framework, 'dist', 'worker.mjs');
-  const args = existsSync(worker)
+    const worker = process.env.WEAVA_WORKER ?? join(framework, 'dist', 'worker.mjs');
+    const compiledWorker = process.env.WEAVA_SOURCE_WORKER !== '1' &&
+      (process.env.WEAVA_WORKER || import.meta.env.MODE !== 'development') && existsSync(worker);
+    const args = compiledWorker
     ? [worker, site.root, job.id]
     : [
         '--import',
@@ -99,15 +102,12 @@ export const ALL: APIRoute = async (context) => {
       const comment = engagement.postComment(id, reader, network, data);
       return json({ ...engagement.summary(id, reader), comment });
     }
-    if (route === 'v1/search' && method === 'GET')
-      return json(site.search(url.searchParams.get('q') ?? ''));
-    if (route === 'v1/content' && method === 'GET')
-      return json(
-        site
-          .visibleRelease()
-          ?.entries.filter((e) => e.kind === 'content')
-          .map(({ document, compatibility, html, source, ...e }) => e) ?? [],
-      );
+    if (['v1/search', 'v1/content'].includes(route) && method === 'GET') {
+      const query = contentQuery(url.searchParams);
+      const result = queryPublished(site, query, route === 'v1/search');
+      return json(result.items.map(({ document, compatibility, html, source, blocks, ...entry }) => entry), 200,
+        { 'X-Total-Count': String(result.total), 'X-Total-Pages': String(result.pages), 'X-Page': String(result.page), 'X-Page-Size': String(result.pageSize) });
+    }
     if (route === 'v1/analytics' && method === 'POST') {
       if (
         request.headers.get('Origin') &&
@@ -161,19 +161,49 @@ export const ALL: APIRoute = async (context) => {
       return json({ ok: true });
     }
     const data = isWrite ? await request.json() : null;
+    if (action === 'import/revisions' && method === 'GET') return json(Object.fromEntries(['entry', 'type', 'term', 'layout', 'settings', 'redirect'].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]))));
+    if (action === 'import/wxr' && method === 'POST') {
+      if (typeof data.xml !== 'string') throw new DomainError('请选择 WXR XML 文件。');
+      const options = { ...data.options, mediaDirectory: undefined };
+      const preview = await importWordPressWxr(site, data.xml, { ...options, dryRun: true });
+      if (options.dryRun) return json(preview);
+      const sourcePath = join(site.root, 'imports', 'wxr-' + digest(data.xml) + '.xml');
+      if (!existsSync(sourcePath)) writeFileSync(sourcePath, data.xml);
+      return json(await execute('import-wxr', { sourcePath, options }, request.headers.get('Idempotency-Key') ?? undefined), 202);
+    }
     if (action === 'state')
       return json({
         settings: site.settings(),
         types: site.store.list('type'),
-        entries: site.entries(),
+        terms: site.terms(),
+        layouts: layouts(site),
+        schedules: schedules(site),
+        entries: url.searchParams.get('summary') === '1' ? [] : site.entries(),
+        entryCount: site.store.raw.prepare("SELECT COUNT(*) n FROM records WHERE scope='entry'").get(),
         media: site.store.list('media'),
         jobs: site.jobs(),
         releases: site.releases(),
         themes: [{ id: 'weava', label: 'Weava' }, { id: 'newsletter', label: 'Newsletter' }, ...((await siteExtension)?.themes ?? [])],
         extensionPanels: (await siteExtension)?.panels ?? [],
         extensionBlocks: Object.keys((await siteExtension)?.blocks ?? {}),
+        extensionBlockDefinitions: Object.fromEntries(Object.entries((await siteExtension).blockDefinitions).map(([key, value]) => [key, { label: value.label, fields: value.fields }])),
+        extensions: (await siteExtension).status(),
+        program: {...programStatus(site.root),databaseSchema:SCHEMA_VERSION},
       });
     if (action === 'entries') return json(site.entries());
+    if (action === 'extensions' && method === 'GET') return json((await siteExtension).status());
+    if (action === 'extensions/usage' && method === 'GET') return json((await siteExtension).usage(url.searchParams.get('id') ?? ''));
+    if (action === 'extensions/toggle' && method === 'POST') {
+      if (typeof data.enabled !== 'boolean') throw new DomainError('扩展启停状态无效。');
+      return json(await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null));
+    }
+    if (action === 'entries/query' && method === 'GET') return json(queryDrafts(site, { ...contentQuery(url.searchParams),
+      status: url.searchParams.get('status') ?? undefined, visibility: url.searchParams.get('visibility') ?? undefined }));
+    if (action === 'publication' && method === 'POST'){const review=site.previewPublication(data??{});await (await siteExtension).validateRelease(preparePublication(site,review.options).release);return json(review);}
+    if (action === 'schedules' && method === 'GET') return json(schedules(site));
+    if (action === 'schedule' && method === 'POST') return json(schedulePublication(site, data.id, data.revision, data.dueAt));
+    if (action === 'schedule/cancel' && method === 'POST') return json(cancelSchedule(site, data.id, data.revision));
+    if (action === 'schedule/retry' && method === 'POST') return json(retrySchedule(site, data.id, data.revision));
     if (action === 'comments' && method === 'GET') {
       const result = engagement.comments(url.searchParams.get('status') ?? 'all', Number(url.searchParams.get('page')) || 1);
       return json({ ...result, items: result.items.map((comment) => {
@@ -183,22 +213,47 @@ export const ALL: APIRoute = async (context) => {
     }
     if (action === 'comment' && method === 'POST') return json(engagement.moderate(data.id, data.status));
     if (action === 'maintenance') return json(storageUsage(site));
+    if (action === 'maintenance/preview' && method === 'POST') {
+      const plan = planHistoryArchive(site,data);
+      return json({options:plan.options,releases:plan.releaseIds.length,revisions:plan.revisions.length,protectedReleases:plan.protectedReleases,protectedRevisions:plan.protectedRevisions,review:plan.review});
+    }
+    if (action === 'maintenance/archive' && method === 'POST') return json(await execute('archive-history',data),202);
+    if (action === 'maintenance/restore' && method === 'POST') return json(await execute('restore-history',data),202);
+    if (action === 'maintenance/archives' && method === 'GET') return json(historyArchives(site).map(({privateMedia,...row})=>row));
+    if (action === 'maintenance/archive' && method === 'GET') return json(historyArchiveContents(site,url.searchParams.get('id') ?? ''));
     if (action === 'entry' && method === 'POST')
       return json(site.saveEntry(data.value, data.revision ?? null));
     if (action.startsWith('entry/') && method === 'GET') {
       const row = site.store.get('entry', decodeURIComponent(action.slice(6)));
       if (!row) throw new DomainError('内容不存在。', 404);
-      return json(row);
+      return json({ ...row, value: projectTerms(row.value, site.terms().map((row) => row.value)) });
     }
     if (action === 'settings' && method === 'GET') return json(site.settings());
     if (action === 'settings' && isWrite) return json(site.saveSettings(data.value, data.revision));
     if (action === 'types' && method === 'GET') return json(site.store.list('type'));
+    if (action === 'terms' && method === 'GET') return json(site.terms());
+    if (action === 'terms' && method === 'POST') return json(site.saveTerm(data.value, data.revision ?? null));
+    if (action === 'layouts' && method === 'GET') return json(layouts(site));
+    if (action === 'layouts' && method === 'POST') return json(saveLayout(site, data.value, data.revision ?? null));
     if (action === 'types' && isWrite)
       return json(site.saveType(data.value, data.revision ?? null));
     if (action === 'history') return json(site.history(url.searchParams.get('id') ?? ''));
+    if (action === 'revision' && method === 'GET') return json(entryRevision(site, url.searchParams.get('id') ?? '', Number(url.searchParams.get('version'))));
+    if (action === 'revision/compare' && method === 'GET') {
+      const id = url.searchParams.get('id') ?? '';
+      const before = entryRevision(site, id, Number(url.searchParams.get('from'))), after = entryRevision(site, id, Number(url.searchParams.get('to')));
+      return json({ before, after, changes: entryChanges(before.value, after.value) });
+    }
+    if (action === 'entry/merge' && method === 'POST') return json(mergeEntry(site, data.id, data.baseRevision, data.value, data.choices));
+    if (action === 'entry/merge/save' && method === 'POST') return json(saveMergedEntry(site, data));
     if (action === 'restore') return json(site.restore(data.id, data.version, data.revision));
     if (action === 'withdraw') return json(site.withdraw(data.id, data.revision, !!data.archive));
     if (action === 'media' && method === 'GET') return json(site.store.list('media'));
+    if (action === 'media/query' && method === 'GET') return json(queryMedia(site, url.searchParams));
+    if (action === 'media/info' && method === 'POST') return json(saveMediaMetadata(site, data.id, data.value, data.revision));
+    if (action === 'media/references' && method === 'GET') return json(mediaReferences(site, url.searchParams.get('id') ?? ''));
+    if (action === 'media/archive' && method === 'POST') return json(archiveMedia(site, data.items, !!data.archived));
+    if (action === 'media/crop' && method === 'POST') return json(await execute('media-edit', data, request.headers.get('Idempotency-Key') ?? undefined), 202);
     if (action === 'media' && isWrite)
       return json(
         await execute(
@@ -243,13 +298,8 @@ export const ALL: APIRoute = async (context) => {
         },
       });
     }
-    if (action === 'export')
-      return json({
-        version: 1,
-        settings: site.settings().value,
-        types: site.store.list('type').map((r) => r.value),
-        entries: site.store.list('entry').map((r) => r.value),
-      });
+    if (action === 'export') return json(exportSite(site));
+    if (action === 'import' && method === 'POST') return json(importSite(site, data.value, data.options));
     return json({ error: '接口不存在。' }, 404);
   } catch (error: any) {
     const status = error instanceof DomainError ? error.status : 400;

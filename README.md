@@ -6,11 +6,11 @@
 
 ## 功能
 
-- 可视化与 Markdown 编辑、草稿自动保存、修订历史、预览和发布回退。
-- 通用区块页面、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
+- 可视化与 Markdown 编辑、媒体和表格编辑、草稿自动保存、历史对比、冲突恢复、预览和定时发布。
+- 实际页面画布、模板、共享区域、区块组合、响应式布局、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
 - 公开与私密文章、媒体访问控制、图片派生尺寸、浏览统计与目录备份恢复。
 - Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、后台评论管理。
-- WordPress 文章、原网址、分类标签、封面及历史浏览量迁移。
+- 标准 WordPress WXR 预检与导入、页面和类型转换、附件与评论迁移，以及原有来源目录和历史浏览量迁移。
 
 仓库仅包含框架源码、文档和测试。站点数据库、文章、图片、密码、统计及迁移档案保存在独立实例目录中，不属于此仓库。
 
@@ -44,6 +44,8 @@ pnpm weava --site E:\Code\WeavaSites\demo dev
 
 真实浏览器检查要求本机 Chrome 和两个示例服务已运行：`pnpm test:browser`。`scripts/api-check.ts` 检查修订冲突、任务幂等、运行时新增网址、设置发布和真实备份。隔离测试和截图存放于 `D:\Tools\cache\weava`。
 
+完整隔离验收可运行 `node --import tsx scripts/foundation-check.ts --production --authoring --extensions --organization --maintenance --five-sites --upgrade`，自行构建并启动临时站点，结束后停止服务。它覆盖五类独立网站、编辑与发布、标准迁移、扩展、归档和程序升级恢复。`storage-growth-check.ts` 检查发布对象与搜索复用；`schedule-interruption-check.ts` 检查真实进程中断。最终证据见完善计划。
+
 ## 文档
 
 - [使用与编辑](docs/authoring.md)
@@ -53,5 +55,6 @@ pnpm weava --site E:\Code\WeavaSites\demo dev
 - [运行、备份和恢复](docs/operations.md)
 - [旧站迁移](docs/migration.md)
 - [实施与验收记录](docs/implementation.md)
+- [完善计划与当前验证](docs/completion-plan.md)
 
 框架采用 AGPL-3.0-only，完整许可见 [LICENSE](LICENSE)。第三方组件保留各自许可，见 [依赖声明](docs/dependencies.json)。站点文章、来源媒体、统计和私有配置由各站点自行管理，不纳入框架许可或公开示例。

@@ -38,7 +38,7 @@ const serve = defineMiddleware(async (context, next) => {
     });
   if (path === '/admin' || path.startsWith('/admin/') || path.startsWith('/_admin/')) {
     const framework = process.env.WEAVA_FRAMEWORK ?? resolve(process.cwd(), '../..');
-    const base = join(framework, 'apps/admin/dist');
+    const base = process.env.WEAVA_ADMIN_DIST ?? join(framework, 'apps/admin/dist');
     const file = path.startsWith('/_admin/')
       ? inside(base, decodeURIComponent(path.slice(8)))
       : join(base, 'index.html');

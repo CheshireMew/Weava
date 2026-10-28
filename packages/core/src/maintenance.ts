@@ -1,18 +1,17 @@
 import { join, relative } from 'node:path';
-import { statSync, existsSync } from 'node:fs';
+import { statSync, existsSync, readFileSync } from 'node:fs';
 import type { Site } from './site.ts';
 import { walk } from './storage.ts';
 export function storageUsage(site: Site) {
   const refs = new Set<string>();
-  for (const table of ['records', 'revisions', 'releases'])
-    for (const row of site.store.raw.prepare(`SELECT data FROM ${table}`).iterate() as Iterable<{
+  const collect = (source: string) => { for (const match of source.matchAll(/\/media\/[^"'<>\\\s)]+/g)) try { refs.add(decodeURIComponent(match[0])); } catch {} };
+  for (const table of ['records', 'revisions', 'releases', 'publication_objects'])
+    for (const row of site.store.raw.prepare(`SELECT data FROM ${table}${['records','revisions'].includes(table) ? " WHERE scope NOT IN ('media','history-archive')" : ''}`).iterate() as Iterable<{
       data: string;
     }>) {
-      for (const match of row.data.matchAll(/\/media\/[^"'<>\\\s)]+/g))
-        try {
-          refs.add(decodeURIComponent(match[0]));
-        } catch {}
+      collect(row.data);
     }
+  for (const file of walk(join(site.root,'archives','history'))) if (/\.jsonl$/.test(file)) collect(readFileSync(file,'utf8'));
   for (const row of site.store.list('media'))
     if (refs.has(row.value.url))
       for (const derivative of row.value.derivatives ?? [])
@@ -53,6 +52,7 @@ export function storageUsage(site: Site) {
     analyticsBytes: physical('analytics.sqlite'),
     versions,
     releases,
+    publicationObjects: site.store.raw.prepare('SELECT kind,COUNT(*) count,SUM(LENGTH(CAST(data AS BLOB))) bytes FROM publication_objects GROUP BY kind').all(),
     media: { count: media.length, bytes: media.reduce((sum, f) => sum + f.bytes, 0) },
     unreferenced: {
       count: unused.length,

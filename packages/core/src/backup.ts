@@ -35,7 +35,7 @@ export async function createBackup(site: Site, base: string, label = '手动备�
       mkdirSync(resolve(target, '..'), { recursive: true });
       copyFileSync(file, target);
     }
-  for (const name of ['site.json', 'cli-token'])
+  for (const name of ['site.json', 'cli-token', 'program.json'])
     if (existsSync(join(site.root, name))) copyFileSync(join(site.root, name), join(folder, name));
   const files = walk(folder).map((file) => ({
     path: relative(folder, file).replaceAll('\\', '/'),

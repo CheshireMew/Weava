@@ -14,6 +14,8 @@ import {
 import { resolve, join, relative, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { WeavaError } from '@weava/contracts';
+import { storeRelease } from './publication-store.ts';
+export const SCHEMA_VERSION = 3;
 export const records = sqliteTable('records', {
   scope: text().notNull(),
   id: text().notNull(),
@@ -63,6 +65,22 @@ export class Storage {
     this.raw.pragma('journal_mode = WAL');
     this.raw.pragma('foreign_keys = ON');
     this.raw.pragma('busy_timeout = 5000');
+    const initialized = this.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='schema_migrations'").get();
+    const previousVersion = initialized ? (this.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get() as any).v : 0;
+    if (previousVersion > SCHEMA_VERSION) { this.raw.close(); throw new WeavaError('站点数据库版本比当前程序新，请更新 Weava。'); }
+    if (previousVersion && previousVersion < SCHEMA_VERSION) {
+      const runtimeFile = join(this.root, 'runtime.json');
+      if (existsSync(runtimeFile)) {
+        const runtime = JSON.parse(readFileSync(runtimeFile, 'utf8'));
+        let alive = false;
+        if (runtime.status !== 'stopped') try { process.kill(runtime.pid, 0); alive = true; } catch {}
+        if (alive) { this.raw.close(); throw new WeavaError('数据库升级前请先停止站点服务。', 409); }
+      }
+      const folder = join(this.root, 'archives', 'schema-upgrades');
+      mkdirSync(folder, { recursive: true });
+      const backup = join(folder, `before-v${previousVersion}-to-v${SCHEMA_VERSION}-${uuid()}.sqlite`);
+      this.raw.exec('VACUUM INTO ' + "'" + backup.replaceAll("'", "''") + "'");
+    }
     this.raw
       .exec(`CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS records(scope TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id));
@@ -77,7 +95,6 @@ export class Storage {
       CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(release_id UNINDEXED,entry_id UNINDEXED,tokens,tokenize='unicode61');
       INSERT OR IGNORE INTO schema_migrations VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     const version = this.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get() as any;
-    if (version.v > 2) throw new WeavaError('站点数据库版本比当前程序新，请更新 Weava。');
     if (version.v < 2) this.raw.transaction(() => {
       this.raw.exec(`CREATE TABLE article_likes(entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(entry_id,reader_key));
         CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));
@@ -87,6 +104,22 @@ export class Storage {
         CREATE TABLE comment_captchas(id TEXT PRIMARY KEY,reader_key TEXT NOT NULL,answer_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,used INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE engagement_limits(id TEXT PRIMARY KEY,count INTEGER NOT NULL,reset_at INTEGER NOT NULL);
         INSERT INTO schema_migrations VALUES(2,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+    }).immediate();
+    if (version.v < 3) this.raw.transaction(() => {
+      this.raw.exec(`CREATE TABLE publication_objects(key TEXT PRIMARY KEY,kind TEXT NOT NULL,data TEXT NOT NULL);
+        CREATE TABLE publication_members(release_id TEXT NOT NULL,object_key TEXT NOT NULL,entry_id TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(release_id,entry_id));
+        CREATE INDEX publication_member_object ON publication_members(object_key,release_id);
+        CREATE VIRTUAL TABLE publication_fts USING fts5(object_key UNINDEXED,tokens,tokenize='unicode61');
+        CREATE TABLE publication_search_keys(key TEXT PRIMARY KEY);`);
+      for (const row of this.raw.prepare('SELECT id,data FROM releases').all() as { id: string; data: string }[]) {
+        const release = JSON.parse(row.data);
+        if (release.entries) {
+          // Old aliases become part of each existing snapshot; future aliases are versioned.
+          release.redirects = Object.fromEntries((this.raw.prepare("SELECT id,data FROM records WHERE scope='redirect'").all() as any[]).map((row) => [row.id, JSON.parse(row.data)]));
+          storeRelease(this.raw, release, true);
+        }
+      }
+      this.raw.exec("INSERT INTO schema_migrations VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
     }).immediate();
     this.db = drizzle(this.raw);
     for (const dir of ['media', 'themes', 'extensions', 'logs', 'archives', 'imports'])

@@ -15,7 +15,7 @@ export function seedDemo(site: Site) {
         id,
         label,
         pathPrefix,
-        template: 'article',
+        template: id === 'project' ? 'portfolio' : id === 'doc' ? 'documentation' : id === 'resource' ? 'resource' : 'article',
         fields: id === 'resource' ? [{ key: 'url', label: '网址', type: 'text' }] : [],
       },
       null,

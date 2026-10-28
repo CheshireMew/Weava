@@ -1,12 +1,18 @@
 import { Site } from './site.ts';
 import { createBackup, verifyBackup } from './backup.ts';
-import { uploadMedia } from './media.ts';
+import { uploadMedia, cropMedia } from './media.ts';
 import { inside } from './storage.ts';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { extension } from './extensions.ts';
+import { Analytics } from './analytics.ts';
+import { importWordPressWxr } from './wordpress-wxr.ts';
+import { archiveHistory, restoreHistoryArchive } from './history-archive.ts';
+import { preparePublication } from './publication.ts';
 const [root, id] = process.argv.slice(2);
 const site = new Site(root);
 const job = site.job(id);
+let extensionAnalytics: Analytics | undefined;
 if (!['queued', 'running'].includes(job.status)) {
   site.close();
   process.exit(0);
@@ -16,7 +22,12 @@ try {
   console.log(new Date().toISOString(), job.operation);
   let result: any;
   if (job.operation === 'publish') {
-    const release = site.publish({ ...job.payload, jobId: id });
+    // Use the same registered block renderers as the web process before committing a candidate.
+    extensionAnalytics = new Analytics(root);
+    const manager=await extension(site, { analytics: extensionAnalytics }, { mode: 'worker' });
+    const review=site.previewPublication(job.payload);
+    await manager.validateRelease(preparePublication(site,review.options).release);
+    const release = site.publish({ ...review.options, jobId: id });
     result = { releaseId: release.id, entries: release.entries.length };
   } else if (job.operation === 'backup')
     result = await createBackup(
@@ -31,6 +42,10 @@ try {
       readFileSync(inside(join(site.root, 'media'), job.payload.path)),
       job.payload.name,
     );
+  else if (job.operation === 'media-edit') result = await cropMedia(site, job.payload.id, job.payload.revision, job.payload.crop);
+  else if (job.operation === 'import-wxr') result = await importWordPressWxr(site, readFileSync(inside(join(site.root, 'imports'), job.payload.sourcePath), 'utf8'), job.payload.options, (message) => site.updateJob(id, { message }));
+  else if (job.operation === 'archive-history') result = await archiveHistory(site, job.payload.options, job.payload.review);
+  else if (job.operation === 'restore-history') result = restoreHistoryArchive(site, job.payload.id);
   else throw new Error('未知任务：' + job.operation);
   site.updateJob(id, { status: 'complete', message: '已完成。', result });
   console.log(JSON.stringify(result));
@@ -39,5 +54,6 @@ try {
   console.error(error.stack);
   process.exitCode = 1;
 } finally {
+  extensionAnalytics?.close();
   site.close();
 }

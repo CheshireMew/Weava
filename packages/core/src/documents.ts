@@ -42,7 +42,7 @@ export function sanitize(html: string) {
       input: ['type', 'checked', 'disabled'],
       button: ['type'],
     },
-    allowedSchemes: ['http', 'https', 'mailto', 'tel'],
+    allowedSchemes: ['http', 'https', 'mailto', 'tel', 'entry'],
     allowProtocolRelative: false,
     transformTags: {
       a: (tag, attrs) => ({
@@ -101,7 +101,9 @@ function lexicalNode(n: any): string {
       return `<${n.headerState ? 'th' : 'td'}>${inner}</${n.headerState ? 'th' : 'td'}>`;
     case 'image':
       if (n.kind === 'video')
-        return `<video src="${escape(n.src)}" controls preload="metadata"></video>`;
+        return `<figure><video src="${escape(n.src)}" controls preload="metadata"></video>${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
+      if (n.kind === 'audio') return `<figure><audio src="${escape(n.src)}" controls preload="metadata"></audio>${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
+      if (n.kind === 'file') return `<p><a href="${escape(n.src)}">${escape(n.altText || '下载附件')}</a></p>`;
       return `<figure><img src="${escape(n.src)}" alt="${escape(n.altText)}" loading="lazy">${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
     case 'video':
       return `<video src="${escape(n.src)}" controls preload="metadata"></video>`;

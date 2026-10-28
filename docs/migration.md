@@ -1,5 +1,24 @@
 # 旧站迁移
 
+## WordPress 标准 WXR
+
+在 WordPress“工具 → 导出”取得 XML，可以在 Weava“运行与备份”中上传、预检并导入。标准导入支持文章、页面及父子路径、自定义内容类型、分类和标签层级、作者、日期、状态、附件、封面及普通评论。评论保留审核状态，回复按时间列表展示；回复关系与完整原始数据留在 XML。自定义分类和未声明的插件字段保留在来源资料中，并在转换报告说明。
+
+段落、标题、列表、表格、图片、画廊、按钮、视频、分组和多列等转换为可编辑区块；可复用区块在引用位置展开。未知区块保留可用的静态 HTML，缺失的动态功能和短代码要求人工检查后才能发布。原始 WXR 保存在实例 `imports/wordpress-wxr/文件指纹/source.xml`，转换报告同时保存在数据库。WXR 不包含原主题、插件程序、菜单位置、全部服务器设置或媒体文件本身。
+
+勾选下载附件会按内容散列导入本地媒体库，替换正文、封面及 WordPress 缩略图地址；未勾选时保留来源网址。重复导入相同来源复用已下载附件，已有不同内容必须选择合并并匹配当前修订。文件、选项或站点在预检后变化时，需要重新预检。附件失败会回退全部内容和媒体记录，已准备的文件继续保留。
+
+离线 CLI 要求先停止目标服务：
+
+```powershell
+scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wxr --input D:\Data\wordpress.xml --download-media --dry-run
+scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wxr --input D:\Data\wordpress.xml --download-media
+```
+
+可用 `--media-dir D:\Data\wordpress-files` 代替网络下载，例如附件原网址为 `/wp-content/uploads/2026/photo.jpg`，则文件应位于该目录下同一路径。`--settings` 同时导入网站名称、说明和语言，目标域名继续使用本站设置。`--no-comments` 不导入评论；`--merge-revisions 文件.json` 提供合并对象的当前修订号。
+
+标准导入不会自动发布。原私密内容继续私密，密码保护转为仅站主可见；原定时内容保留为带原时间的工作稿，需要在本站重新安排。`?p=`、`?page_id=` 和旧 slug 随公开版本保存为跳转，站内正文链接使用稳定内容编号并保留锚点。
+
 ## WordPress 博客
 
 使用已下载并核对的 WordPress 内容目录。迁移命令先核对每篇 Markdown 和全部图片的 SHA-256，再保留原文章路径、作者、日期、分类标签、封面和可见性。原始内容与元数据归档于实例的 `imports/wordpress`，正文只改写链接与图片目的地址，保留可见文字。

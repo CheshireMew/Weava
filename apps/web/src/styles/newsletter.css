@@ -242,3 +242,7 @@
   .newsletter .nl-popular-list h3 { font-size: 14px; }
   .newsletter .nl-sidebar { grid-template-columns: 1fr; }
 }
+.newsletter .entry-template .article-heading { margin: 0 0 36px; }
+.newsletter .entry-template .article-heading h1 { font-size: clamp(32px, 4vw, 48px); line-height: 1.25; }
+.newsletter .entry-template .article-heading .cover { display: none; }
+.newsletter .entry-template .prose { max-width: none; }

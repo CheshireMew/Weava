@@ -14,6 +14,7 @@ import {
   WeavaError,
 } from '@weava/contracts';
 import { Analytics } from './analytics.ts';
+import { extension } from './extensions.ts';
 function read(path: string, fallback: any = null) {
   return existsSync(path)
     ? JSON.parse(readFileSync(path, 'utf8').replace(/^\ufeff/, ''))
@@ -227,6 +228,16 @@ export async function migrateCrypto(
     }
     // Publish exactly the source public state, then restore independent authoring drafts.
     if (conflicts.length) throw new WeavaError('目标存在修改，迁移停止发布。', 409, conflicts);
+    const framework = process.env.WEAVA_FRAMEWORK ?? resolve(import.meta.dirname, '../../..');
+    const extensionTemplate = join(framework, 'scripts/crypto-extension.ts');
+    const extensionTarget = join(target, 'extensions/index.ts');
+    if (!existsSync(extensionTarget)) copyFileSync(extensionTemplate, extensionTarget);
+    await build({
+      entryPoints: [extensionTarget], outfile: join(target, 'extensions/index.mjs'), bundle: true,
+      platform: 'node', format: 'esm', target: 'node24', nodePaths: [join(framework, 'node_modules')],
+      banner: { js: 'import { createRequire as _createRequire } from "node:module"; const require = _createRequire(import.meta.url);' },
+    });
+    await extension(site, {}, { mode: 'worker' });
     if (imported.some((i) => !i.unchanged)) site.publish({ label: '从加密网站迁移公开版本' });
     for (const [path, post] of originals) {
       const existing = site.store.get('entry', post.id);
@@ -469,22 +480,6 @@ export async function migrateCrypto(
         '迁移媒体',
       );
     }
-    const framework = process.env.WEAVA_FRAMEWORK ?? resolve(import.meta.dirname, '../../..');
-    const extensionTemplate = join(framework, 'scripts/crypto-extension.ts');
-    const extensionTarget = join(target, 'extensions/index.ts');
-    if (!existsSync(extensionTarget)) copyFileSync(extensionTemplate, extensionTarget);
-    await build({
-      entryPoints: [extensionTarget],
-      outfile: join(target, 'extensions/index.mjs'),
-      bundle: true,
-      platform: 'node',
-      format: 'esm',
-      target: 'node24',
-      banner: {
-        js: 'import { createRequire as _createRequire } from \"node:module\"; const require = _createRequire(import.meta.url);',
-      },
-      nodePaths: [join(framework, 'node_modules')],
-    });
     atomicJson(join(target, 'site.json'), { version: 1, port: 4323 });
     const report = {
       ...plan,

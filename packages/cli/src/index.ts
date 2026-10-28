@@ -15,6 +15,9 @@ import {
 import { seedDemo } from '../../core/src/demo.ts';
 import { migrateCrypto } from '../../core/src/migrate.ts';
 import { migrateWordPress, migrateWordPressViews } from '../../core/src/migrate-wordpress.ts';
+import { importWordPressWxr } from '../../core/src/wordpress-wxr.ts';
+import { compactDatabase } from '../../core/src/history-archive.ts';
+import { selectedProgram,checkProgramUpgrade,applyProgramUpgrade,recoverProgramUpgrade,verifyProgram } from '../../core/src/programs.ts';
 const framework =
   process.env.WEAVA_FRAMEWORK ??
   (import.meta.dirname.endsWith('dist')
@@ -106,10 +109,11 @@ for (const mode of ['dev', 'start'])
       assertOffline(root());
       const config = JSON.parse(readFileSync(join(root(), 'site.json'), 'utf8'));
       const port = String(opts.port ?? config.port ?? 4322);
+      const selected=mode==='start'?selectedProgram(root()):null;
       const args =
         mode === 'dev'
           ? [join(framework, 'node_modules/astro/bin/astro.mjs'), 'dev', '--port', port]
-          : [join(framework, 'apps/web/dist/server/entry.mjs')];
+          : [selected?join(selected.root,'web/server/entry.mjs'):join(framework, 'apps/web/dist/server/entry.mjs')];
       const child = spawn(process.execPath, args, {
         cwd: mode === 'dev' ? join(framework, 'apps/web') : framework,
         stdio: 'inherit',
@@ -121,6 +125,7 @@ for (const mode of ['dev', 'start'])
           PORT: port,
           HOST: process.env.HOST ?? '127.0.0.1',
           ASTRO_TELEMETRY_DISABLED: '1',
+          ...(selected?{WEAVA_PROGRAM_ROOT:selected.root,WEAVA_ADMIN_DIST:join(selected.root,'admin'),WEAVA_WORKER:join(selected.root,'runtime/worker.mjs'),WEAVA_SOURCE_WORKER:'0'}:{}),
         },
       });
       child.on('exit', (code) => {
@@ -128,12 +133,12 @@ for (const mode of ['dev', 'start'])
       });
       process.on('SIGINT', () => child.kill('SIGINT'));
     });
-program.command('build').action(() => {
+program.command('build').option('--output <path>','独立版本构建目录').action((opts) => {
   const child = spawn(process.execPath, ['--import', 'tsx', join(framework, 'scripts/build.ts')], {
     cwd: framework,
     stdio: 'inherit',
     windowsHide: true,
-    env: { ...process.env, WEAVA_SITE: root() },
+    env: { ...process.env, WEAVA_SITE: root(),...(opts.output?{WEAVA_BUILD_OUTPUT:resolve(opts.output)}:{}) },
   });
   child.on('exit', (code) => {
     process.exitCode = code ?? 1;
@@ -158,9 +163,24 @@ for (const name of ['content', 'page', 'settings', 'media']) {
   const command = program.command(name);
   command
     .command('list')
-    .action(async () =>
+    .option('--page <page>', '页码', '1')
+    .option('--page-size <count>', '每页数量', '25')
+    .option('--type <type>', '内容类型')
+    .option('--category <category>', '分类编号或名称')
+    .option('--tag <tag>', '标签编号或名称')
+    .option('--query <text>', '标题和摘要')
+    .option('--status <status>', '内容状态')
+    .option('--visibility <visibility>', '可见性')
+    .option('--field <key=value...>', '声明为可筛选的字段条件')
+    .action(async (opts) =>
       output(
-        await request(name === 'settings' ? 'settings' : name === 'media' ? 'media' : 'entries'),
+        await request(name === 'settings' ? 'settings' : name === 'media' ? 'media' : 'entries/query?' + new URLSearchParams({
+          kind: name === 'page' ? 'page' : 'content', page: opts.page, pageSize: opts.pageSize,
+          ...(opts.type ? { type: opts.type } : {}), ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.tag ? { tag: opts.tag } : {}), ...(opts.query ? { q: opts.query } : {}),
+          ...(opts.status ? { status: opts.status } : {}), ...(opts.visibility ? { visibility: opts.visibility } : {}),
+          ...Object.fromEntries((opts.field ?? []).map((value: string) => { const split = value.indexOf('='); if (split < 1) throw new Error('字段条件需要 key=value。'); return ['field.' + value.slice(0, split), value.slice(split + 1)]; })),
+        })),
       ),
     );
   command
@@ -189,6 +209,17 @@ program
   .command('rollback')
   .requiredOption('--id <id>')
   .action(async (opts) => output(await request('rollback', { id: opts.id })));
+const schedule = program.command('schedule');
+const extensions = program.command('extensions');
+extensions.command('list').action(async () => output(await request('extensions')));
+extensions.command('usage').requiredOption('--id <id>').action(async (opts) => output(await request('extensions/usage?id=' + encodeURIComponent(opts.id))));
+extensions.command('enable').requiredOption('--id <id>').requiredOption('--revision <revision>', '当前设置修订，新设置填 null').action(async (opts) => output(await request('extensions/toggle', { id: opts.id, enabled: true, revision: opts.revision === 'null' ? null : Number(opts.revision) })));
+extensions.command('disable').requiredOption('--id <id>').requiredOption('--revision <revision>', '当前设置修订，新设置填 null').action(async (opts) => output(await request('extensions/toggle', { id: opts.id, enabled: false, revision: opts.revision === 'null' ? null : Number(opts.revision) })));
+schedule.command('list').action(async () => output(await request('schedules')));
+schedule.command('create').requiredOption('--id <id>').requiredOption('--revision <revision>').requiredOption('--at <time>', '带时区的发布时间').action(async (opts) =>
+  output(await request('schedule', { id: opts.id, revision: Number(opts.revision), dueAt: opts.at })));
+for (const action of ['cancel', 'retry']) schedule.command(action).requiredOption('--id <id>').requiredOption('--revision <revision>').action(async (opts) =>
+  output(await request('schedule/' + action, { id: opts.id, revision: Number(opts.revision) })));
 program
   .command('job')
   .requiredOption('--id <id>')
@@ -201,6 +232,20 @@ program
     output(await request('logs?id=' + encodeURIComponent(opts.id) + '&offset=' + opts.offset)),
   );
 const backup = program.command('backup');
+const upgrade=program.command('upgrade');
+upgrade.command('verify').requiredOption('--program <path>').action((opts)=>{const checked=verifyProgram(resolve(opts.program));output({root:checked.root,id:checked.manifest.id,framework:checked.manifest.framework,schemaVersion:checked.manifest.schemaVersion,files:checked.manifest.files.length});});
+upgrade.command('check').requiredOption('--program <path>').option('--backup-root <path>','升级前备份和检查副本','D:/Tools/weava/backups').action(async(opts)=>output(await checkProgramUpgrade(root(),resolve(opts.program),resolve(opts.backupRoot))));
+upgrade.command('apply').requiredOption('--input <file>','升级预检返回的计划文件').action(async(opts)=>{const plan=JSON.parse(readFileSync(resolve(opts.input),'utf8'));if(plan.target!==root())throw new Error('升级计划与当前站点不匹配。');output(await applyProgramUpgrade(plan));});
+upgrade.command('recover').action(()=>output(recoverProgramUpgrade(root())));
+upgrade.command('rollback').requiredOption('--restore-data','恢复升级前备份，升级后的资料保留在 retained 目录').action(()=>output(recoverProgramUpgrade(root(),true)));
+upgrade.command('status').action(()=>{const selected=selectedProgram(root());output(selected?{id:selected.manifest.id,framework:selected.manifest.framework,root:selected.root,schemaVersion:selected.manifest.schemaVersion}:{selected:false,framework});});
+const maintenance = program.command('maintenance');
+maintenance.command('preview').requiredOption('--before <date>').option('--keep-releases <count>','至少保留公开版本数','20').option('--keep-revisions <count>','每个对象至少保留修订数','20').action(async(opts)=>output(await request('maintenance/preview',{before:opts.before,keepReleases:Number(opts.keepReleases),keepRevisions:Number(opts.keepRevisions)})));
+maintenance.command('archive').requiredOption('--input <file>','预检结果 JSON').option('--wait').action(async(opts)=>{const plan=JSON.parse(readFileSync(resolve(opts.input),'utf8'));output(await wait(await request('maintenance/archive',{options:plan.options,review:plan.review}),!!opts.wait));});
+maintenance.command('archives').action(async()=>output(await request('maintenance/archives')));
+maintenance.command('inspect').requiredOption('--id <id>').action(async(opts)=>output(await request('maintenance/archive?id='+encodeURIComponent(opts.id))));
+maintenance.command('restore').requiredOption('--id <id>').option('--wait').action(async(opts)=>output(await wait(await request('maintenance/restore',{id:opts.id}),!!opts.wait)));
+maintenance.command('compact').action(async()=>{assertOffline(root());const site=new Site(root());try{output(await compactDatabase(site));}finally{site.close();}});
 backup
   .command('create')
   .option('--path <path>', '备份根目录', 'D:/Tools/weava/backups')
@@ -231,11 +276,11 @@ program
 program
   .command('import')
   .requiredOption('--input <file>')
+  .option('--merge', '合并已有对象，需要输入文件提供 revisions')
+  .option('--dry-run', '完整校验并报告，不保存')
   .action(async (opts) => {
-    const data = JSON.parse(readFileSync(resolve(opts.input), 'utf8'));
-    for (const t of data.types ?? []) await request('types', { value: t, revision: null });
-    for (const e of data.entries ?? []) await request('entry', { value: e, revision: null });
-    output({ imported: data.entries?.length ?? 0 });
+    const data = JSON.parse(readFileSync(resolve(opts.input), 'utf8').replace(/^\ufeff/, ''));
+    output(await request('import', { value: data, options: { mode: opts.merge ? 'merge' : 'create', dryRun: !!opts.dryRun, revisions: data.revisions } }));
   });
 program
   .command('owner')
@@ -252,6 +297,20 @@ program
     }
   });
 const migrate = program.command('migrate');
+migrate.command('wxr')
+  .requiredOption('--input <file>', 'WordPress 标准 WXR XML 导出文件')
+  .option('--dry-run', '完整预检，不保存')
+  .option('--settings', '同时导入网站名称、说明和语言')
+  .option('--download-media', '下载 WXR 附件')
+  .option('--media-dir <path>', '离线附件目录，按来源 URL 路径存放')
+  .option('--no-comments', '不导入来源评论')
+  .option('--merge-revisions <file>', '合并已有内容的当前修订号，格式与 JSON 导入相同')
+  .action(async (opts) => {
+    assertOffline(root()); const site = new Site(root());
+    try { output(await importWordPressWxr(site, readFileSync(resolve(opts.input), 'utf8'), { dryRun: !!opts.dryRun, settings: !!opts.settings, downloadMedia: !!opts.downloadMedia,
+      mediaDirectory: opts.mediaDir ? resolve(opts.mediaDir) : undefined, comments: opts.comments, ...(opts.mergeRevisions ? { mode: 'merge', revisions: JSON.parse(readFileSync(resolve(opts.mergeRevisions), 'utf8')) } : {}) })); }
+    finally { site.close(); }
+  });
 migrate.command('crypto')
   .requiredOption('--source <path>')
   .requiredOption('--capture <path>')

@@ -1,280 +1,72 @@
 import { useState } from 'react';
-import { Plus, ChevronUp, ChevronDown, Copy, Archive } from 'lucide-react';
-import type { Block } from '@weava/contracts';
-const labels: Record<string, string> = {
-  text: '文字',
-  richtext: '正文',
-  hero: '主视觉',
-  button: '按钮',
-  'image-text': '图文',
-  container: '分组',
-  columns: '多列',
-  image: '图片',
-  gallery: '画廊',
-  video: '视频',
-  attachment: '附件',
-  'content-list': '内容列表',
-  cards: '卡片列表',
-  taxonomy: '分类目录',
-  'content-detail': '正文引用',
-  faq: '常见问题',
-  callout: '提示',
-  divider: '分隔线',
-  spacer: '留白',
-  compatibility: '来源兼容内容',
-};
-const definitions: Record<string, [string, string, string?][]> = {
-  'content-detail': [['entryId', '内容编号']],
-  text: [['text', '内容', 'textarea']],
-  richtext: [['text', '内容', 'textarea']],
-  hero: [
-    ['eyebrow', '眉题'],
-    ['title', '标题'],
-    ['description', '说明', 'textarea'],
-    ['buttonLabel', '按钮文字'],
-    ['buttonUrl', '按钮网址'],
-    ['image', '图片地址'],
-  ],
-  button: [
-    ['label', '文字'],
-    ['url', '网址'],
-  ],
-  'image-text': [
-    ['title', '标题'],
-    ['text', '正文', 'textarea'],
-    ['src', '图片地址'],
-    ['alt', '图片说明'],
-  ],
-  columns: [['columns', '列数', 'number']],
-  image: [
-    ['src', '图片地址'],
-    ['alt', '图片说明'],
-    ['caption', '图注'],
-  ],
-  video: [
-    ['src', '播放地址'],
-    ['poster', '封面地址'],
-    ['caption', '说明'],
-  ],
-  attachment: [
-    ['url', '附件网址'],
-    ['label', '文字'],
-  ],
-  'content-list': [
-    ['title', '标题'],
-    ['contentType', '内容类型'],
-    ['category', '分类'],
-    ['tag', '标签'],
-    ['query', '关键词'],
-    ['sort', '排序：date 或 title'],
-    ['limit', '数量', 'number'],
-  ],
-  cards: [
-    ['title', '标题'],
-    ['contentType', '内容类型'],
-    ['limit', '数量', 'number'],
-  ],
-  callout: [
-    ['title', '标题'],
-    ['text', '正文', 'textarea'],
-  ],
-  spacer: [['height', '高度', 'number']],
-  compatibility: [['html', '来源 HTML', 'textarea']],
-};
-export function Blocks({
-  value,
-  onChange,
-}: {
-  value: Block[];
-  onChange: (value: Block[]) => void;
+import { blockDefinitions, type Block, type BlockControl } from '@weava/contracts';
+import { useSelectors } from './Selectors.tsx';
+import { findBlock, patchBlock, removeBlock, moveBlock, cloneBlocks, insertAfter } from './block-tree.ts';
+
+export interface BlockCatalog { layouts?: any[]; types?: any[]; terms?: any[]; extensionBlocks?: string[]; extensionBlockDefinitions?: Record<string, { label: string; fields: BlockControl[] }> }
+export function BlockProperties({ value: block, onChange, catalog = {} }: { value: Block; onChange: (value: Block) => void; catalog?: BlockCatalog }) {
+  const selectors = useSelectors();
+  const change = (key: string, value: any) => onChange({ ...block, props: { ...block.props, [key]: value, ...(key === 'contentType' ? { fields: {} } : {}) } });
+  const style = (value: Partial<NonNullable<Block['style']>>) => onChange({ ...block, style: { ...block.style, ...value } });
+  const controls = (blockDefinitions[block.type] ?? catalog.extensionBlockDefinitions?.[block.type])?.fields ?? [];
+  const fieldChoices = (catalog.types ?? []).flatMap((row) => row.value.fields ?? []);
+  const chooseMedia = async (key: string) => {
+    const media = await selectors.media(key === 'poster' || key === 'image' || block.type === 'image' || block.type === 'image-text' ? 'image' : block.type === 'video' ? 'video' : undefined);
+    if (media) onChange({ ...block, props: { ...block.props, [key]: media.url, ...(key === 'src' && media.kind === 'image' ? { alt: media.alt ?? media.name, caption: media.caption ?? '' } : {}) } });
+  };
+  const control = (field: BlockControl) => {
+    const value = block.props[field.key] ?? '';
+    let options = field.options?.map((value) => ({ id: value, label: value }));
+    if (field.key === 'layoutId') options = (catalog.layouts ?? []).filter((row) => row.value.kind === 'region').map((row) => ({ id: row.id, label: row.value.label }));
+    if (field.key === 'contentType') options = (catalog.types ?? []).map((row) => ({ id: row.id, label: row.value.label }));
+    if (field.key === 'category' || field.key === 'tag') options = (catalog.terms ?? []).filter((row) => row.value.kind === (field.key === 'category' ? 'category' : 'tag')).map((row) => ({ id: row.id, label: row.value.label }));
+    if (options) return <select value={value} onChange={(event) => change(field.key, event.target.value)}><option value="">默认</option>{options.map((item) => <option key={item.id} value={item.id}>{(['sort', 'filters', 'cover'].includes(field.key) ? ({ date: '最新', oldest: '最早', title: '标题', show: '显示', hide: '隐藏' } as any)[item.id] : undefined) ?? item.label}</option>)}</select>;
+    if (field.control === 'textarea') return <textarea rows={5} value={value} onChange={(event) => change(field.key, event.target.value)} />;
+    if (field.control === 'media') return <span className="selector-field"><input value={value} onChange={(event) => change(field.key, event.target.value)} /><button type="button" onClick={() => void chooseMedia(field.key)}>选择媒体</button></span>;
+    if (field.control === 'content' || field.control === 'url') return <span className="selector-field"><input value={value} onChange={(event) => change(field.key, event.target.value)} /><button type="button" onClick={async () => { const content = await selectors.content(); if (content) change(field.key, field.control === 'content' ? content.id : 'entry:' + encodeURIComponent(content.id)); }}>选择内容</button></span>;
+    return <input type={field.control === 'number' ? 'number' : 'text'} value={value} onChange={(event) => change(field.key, field.control === 'number' ? Number(event.target.value) : event.target.value)} />;
+  };
+  return <div className="block-properties">
+    {controls.map((field) => <div className="block-property" key={field.key}><label>{field.label}{control(field)}</label>
+      {['text','textarea','media','number','url'].includes(field.control) && <details><summary>关联字段</summary><select aria-label={field.label + '关联字段'} value={block.bindings?.[field.key] ? block.bindings[field.key].source + ':' + block.bindings[field.key].key : ''} onChange={(event) => {
+        const bindings = { ...block.bindings }; const [source, key] = event.target.value.split(':');
+        if (!source) delete bindings[field.key]; else bindings[field.key] = { source: source as 'entry' | 'site' | 'field', key };
+        onChange({ ...block, bindings });
+      }}><option value="">固定内容</option><optgroup label="内容">{['title','description','cover','author'].map((key) => <option key={key} value={'entry:' + key}>{({title:'标题',description:'摘要',cover:'封面',author:'作者'} as any)[key]}</option>)}</optgroup><optgroup label="网站">{['name','description','logo'].map((key) => <option key={key} value={'site:' + key}>{({name:'网站名称',description:'网站介绍',logo:'Logo'} as any)[key]}</option>)}</optgroup><optgroup label="自定义字段">{Array.from(new Map(fieldChoices.map((field) => [field.key,field])).values()).map((field: any) => <option key={field.key} value={'field:' + field.key}>{field.label}</option>)}</optgroup></select></details>}
+    </div>)}
+    {['content-list', 'cards'].includes(block.type) && <details><summary>固定字段条件</summary>{(catalog.types ?? []).find((row) => row.id === block.props.contentType)?.value.fields.filter((field: any) => field.filterable).map((field: any) => <label key={field.key}>{field.label}<input value={block.props.fields?.[field.key] ?? ''} onChange={(event) => { const fields = { ...block.props.fields }; if (event.target.value) fields[field.key] = event.target.value; else delete fields[field.key]; change('fields', fields); }} /></label>)}</details>}
+    {block.type === 'gallery' && <div>{(block.props.images ?? []).map((image: any, index: number) => <div className="repeat-item" key={index}>
+      {image.src && <img src={image.src} alt="" />}<label>图片地址<input value={image.src ?? image} onChange={(event) => change('images', block.props.images.map((item: any,i: number) => i === index ? { ...(typeof item === 'string' ? {} : item), src: event.target.value } : item))} /></label>
+      <label>图片说明<input value={image.alt ?? ''} onChange={(event) => change('images', block.props.images.map((item: any,i: number) => i === index ? { ...item, alt: event.target.value } : item))} /></label>
+      <button onClick={() => change('images', block.props.images.filter((_: any,i: number) => i !== index))}>移除图片</button>
+    </div>)}<button onClick={async () => { const image = await selectors.media('image'); if(image) change('images',[...(block.props.images ?? []),{src:image.url,alt:image.alt ?? image.name}]); }}>添加图片</button></div>}
+    {block.type === 'faq' && <div>{(block.props.items ?? []).map((item: any,index: number) => <div className="repeat-item" key={index}>
+      <label>问题<input value={item.question} onChange={(event) => change('items',block.props.items.map((item: any,i: number) => i === index ? {...item,question:event.target.value}:item))} /></label>
+      <label>回答<textarea value={item.answer} onChange={(event) => change('items',block.props.items.map((item: any,i: number) => i === index ? {...item,answer:event.target.value}:item))} /></label>
+      <button onClick={() => change('items',block.props.items.filter((_: any,i: number) => i !== index))}>移除问答</button>
+    </div>)}<button onClick={() => change('items',[...(block.props.items ?? []),{question:'',answer:''}])}>添加问题</button></div>}
+    <details><summary>布局</summary><label>宽度<select value={block.style?.width ?? 'normal'} onChange={(event) => style({width:event.target.value as any})}><option value="normal">正文宽度</option><option value="wide">宽版</option><option value="full">铺满</option></select></label>
+      <label>对齐<select value={block.style?.align ?? 'left'} onChange={(event) => style({align:event.target.value as any})}><option value="left">左</option><option value="center">中</option><option value="right">右</option></select></label>
+      <label>内边距<input type="number" min="0" max="160" value={block.style?.padding ?? 0} onChange={(event) => style({padding:Number(event.target.value)})} /></label>
+      <label>间距<input type="number" min="0" max="120" value={block.style?.gap ?? 24} onChange={(event) => style({gap:Number(event.target.value)})} /></label>
+      <label>背景<input type="color" value={block.style?.background ?? '#ffffff'} onChange={(event) => style({background:event.target.value})} /></label>
+      {block.type === 'columns' && (['desktop','tablet','mobile'] as const).map((size) => <label key={size}>{({desktop:'桌面列数',tablet:'平板列数',mobile:'手机列数'})[size]}<input type="number" min="1" max={size === 'mobile' ? 2 : size === 'tablet' ? 4 : 6} value={block.style?.columns?.[size] ?? (size === 'mobile' ? 1 : 2)} onChange={(event) => style({columns:{desktop:2,tablet:2,mobile:1,...block.style?.columns,[size]:Number(event.target.value)}})} /></label>)}
+    </details>
+  </div>;
+}
+export function Blocks({ value, onChange, catalog = {}, selectedId, onSelect, outlineOnly = false, allowBody = false }: {
+  value: Block[]; onChange: (value: Block[]) => void; catalog?: BlockCatalog; selectedId?: string; onSelect?: (id: string) => void; outlineOnly?: boolean; allowBody?: boolean;
 }) {
-  const [selected, setSelected] = useState<string>('');
-  const [newType, setNewType] = useState('text');
-  const update = (id: string, patch: Partial<Block>) =>
-    onChange(value.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  const changeProp = (b: Block, key: string, v: any) =>
-    update(b.id, { props: { ...b.props, [key]: v } });
-  function move(index: number, delta: number) {
-    const next = [...value];
-    [next[index], next[index + delta]] = [next[index + delta], next[index]];
-    onChange(next);
-  }
-  return (
-    <div className="block-builder">
-      {value.map((b, index) => (
-        <section key={b.id} className={'block-row ' + (selected === b.id ? 'selected' : '')}>
-          <div className="block-row-head">
-            <button
-              className="block-select"
-              onClick={() => setSelected(selected === b.id ? '' : b.id)}
-            >
-              {String(index + 1).padStart(2, '0')} <strong>{labels[b.type] ?? b.type}</strong>
-              <span>{String(b.props.title ?? b.props.text ?? '').slice(0, 30)}</span>
-            </button>
-            <button aria-label="上移区块" disabled={!index} onClick={() => move(index, -1)}>
-              <ChevronUp size={16} />
-            </button>
-            <button
-              aria-label="下移区块"
-              disabled={index === value.length - 1}
-              onClick={() => move(index, 1)}
-            >
-              <ChevronDown size={16} />
-            </button>
-            <button
-              aria-label="复制区块"
-              onClick={() => {
-                const clone = structuredClone(b);
-                const ids = (n: Block) => {
-                  n.id = crypto.randomUUID();
-                  n.children?.forEach(ids);
-                };
-                ids(clone);
-                onChange([...value.slice(0, index + 1), clone, ...value.slice(index + 1)]);
-              }}
-            >
-              <Copy size={15} />
-            </button>
-            <button
-              aria-label="移除区块"
-              onClick={() => onChange(value.filter((v) => v.id !== b.id))}
-            >
-              <Archive size={15} />
-            </button>
-          </div>
-          {selected === b.id && (
-            <div className="block-properties">
-              {(definitions[b.type] ?? []).map(([key, label, type]) => (
-                <label key={key}>
-                  {label}
-                  {type === 'textarea' ? (
-                    <textarea
-                      rows={5}
-                      value={b.props[key] ?? ''}
-                      onChange={(e) => changeProp(b, key, e.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type={type ?? 'text'}
-                      value={b.props[key] ?? ''}
-                      onChange={(e) =>
-                        changeProp(
-                          b,
-                          key,
-                          type === 'number' ? Number(e.target.value) : e.target.value,
-                        )
-                      }
-                    />
-                  )}
-                </label>
-              ))}
-              {b.type === 'gallery' && (
-                <div>
-                  {(b.props.images ?? []).map((image: any, i: number) => (
-                    <label key={i}>
-                      图片 {i + 1}
-                      <input
-                        value={image.src ?? image}
-                        onChange={(e) =>
-                          changeProp(
-                            b,
-                            'images',
-                            b.props.images.map((v: any, j: number) =>
-                              j === i ? { src: e.target.value } : v,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                  ))}
-                  <button
-                    onClick={() =>
-                      changeProp(b, 'images', [...(b.props.images ?? []), { src: '', alt: '' }])
-                    }
-                  >
-                    添加图片
-                  </button>
-                </div>
-              )}
-              {b.type === 'faq' && (
-                <div>
-                  {(b.props.items ?? []).map((item: any, i: number) => (
-                    <div key={i} className="faq-fields">
-                      <label>
-                        问题
-                        <input
-                          value={item.question}
-                          onChange={(e) =>
-                            changeProp(
-                              b,
-                              'items',
-                              b.props.items.map((v: any, j: number) =>
-                                i === j ? { ...v, question: e.target.value } : v,
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                      <label>
-                        回答
-                        <textarea
-                          value={item.answer}
-                          onChange={(e) =>
-                            changeProp(
-                              b,
-                              'items',
-                              b.props.items.map((v: any, j: number) =>
-                                i === j ? { ...v, answer: e.target.value } : v,
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                    </div>
-                  ))}
-                  <button
-                    onClick={() =>
-                      changeProp(b, 'items', [
-                        ...(b.props.items ?? []),
-                        { question: '', answer: '' },
-                      ])
-                    }
-                  >
-                    添加问题
-                  </button>
-                </div>
-              )}
-              {['columns', 'container'].includes(b.type) && (
-                <Blocks
-                  value={b.children ?? []}
-                  onChange={(children) => update(b.id, { children })}
-                />
-              )}
-            </div>
-          )}
-        </section>
-      ))}
-      <div className="block-add">
-        <select aria-label="区块类型" value={newType} onChange={(e) => setNewType(e.target.value)}>
-          {Object.entries(labels)
-            .filter(([key]) => key !== 'compatibility')
-            .map(([key, label]) => (
-              <option value={key} key={key}>
-                {label}
-              </option>
-            ))}
-        </select>
-        <button
-          onClick={() => {
-            const id = crypto.randomUUID();
-            onChange([...value, { id, type: newType, props: {} }]);
-            setSelected(id);
-          }}
-        >
-          <Plus size={15} />
-          添加区块
-        </button>
-      </div>
+  const [local, setLocal] = useState(''), [newType,setNewType] = useState('text');
+  const selected = selectedId ?? local, choose = (id: string) => { setLocal(id); onSelect?.(id); };
+  const active = findBlock(value,selected);
+  const outline = (items: Block[]) => <ol className="block-outline">{items.map((block) => <li key={block.id}><button className={selected === block.id ? 'selected' : ''} onClick={() => choose(block.id)}>{blockDefinitions[block.type]?.label ?? catalog.extensionBlockDefinitions?.[block.type]?.label ?? block.type}{block.props.title && <span>{String(block.props.title).slice(0,25)}</span>}</button>{block.children?.length ? outline(block.children) : null}</li>)}</ol>;
+  return <div className="block-builder">{outline(value)}
+    {active && <div className="block-tools"><button aria-label="上移区块" onClick={() => onChange(moveBlock(value,active.id,-1))}>上移</button><button aria-label="下移区块" onClick={() => onChange(moveBlock(value,active.id,1))}>下移</button><button aria-label="复制区块" onClick={() => {const [clone]=cloneBlocks([active]);onChange(insertAfter(value,active.id,clone));choose(clone.id);}}>复制</button><button aria-label="移除区块" onClick={() => {onChange(removeBlock(value,active.id));choose('');}}>移除</button></div>}
+    {!outlineOnly && active && <BlockProperties value={active} catalog={catalog} onChange={(block) => onChange(patchBlock(value,block.id,block))} />}
+    <div className="block-add"><select aria-label="区块类型" value={newType} onChange={(event) => setNewType(event.target.value)}>{Object.entries(blockDefinitions).filter(([key]) => key !== 'compatibility' && (allowBody || key !== 'entry-body')).map(([key,definition]) => <option key={key} value={key}>{definition.label}</option>)}{(catalog.extensionBlocks ?? []).map((type) => <option key={type} value={type}>{catalog.extensionBlockDefinitions?.[type]?.label ?? type}</option>)}</select>
+      <button onClick={() => {const block: Block={id:crypto.randomUUID(),type:newType,props:{}};onChange(active && ['container','columns'].includes(active.type) ? patchBlock(value,active.id,{children:[...(active.children ?? []),block]}) : [...value,block]);choose(block.id);}}>添加区块</button>
     </div>
-  );
+    {(catalog.layouts ?? []).some((row) => row.value.kind === 'pattern') && <select aria-label="插入组合" value="" onChange={(event) => {const pattern=catalog.layouts?.find((row) => row.id === event.target.value);if(pattern) onChange([...value,...cloneBlocks(pattern.value.blocks)]);}}><option value="">插入组合</option>{catalog.layouts?.filter((row) => row.value.kind === 'pattern').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
+  </div>;
 }

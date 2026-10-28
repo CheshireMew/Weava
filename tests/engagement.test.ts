@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { Storage, Engagement, articleOutline } from '@weava/core';
+import { Storage, Engagement, articleOutline, SCHEMA_VERSION } from '@weava/core';
 import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,7 +24,7 @@ describe('article interactions', () => {
     db.exec("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES(1,'before'); CREATE TABLE records(scope TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id)); INSERT INTO records VALUES('example','kept',1,'{\"text\":\"原内容\"}','before');"); db.close();
     const store = new Storage(root); stores.push(store);
     expect(store.get('example', 'kept')!.value).toEqual({ text: '原内容' });
-    expect(store.raw.prepare('SELECT MAX(version) version FROM schema_migrations').get()).toEqual({ version: 2 });
+    expect(store.raw.prepare('SELECT MAX(version) version FROM schema_migrations').get()).toEqual({ version: SCHEMA_VERSION });
     expect(new Engagement(store.raw, 'secret').counts('article')).toEqual({ likes: 0, comments: 0 });
   });
   it('sets and cancels likes idempotently for each visitor', () => {

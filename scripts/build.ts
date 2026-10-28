@@ -2,15 +2,22 @@ import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
 import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
-import { existsSync, mkdirSync, renameSync, copyFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, copyFileSync, writeFileSync, readFileSync, symlinkSync } from 'node:fs';
+import { inside } from '../packages/core/src/storage.ts';
+import { extensionManifestSchema } from '../packages/core/src/extension-manager.ts';
+import { writeProgramManifest } from '../packages/core/src/programs.ts';
 const root = resolve(import.meta.dirname, '..');
-for (const name of ['apps/web/dist', 'apps/admin/dist', 'dist']) {
-  const folder = join(root, name);
+const output = process.env.WEAVA_BUILD_OUTPUT ? resolve(process.env.WEAVA_BUILD_OUTPUT) : null;
+if(output&&existsSync(join(output,'program.json')))throw new Error('版本构建目录已存在，请选择新的输出目录。');
+const adminOutput = output ? join(output, 'admin') : join(root, 'apps/admin/dist');
+const runtimeOutput = output ? join(output, 'runtime') : join(root, 'dist');
+for (const folder of [adminOutput, output ? join(output, 'web') : join(root, 'apps/web/dist'), runtimeOutput]) {
   if (existsSync(folder)) renameSync(folder, folder + '.retained-' + Date.now());
 }
 await viteBuild({
   root: join(root, 'apps/admin'),
   configFile: join(root, 'apps/admin/vite.config.ts'),
+  build: { outDir: adminOutput, emptyOutDir: false },
 });
 const result = spawnSync(
   process.execPath,
@@ -36,18 +43,24 @@ const shared = {
 await build({
   ...shared,
   entryPoints: [join(root, 'packages/core/src/worker.ts')],
-  outfile: join(root, 'dist/worker.mjs'),
+  outfile: join(runtimeOutput, 'worker.mjs'),
 });
 await build({
   ...shared,
   entryPoints: [join(root, 'packages/cli/src/index.ts')],
-  outfile: join(root, 'dist/weava.mjs'),
+  outfile: join(runtimeOutput, 'weava.mjs'),
 });
+await build({...shared,entryPoints:[join(root,'packages/core/src/program-check.ts')],outfile:join(runtimeOutput,'check.mjs')});
 const siteRoot = process.env.WEAVA_SITE;
-if (siteRoot && existsSync(join(siteRoot, 'extensions/index.ts')))
-  await build({
-    entryPoints: [join(siteRoot, 'extensions/index.ts')],
-    outfile: join(siteRoot, 'extensions/index.mjs'),
+if (siteRoot) {
+  const folder = join(siteRoot, 'extensions'), manifest = join(folder, 'manifest.json');
+  const outputs = existsSync(manifest) ? extensionManifestSchema.parse(JSON.parse(readFileSync(manifest, 'utf8'))).extensions.map((item) => inside(folder, item.file)) : [join(folder, 'index.mjs')];
+  for (const outfile of outputs) {
+    const source = outfile.replace(/\.mjs$/, '.ts');
+    if (!existsSync(source)) { if (existsSync(manifest) && !existsSync(outfile)) throw new Error('扩展源码或编译结果不存在：' + source); continue; }
+    await build({
+    entryPoints: [source],
+    outfile,
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -57,4 +70,7 @@ if (siteRoot && existsSync(join(siteRoot, 'extensions/index.ts')))
       js: 'import {createRequire as _createRequire} from "node:module"; const require=_createRequire(import.meta.url);',
     },
   });
+  }
+}
+if(output){if(!existsSync(join(output,'node_modules')))symlinkSync(join(root,'node_modules'),join(output,'node_modules'),'junction');writeProgramManifest(output,join(root,'node_modules'));}
 console.log('Weava production build complete.');

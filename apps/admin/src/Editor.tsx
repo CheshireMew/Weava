@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSelectors, type SelectedMedia } from './Selectors.tsx';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
@@ -24,6 +25,11 @@ import {
   TableCellNode,
   INSERT_TABLE_COMMAND,
   $createTableNodeWithDimensions,
+  $insertTableRowAtSelection,
+  $insertTableColumnAtSelection,
+  $deleteTableRowAtSelection,
+  $deleteTableColumnAtSelection,
+  $isTableSelection,
 } from '@lexical/table';
 import {
   TRANSFORMERS,
@@ -33,6 +39,8 @@ import {
 } from '@lexical/markdown';
 import {
   $getSelection,
+  $getNodeByKey,
+  $setSelection,
   $isRangeSelection,
   $createParagraphNode,
   $createTextNode,
@@ -65,38 +73,42 @@ class MediaNode extends DecoratorNode<any> {
   __src: string;
   __alt: string;
   __kind: string;
+  __caption: string;
   static getType() {
     return 'image';
   }
   static importDOM(): any {
     return {
       img: (el: HTMLImageElement) => ({
-        conversion: () => ({ node: new MediaNode(el.src, el.alt) }),
+        conversion: () => ({ node: new MediaNode(el.getAttribute('src') ?? el.src, el.alt, 'image', undefined, el.closest('figure')?.querySelector('figcaption')?.textContent ?? '') }),
         priority: 1,
       }),
       video: (el: HTMLVideoElement) => ({
-        conversion: () => ({ node: new MediaNode(el.src, '', 'video') }),
+        conversion: () => ({ node: new MediaNode(el.getAttribute('src') ?? el.src, '', 'video', undefined, el.closest('figure')?.querySelector('figcaption')?.textContent ?? '') }),
         priority: 1,
       }),
+      audio: (el: HTMLAudioElement) => ({ conversion: () => ({ node: new MediaNode(el.getAttribute('src') ?? el.src, '', 'audio') }), priority: 1 }),
     };
   }
   static clone(n: MediaNode) {
-    return new MediaNode(n.__src, n.__alt, n.__kind, n.__key);
+    return new MediaNode(n.__src, n.__alt, n.__kind, n.__key, n.__caption);
   }
-  constructor(src = '', alt = '', kind = 'image', key?: NodeKey) {
+  constructor(src = '', alt = '', kind = 'image', key?: NodeKey, caption = '') {
     super(key);
     this.__src = src;
     this.__alt = alt;
     this.__kind = kind;
+    this.__caption = caption;
   }
   createDOM() {
-    return document.createElement('span');
+    return document.createElement('div');
   }
+  isInline() { return false; }
   updateDOM() {
     return false;
   }
   static importJSON(v: any) {
-    return new MediaNode(v.src, v.altText, v.kind);
+    return new MediaNode(v.src, v.altText, v.kind, undefined, v.caption);
   }
   exportJSON(): any {
     return {
@@ -106,15 +118,43 @@ class MediaNode extends DecoratorNode<any> {
       src: this.__src,
       altText: this.__alt,
       kind: this.__kind,
+      caption: this.__caption,
     };
   }
   decorate() {
-    return this.__kind === 'video' ? (
-      <video src={this.__src} controls />
-    ) : (
-      <img src={this.__src} alt={this.__alt} />
-    );
+    return <MediaElement nodeKey={this.getKey()} src={this.__src} alt={this.__alt} kind={this.__kind} caption={this.__caption} />;
   }
+  exportDOM(): any {
+    const figure = document.createElement('figure');
+    if (this.__kind === 'file') { const link = document.createElement('a'); link.href = this.__src; link.textContent = this.__alt || '下载附件'; figure.append(link); }
+    else { const media = document.createElement(this.__kind === 'audio' ? 'audio' : this.__kind === 'video' ? 'video' : 'img'); media.setAttribute('src', this.__src);
+      if (this.__kind === 'image') media.setAttribute('alt', this.__alt); else media.setAttribute('controls', ''); figure.append(media); }
+    if (this.__caption) { const caption = document.createElement('figcaption'); caption.textContent = this.__caption; figure.append(caption); }
+    return { element: figure };
+  }
+}
+function MediaElement({ nodeKey, src, alt, kind, caption }: { nodeKey: string; src: string; alt: string; kind: string; caption: string }) {
+  const [editor] = useLexicalComposerContext(), selectors = useSelectors();
+  const [editing, setEditing] = useState(false), [draft, setDraft] = useState({ src, alt, caption, kind });
+  return <figure className="editor-media" contentEditable={false}>
+    {kind === 'video' ? <video src={src} controls /> : kind === 'audio' ? <audio src={src} controls /> : kind === 'file' ? <a href={src}>{alt || '下载附件'}</a> : <img src={src} alt={alt} />}
+    {caption && <figcaption>{caption}</figcaption>}<button type="button" onClick={() => { setDraft({ src, alt, caption, kind }); setEditing(!editing); }}>编辑媒体</button>
+    {editing && <div className="media-inline-settings"><label>地址<input value={draft.src} onChange={(event) => setDraft({ ...draft, src: event.target.value })} /></label><label>图片说明或附件文字<input value={draft.alt} onChange={(event) => setDraft({ ...draft, alt: event.target.value })} /></label><label>图注<input value={draft.caption} onChange={(event) => setDraft({ ...draft, caption: event.target.value })} /></label>
+      <button type="button" onClick={async () => { const media = await selectors.media(); if (media) setDraft({ src: media.url, alt: media.alt ?? media.name, caption: media.caption ?? '', kind: media.kind }); }}>更换媒体</button>
+      <button type="button" onClick={() => { editor.update(() => { const node = $getNodeByKey(nodeKey); if (node instanceof MediaNode) { const writable = node.getWritable(); writable.__src = draft.src; writable.__alt = draft.alt; writable.__caption = draft.caption; writable.__kind = draft.kind; } }); setEditing(false); }}>保存媒体修改</button>
+      <button type="button" onClick={() => editor.update(() => $getNodeByKey(nodeKey)?.remove())}>移除媒体</button>
+    </div>}
+  </figure>;
+}
+function TableTools() {
+  const [editor] = useLexicalComposerContext(), [inside, setInside] = useState(false);
+  useEffect(() => editor.registerUpdateListener(({ editorState }) => editorState.read(() => {
+    const selection = $getSelection();
+    let node = $isRangeSelection(selection) || $isTableSelection(selection) ? selection.anchor.getNode() : null;
+    while (node && !(node instanceof TableCellNode)) node = node.getParent();
+    setInside(!!node);
+  })), [editor]);
+  return inside ? <div className="table-tools">{[['上方加行', () => $insertTableRowAtSelection(false)], ['下方加行', () => $insertTableRowAtSelection(true)], ['左侧加列', () => $insertTableColumnAtSelection(false)], ['右侧加列', () => $insertTableColumnAtSelection(true)], ['移除行', $deleteTableRowAtSelection], ['移除列', $deleteTableColumnAtSelection]].map(([label, command]) => <button key={String(label)} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => editor.update(command as () => void)}>{label as string}</button>)}</div> : null;
 }
 const image: Transformer = {
   type: 'text-match',
@@ -126,8 +166,8 @@ const image: Transformer = {
   },
   export: (node) =>
     node instanceof MediaNode
-      ? node.__kind === 'video'
-        ? `<video src="${node.__src}" controls></video>`
+      ? node.__kind !== 'image' || node.__caption
+        ? (node.exportDOM().element as HTMLElement).outerHTML
         : `![${node.__alt}](${node.__src})`
       : null,
 };
@@ -192,9 +232,12 @@ function Toolbar({
   onMedia,
 }: {
   onMode: (markdown: string) => void;
-  onMedia: () => Promise<{ url: string; name: string } | null>;
+  onMedia: () => Promise<SelectedMedia | null>;
 }) {
   const [editor] = useLexicalComposerContext();
+  const selectors = useSelectors();
+  const linkSelection = useRef<ReturnType<typeof $getSelection>>(null);
+  const captureLink = (mode: 'link' | 'video') => { linkSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); setLink(link ? null : mode); };
   const [link, setLink] = useState<'link' | 'video' | null>(null),
     [url, setUrl] = useState('');
   function block(kind: string) {
@@ -219,7 +262,7 @@ function Toolbar({
     });
   }
   const button = (title: string, icon: any, run: () => void) => (
-    <button type="button" title={title} aria-label={title} onClick={run}>
+    <button type="button" title={title} aria-label={title} onMouseDown={(event) => event.preventDefault()} onClick={run}>
       {icon}
     </button>
   );
@@ -241,8 +284,8 @@ function Toolbar({
           editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
         )}
         {button('代码', <Code size={17} />, () => block('code'))}
-        {button('链接', <Link size={16} />, () => setLink(link ? null : 'link'))}
-        {button('插入视频', <Video size={17} />, () => setLink(link ? null : 'video'))}
+        {button('链接', <Link size={16} />, () => captureLink('link'))}
+        {button('插入视频', <Video size={17} />, () => captureLink('video'))}
         {button('表格', <Table size={16} />, () =>
           editor.dispatchCommand(INSERT_TABLE_COMMAND, {
             rows: '3',
@@ -250,11 +293,13 @@ function Toolbar({
             includeHeaders: true,
           }),
         )}
-        {button('插入图片', <ImagePlus size={17} />, async () => {
+        {button('插入媒体', <ImagePlus size={17} />, async () => {
+          const selection = editor.getEditorState().read(() => $getSelection()?.clone());
           const media = await onMedia();
           if (media)
             editor.update(() => {
-              $insertNodes([new MediaNode(media.url, media.name)]);
+              if (selection) $setSelection(selection);
+              $insertNodes([new MediaNode(media.url, media.alt ?? media.name, media.kind, undefined, media.caption)]);
             });
         })}
         <span className="toolbar-spacer" />
@@ -279,16 +324,23 @@ function Toolbar({
           />
           <button
             onClick={() => {
-              if (link === 'video')
-                editor.update(() => {
+              editor.update(() => {
+                if (linkSelection.current) $setSelection(linkSelection.current);
+                if (link === 'video') {
                   $insertNodes([new MediaNode(url, '', 'video')]);
-                });
-              else editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);
+                } else editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);
+              });
               setLink(null);
             }}
           >
             {link === 'video' ? '插入视频' : '插入链接'}
           </button>
+          {link === 'link' && <button type="button" onClick={async () => {
+            const selection = linkSelection.current;
+            const content = await selectors.content();
+            if (content) editor.update(() => { if (selection) $setSelection(selection); editor.dispatchCommand(TOGGLE_LINK_COMMAND, 'entry:' + encodeURIComponent(content.id)); });
+            setLink(null);
+          }}>链接到内容</button>}
         </div>
       )}
     </>
@@ -302,7 +354,7 @@ export function Editor({
 }: {
   value: Document;
   onChange: (value: Document) => void;
-  onMedia: () => Promise<{ url: string; name: string } | null>;
+  onMedia: () => Promise<SelectedMedia | null>;
   onError: (message: string) => void;
 }) {
   const [mode, setMode] = useState(value.format === 'lexical' ? 'visual' : 'source');
@@ -392,6 +444,7 @@ export function Editor({
         <ListPlugin />
         <LinkPlugin />
         <TablePlugin hasCellMerge={false} />
+        <TableTools />
         <OnChangePlugin
           ignoreSelectionChange
           onChange={(state) =>

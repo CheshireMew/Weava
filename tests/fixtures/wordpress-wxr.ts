@@ -1,0 +1,21 @@
+const cdata = (value: string) => '<![CDATA[' + value.replaceAll(']]>', ']]]]><![CDATA[>') + ']]>';
+export function wordpressFixture(options: { mediaUrl?: string; missingMediaUrl?: string; title?: string } = {}) {
+  const media = options.mediaUrl ?? 'https://wordpress.example/wp-content/uploads/photo.png';
+  const item = (id: number, type: string, title: string, slug: string, body: string, extra = '') => `<item><title>${cdata(title)}</title><link>https://wordpress.example/${slug}/</link><dc:creator>owner</dc:creator><content:encoded>${cdata(body)}</content:encoded><excerpt:encoded>${cdata('摘要 ' + title)}</excerpt:encoded><wp:post_id>${id}</wp:post_id><wp:post_type>${type}</wp:post_type><wp:post_name>${slug}</wp:post_name><wp:status>publish</wp:status><wp:post_date_gmt>2026-10-01 12:00:00</wp:post_date_gmt><wp:post_modified_gmt>2026-10-02 12:00:00</wp:post_modified_gmt>${extra}</item>`;
+  const meta = (key: string, value: string) => `<wp:postmeta><wp:meta_key>${key}</wp:meta_key><wp:meta_value>${cdata(value)}</wp:meta_value></wp:postmeta>`;
+  const comment = (id: number, approved: number) => `<wp:comment><wp:comment_id>${id}</wp:comment_id><wp:comment_author>读者 ${id}</wp:comment_author><wp:comment_content>${cdata('<p>评论正文 ' + id + '</p>')}</wp:comment_content><wp:comment_date_gmt>2026-10-02 12:00:00</wp:comment_date_gmt><wp:comment_approved>${approved}</wp:comment_approved><wp:comment_parent>0</wp:comment_parent></wp:comment>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:wp="http://wordpress.org/export/1.2/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:excerpt="http://wordpress.org/export/1.2/excerpt/" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><title>来源站点</title><link>https://wordpress.example/</link><description>来源说明</description><language>zh-CN</language><wp:wxr_version>1.2</wp:wxr_version><wp:base_blog_url>https://wordpress.example/</wp:base_blog_url>
+<wp:author><wp:author_login>owner</wp:author_login><wp:author_display_name>作者名字</wp:author_display_name></wp:author>
+<wp:category><wp:term_id>4</wp:term_id><wp:category_nicename>writing</wp:category_nicename><wp:cat_name>写作</wp:cat_name></wp:category>
+<wp:category><wp:term_id>5</wp:term_id><wp:category_nicename>guides</wp:category_nicename><wp:category_parent>writing</wp:category_parent><wp:cat_name>教程</wp:cat_name></wp:category>
+<wp:tag><wp:term_id>6</wp:term_id><wp:tag_slug>design</wp:tag_slug><wp:tag_name>设计</wp:tag_name></wp:tag>
+${item(1, 'post', options.title ?? '来源文章', 'hello', '<!-- wp:paragraph --><p>文章正文 <a href="https://wordpress.example/about/#team">关于团队</a></p><!-- /wp:paragraph --><!-- wp:image {"id":100} --><figure><img src="' + media.replace('.png', '-300x150.png') + '" alt="正文说明"><figcaption>正文图注</figcaption></figure><!-- /wp:image -->', '<category domain="category" nicename="guides">教程</category><category domain="post_tag" nicename="design">设计</category>' + meta('_thumbnail_id', '100') + comment(1, 1) + comment(2, 0))}
+${item(10, 'page', '关于我们', 'about', '<!-- wp:heading --><h2 id="team">团队介绍</h2><!-- /wp:heading --><!-- wp:block {"ref":40} /-->')}
+${item(11, 'page', '团队页面', 'team', '<!-- wp:paragraph --><p>团队页面正文</p><!-- /wp:paragraph -->', '<wp:post_parent>10</wp:post_parent>').replace('<link>https://wordpress.example/team/</link>', '<link>https://wordpress.example/?page_id=11</link>')}
+${item(12, 'book', '一本书', 'books', '<!-- wp:paragraph --><p>自定义类型正文</p><!-- /wp:paragraph -->', meta('isbn', '12345') + '<category domain="genre" nicename="fiction">小说</category>')}
+${item(13, 'page', '原插件页面', 'contact', '<!-- wp:acf/map {"zoom":3} /--><p>[contact-form-7 id="3"]</p>').replace('<wp:status>publish</wp:status>', '<wp:status>draft</wp:status>')}
+${item(40, 'wp_block', '可复用来源', 'reusable', '<!-- wp:paragraph --><p>可复用正文</p><!-- /wp:paragraph -->')}
+${item(100, 'attachment', '来源图片', 'photo', '', '<wp:attachment_url>' + media + '</wp:attachment_url>' + meta('_wp_attachment_image_alt', '媒体说明'))}
+${options.missingMediaUrl ? item(101, 'attachment', '缺失图片', 'missing', '', '<wp:attachment_url>' + options.missingMediaUrl + '</wp:attachment_url>') : ''}
+${item(20, 'nav_menu_item', '菜单', 'menu', '')}</channel></rss>`;
+}

@@ -1,4 +1,4 @@
-import { Site, Analytics, Engagement, atomicJson, now, extension } from '@weava/core';
+import { Site, Analytics, Engagement, atomicJson, now, extension, runSchedulesAsync } from '@weava/core';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 const root = resolve(
@@ -34,12 +34,19 @@ const stop = () => {
   atomicJson(runtimeFile, { ...state, status: 'stopped' });
 };
 process.once('exit', stop);
-process.once('SIGTERM', () => {
-  stop();
-  process.exit(0);
-});
-process.once('SIGINT', () => {
-  stop();
-  process.exit(0);
-});
 export const siteExtension = extension(site, { analytics });
+let stopping = false;
+const shutdown = async () => {
+  if (stopping) return; stopping = true; clearInterval(jobWatch);
+  try { await (await siteExtension).stop(); analytics.close(); site.close(); }
+  catch (error) { console.error('Extension shutdown failed:', error); }
+  finally { stop(); process.exit(0); }
+};
+process.once('SIGTERM', shutdown);
+process.once('SIGINT', shutdown);
+// Wait for extensions to register their renderers before processing overdue plans.
+void siteExtension.then((manager) => {
+  let running=false;
+  const tick = async () => { if(running||stopping)return;running=true;try { await runSchedulesAsync(site,(release)=>manager.validateRelease(release)); } catch (error) { console.error('Scheduled publication failed:', error); }finally{running=false;} };
+  tick(); const timer = setInterval(tick, 5000); timer.unref();
+});

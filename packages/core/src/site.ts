@@ -2,7 +2,12 @@ import { join, resolve } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { Storage, now, uuid, digest } from './storage.ts';
-import { renderDocument, plain, tokens, validateFields } from './documents.ts';
+import { renderDocument, validateFields } from './documents.ts';
+import { loadRelease, storeRelease, searchRelease } from './publication-store.ts';
+import { preparePublication, publish } from './publication.ts';
+import { saveTerm, ensureTerm, attachTerms } from './taxonomy.ts';
+import { layouts, referencedLayouts, visitBlocks } from './layouts.ts';
+import type { Term } from '@weava/contracts';
 import {
   defaultSettings,
   entrySchema,
@@ -15,13 +20,20 @@ import {
   type Job,
   type ContentType,
   type Block,
-  type FieldDefinition,
+  type PublishOptions,
+  validateBlockProps,
+  blockDefinitions,
+  type BlockDefinition,
 } from '@weava/contracts';
-import { load } from 'cheerio';
 export class Site {
   store: Storage;
   private releaseCache = new Map<string, Release>();
   private mediaPolicyCache?: { key: string; privatePaths: Set<string> };
+  blockRenderers: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {};
+  extensionBlockDefinitions: Record<string, BlockDefinition> = {};
+  extensionThemes: string[] = [];
+  extensionCleanup?: () => void;
+  publicationValidators: ((release: Release) => void)[] = [];
   constructor(public root: string) {
     this.root = resolve(root);
     this.store = new Storage(root);
@@ -31,6 +43,7 @@ export class Site {
       writeFileSync(join(root, 'cli-token'), randomBytes(32).toString('hex'));
   }
   close() {
+    this.extensionCleanup?.();
     this.store.close();
   }
   settings() {
@@ -38,6 +51,16 @@ export class Site {
   }
   saveSettings(value: Settings, revision: number) {
     if (!value.name?.trim()) throw new WeavaError('请填写网站名称。');
+    const navigation = (items: Settings['navigation'], depth = 0) => {
+      if (!Array.isArray(items) || depth > 5) throw new WeavaError('导航层级最多为六层。');
+      for (const item of items) {
+        if (!item.label?.trim() || typeof item.url !== 'string') throw new WeavaError('导航文字或网址无效。');
+        try { const url = new URL(item.url, value.domain); if (!['http:', 'https:', 'mailto:', 'tel:', 'entry:'].includes(url.protocol)) throw new Error(); }
+        catch { throw new WeavaError('导航网址无效：' + item.label); }
+        if (item.children) navigation(item.children, depth + 1);
+      }
+    };
+    navigation(value.navigation);
     try {
       new URL(value.domain);
       new Intl.DateTimeFormat(value.language, { timeZone: value.timezone });
@@ -58,7 +81,25 @@ export class Site {
       value.themeConfig.spacing > 100
     )
       throw new WeavaError('主题尺寸超出范围。');
-    return this.store.put('settings', 'site', value, revision);
+    return this.store.raw.transaction(() => {
+      for (const item of value.taxonomies) {
+        const current = this.store.get('term', item.id);
+        if (!current) ensureTerm(this, item.label, item.kind ?? 'category', item.id);
+        else if (current.value.label !== item.label || (item.slug && current.value.slug !== item.slug) || current.value.parentId !== item.parentId)
+          saveTerm(this, { ...current.value, label: item.label, slug: item.slug ?? current.value.slug, parentId: item.parentId }, current.revision);
+      }
+      return this.store.put('settings', 'site', value, revision);
+    }).immediate();
+  }
+  terms() { return this.store.list('term'); }
+  saveTerm(value: Term, revision: number | null) {
+    return this.store.raw.transaction(() => {
+      const saved = saveTerm(this, value, revision);
+      const settings = this.settings();
+      if (settings.value.taxonomies.some((term: any) => term.id === value.id))
+        this.store.put('settings', 'site', { ...settings.value, taxonomies: settings.value.taxonomies.map((term: any) => term.id === value.id ? { ...term, ...saved.value } : term) }, settings.revision);
+      return saved;
+    }).immediate();
   }
   saveType(value: ContentType, revision: number | null) {
     const type = typeSchema.parse(value);
@@ -66,6 +107,7 @@ export class Site {
     for (const f of type.fields) {
       if (seen.has(f.key)) throw new WeavaError('字段名称重复：' + f.key);
       seen.add(f.key);
+      if (f.filterable && !['text', 'number', 'boolean', 'date', 'select', 'reference'].includes(f.type)) throw new WeavaError('这个字段类型不能用于列表筛选：' + f.label);
     }
     const affected = [];
     for (const row of this.store.list('entry').filter((r) => r.value.type === type.id)) {
@@ -114,14 +156,16 @@ export class Site {
     if (previous) input.fields = { ...previous.value.fields, ...input.fields };
     renderDocument(input.document);
     this.validateBlocks(input.blocks);
+    const body = (items: Block[]): boolean => items.some((block) => block.type === 'entry-body' || body(block.children ?? []));
+    if (body(input.blocks)) throw new WeavaError('内容正文占位只用于模板，页面内容不能引用自身。');
     if (previous) {
       const a = { ...previous.value, updatedAt: '' },
         b = { ...input, updatedAt: '' };
       if (digest(a) === digest(b)) return previous;
     }
-    return this.store.put('entry', input.id, input, revision);
+    return this.store.raw.transaction(() => this.store.put('entry', input.id, attachTerms(this, input, previous?.value), revision)).immediate();
   }
-  validateBlocks(blocks: Block[]) {
+  validateBlocks(blocks: Block[], publishing = false) {
     const ids = new Set<string>();
     const visit = (items: Block[], depth: number) => {
       if (depth > 12) throw new WeavaError('页面区块嵌套过深。');
@@ -130,6 +174,10 @@ export class Site {
         ids.add(b.id);
         if (!blockTypes.includes(b.type) && !this.store.get('extension-block', b.type))
           throw new WeavaError('未知区块：' + b.type);
+        const definition = this.extensionBlockDefinitions[b.type] ?? blockDefinitions[b.type];
+        const placeholders = Object.fromEntries((definition?.fields ?? []).filter((field) => field.required && b.bindings?.[field.key]).map((field) => [field.key, field.control === 'number' ? 0 : '绑定值']));
+        try { validateBlockProps(b.type, { ...b.props, ...placeholders }, publishing, definition); }
+        catch (error: any) { throw new WeavaError(error.message, 400, { blockId: b.id, type: b.type }); }
         if (b.children) visit(b.children, depth + 1);
       }
     };
@@ -153,11 +201,12 @@ export class Site {
     const key = id ?? this.store.state('release');
     if (!key) return null;
     const cached = this.releaseCache.get(key);
-    if (cached) return cached;
+    if (cached) return !id || this.store.raw.prepare('SELECT 1 FROM releases WHERE id=?').get(key) ? cached : null;
     const row = this.store.raw.prepare('SELECT data FROM releases WHERE id=?').get(key) as any;
     if (!row) return null;
-    const release = JSON.parse(row.data);
+    const release = loadRelease(this.store.raw, row.data);
     this.releaseCache.set(key, release);
+    if(this.releaseCache.size>3)this.releaseCache.delete(this.releaseCache.keys().next().value!);
     if (this.releaseCache.size > 2)
       this.releaseCache.delete(this.releaseCache.keys().next().value!);
     return release;
@@ -173,8 +222,10 @@ export class Site {
     const hidden = new Set(
       release.entries.filter((e) => e.visibility === 'private').map((e) => e.path),
     );
+    const hiddenIds = new Set(release.entries.filter((entry) => entry.visibility === 'private').map((entry) => entry.id));
     const navigation = (items: Settings['navigation']): Settings['navigation'] =>
       items.filter((item) => {
+        if (item.url.startsWith('entry:')) return !hiddenIds.has(decodeURIComponent(item.url.slice(6)));
         try {
           const url = new URL(item.url, release.settings.domain);
           return url.origin !== new URL(release.settings.domain).origin || !hidden.has(normalizePath(url.pathname));
@@ -195,21 +246,36 @@ export class Site {
         for (const match of JSON.stringify(value).matchAll(/\/media\/[\w%./@+~-]+/g))
           into.add(decodeURIComponent(match[0].replace(/[\\]+$/, '')));
       };
-      const entryMedia = (entry: Entry, into: Set<string>) =>
-        collect([entry.cover, entry.document, entry.blocks, entry.fields], into);
+      const entryMedia = (entry: Entry, into: Set<string>, catalog: Pick<Release, 'settings' | 'types' | 'layouts'>) =>
+        collect([entry.cover, entry.blocks.length ? null : entry.document, entry.blocks, entry.fields, referencedLayouts(entry, catalog)], into);
       const release = this.release();
       for (const entry of release?.entries ?? [])
-        entryMedia(entry, entry.visibility === 'private' ? privatePaths : publicPaths);
+        entryMedia(entry, entry.visibility === 'private' ? privatePaths : publicPaths, release!);
       collect(release?.settings ?? {}, publicPaths);
+      if (release) collect(referencedLayouts(undefined, release), publicPaths);
+      const working = { settings: this.settings().value, types: this.store.list('type').map((row) => row.value), layouts: layouts(this).map((row) => row.value) };
       for (const row of this.store.list('entry'))
-        if (row.value.visibility === 'private') entryMedia(row.value, privatePaths);
+        if (row.value.visibility === 'private') entryMedia(row.value, privatePaths, working);
       const privateHistory = this.store.raw.prepare("SELECT data FROM revisions WHERE scope='entry' AND json_extract(data,'$.visibility')='private'").all() as { data: string }[];
-      for (const row of privateHistory) entryMedia(JSON.parse(row.data), privatePaths);
+      for (const row of privateHistory) entryMedia(JSON.parse(row.data), privatePaths, working);
+      for(const row of this.store.raw.prepare('SELECT data FROM releases').iterate() as Iterable<{data:string}>){const historical=loadRelease(this.store.raw,row.data);for(const entry of historical.entries)if(entry.visibility==='private')entryMedia(entry,privatePaths,historical);}
+      for (const row of this.store.list('history-archive')) for (const path of row.value.privateMedia ?? []) privatePaths.add(path);
       // Originals and responsive derivatives have the same access policy.
-      for (const row of this.store.list('media')) {
+      const media = this.store.list('media');
+      for (const row of media) {
         const family: string[] = [row.value.url, ...(row.value.derivatives ?? []).map((d: any) => d.url)];
         if (family.some((url) => privatePaths.has(url))) family.forEach((url) => privatePaths.add(url));
         if (family.some((url) => publicPaths.has(url))) family.forEach((url) => publicPaths.add(url));
+      }
+      let inherited = true;
+      while (inherited) {
+        inherited = false;
+        for (const row of media) {
+          const parent = row.value.parentId ? media.find((item) => item.id === row.value.parentId) : null;
+          if (!parent || !privatePaths.has(parent.value.url)) continue;
+          for (const url of [row.value.url, ...(row.value.derivatives ?? []).map((item: any) => item.url)])
+            if (!privatePaths.has(url)) { privatePaths.add(url); inherited = true; }
+        }
       }
       publicPaths.forEach((url) => privatePaths.delete(url));
       this.mediaPolicyCache = { key, privatePaths };
@@ -218,158 +284,26 @@ export class Site {
   }
   redirect(url: URL, includePrivate = false) {
     const path = normalizePath(url.pathname);
-    const queryKey = path === '/' && url.searchParams.has('p') ? '/?p=' + url.searchParams.get('p') : path;
-    const value = this.store.get('redirect', queryKey)?.value;
-    if (!value) return null;
+    const parameter = url.searchParams.has('p') ? 'p' : url.searchParams.has('page_id') ? 'page_id' : null;
+    const queryKey = path === '/' && parameter ? '/?' + parameter + '=' + url.searchParams.get(parameter) : path;
     const release = this.visibleRelease(includePrivate);
+    const value = release?.redirects?.[queryKey];
+    if (!value || release?.entries.some((entry) => entry.path === queryKey)) return null;
     if (value.entryId && !release?.entries.some((e) => e.id === value.entryId)) return null;
-    if (!includePrivate && value.target.startsWith('/media/') && this.isPrivateMedia(value.target)) return null;
+    const target = value.entryId ? release!.entries.find((entry) => entry.id === value.entryId)!.path : value.target;
+    if (target === path) return null;
+    if (!includePrivate && target.startsWith('/media/') && this.isPrivateMedia(target)) return null;
     const query = new URLSearchParams(url.search);
-    if (queryKey !== path) query.delete('p');
-    return value.target + (query.size ? '?' + query.toString() : '');
+    if (queryKey !== path && parameter) query.delete(parameter);
+    return target + (query.size ? (target.includes('?') ? '&' : '?') + query.toString() : '');
   }
-  publish(
-    // Visibility is independent of the draft/published lifecycle.
-    options: {
-      ids?: string[];
-      label?: string;
-      failAt?: string;
-      jobId?: string;
-      revisions?: Record<string, number>;
-    } = {},
-  ) {
-    const snapshot = this.store.raw.transaction(() => ({
-      previous: this.release(),
-      drafts: this.store.list('entry'),
-      settings: this.settings().value,
-      types: this.store.list('type').map((r) => r.value),
-    }))();
-    const previous = snapshot.previous;
-    const drafts = snapshot.drafts;
-    const selected = options.ids ? new Set(options.ids) : null;
-    if (selected)
-      for (const id of selected) {
-        const row = drafts.find((r) => r.id === id);
-        if (!row) throw new WeavaError('内容不存在：' + id, 404);
-        if (options.revisions?.[id] && options.revisions[id] !== row.revision)
-          throw new WeavaError('待发布内容已变化，请重新载入。', 409);
-      }
-    const entries = selected ? new Map(previous?.entries.map((e) => [e.id, e]) ?? []) : new Map();
-    const time = now();
-    for (const row of drafts) {
-      if (selected && !selected.has(row.id)) continue;
-      const e = row.value as Entry;
-      if (e.status === 'archived') {
-        entries.delete(e.id);
-        continue;
-      }
-      // A new draft is included only by explicit selection; existing published entries update in full-site publication.
-      if (e.status === 'draft' && !selected && !previous?.entries.some((p) => p.id === e.id))
-        continue;
-      entries.set(e.id, {
-        ...e,
-        status: 'published',
-        publishedAt:
-          e.publishedAt || previous?.entries.find((p) => p.id === e.id)?.publishedAt || time,
-        html: renderDocument(e.document),
-        modifiedAt: row.updatedAt,
-        revisionId: row.revision,
-      });
-    }
-    const paths = new Map<string, string>();
-    for (const e of entries.values()) {
-      if (paths.has(e.path)) throw new WeavaError('网址重复：' + e.path);
-      paths.set(e.path, e.id);
-      this.validateBlocks(e.blocks);
-      const def = snapshot.types.find((t) => t.id === e.type);
-      if (e.kind === 'content' && def) validateFields(def.fields, e.fields);
-    }
-    const missing: any[] = [];
-    const references = (defs: FieldDefinition[], values: Record<string, any>, id: string) => {
-      for (const field of defs) {
-        const value = values[field.key];
-        if (value === undefined || value === null || value === '') continue;
-        for (const item of field.multiple ? value : [value]) {
-          if (field.type === 'reference' && !entries.has(item))
-            missing.push({ id, field: field.key, reference: item });
-          if (field.type === 'group') references(field.fields ?? [], item, id);
-        }
-      }
-    };
-    for (const e of entries.values()) {
-      const def = snapshot.types.find((t) => t.id === e.type);
-      if (def) references(def.fields, e.fields, e.id);
-      const source = e.html + JSON.stringify(e.blocks) + JSON.stringify(e.fields) + ' ' + e.cover;
-      for (const match of source.matchAll(/\/media\/[\w%./@+~-]+/g)) {
-        const path = decodeURIComponent(match[0].replace(/[\\]+$/, ''));
-        if (!existsSync(join(this.root, path.slice(1)))) missing.push({ id: e.id, path });
-      }
-      if (!e.compatibility) {
-        const $ = load(e.html);
-        $('a[href]').each((_i, el) => {
-          const href = $(el).attr('href') ?? '';
-          if (href.startsWith('#') || !href.startsWith('/')) return;
-          const path = normalizePath(href);
-          const redirect = this.store.get('redirect', path)?.value;
-          if (
-            !paths.has(path) &&
-            !(redirect && (paths.has(redirect.target) || redirect.target.startsWith('/media/') || ['/rss.xml','/sitemap.xml'].includes(redirect.target))) &&
-            !/^\/(media|api|video|search)(\/|$)/.test(path) &&
-            !['/rss.xml', '/sitemap.xml'].includes(path)
-          )
-            missing.push({ id: e.id, path });
-        });
-      }
-    }
-    if (missing.length) throw new WeavaError('内容或媒体引用无效。', 400, missing.slice(0, 30));
-    const release: Release = {
-      id: uuid(),
-      createdAt: time,
-      entries: [...entries.values()],
-      settings: selected && previous ? previous.settings : snapshot.settings,
-      types: snapshot.types,
-      label: options.label ?? '发布',
-    };
-    if (options.failAt === 'validate') throw new WeavaError('测试：发布校验失败。');
-    this.store.raw
-      .transaction(() => {
-        if ((this.store.state('release') ?? null) !== (previous?.id ?? null))
-          throw new WeavaError('公开版本在发布期间发生变化，请重试。', 409);
-        this.store.raw
-          .prepare('INSERT INTO releases VALUES(?,?,?)')
-          .run(release.id, JSON.stringify(release), time);
-        const insert = this.store.raw.prepare('INSERT INTO search_documents VALUES(?,?,?,?,?)'),
-          fts = this.store.raw.prepare('INSERT INTO search_fts VALUES(?,?,?)');
-        for (const e of release.entries) {
-          if (!e.indexable || e.visibility === 'private') continue;
-          insert.run(release.id, e.id, e.path, e.title, e.description);
-          fts.run(
-            release.id,
-            e.id,
-            tokens(
-              e.title +
-                ' ' +
-                e.description +
-                ' ' +
-                plain(e.html) +
-                ' ' +
-                e.categories.join(' ') +
-                ' ' +
-                e.tags.join(' '),
-            ),
-          );
-        }
-        if (options.failAt === 'commit') throw new WeavaError('测试：发布提交失败。');
-        this.store.setState('release', release.id);
-        if (options.jobId)
-          this.updateJob(options.jobId, {
-            status: 'complete',
-            message: '发布已完成。',
-            result: { releaseId: release.id, entries: release.entries.length },
-          });
-      })
-      .immediate();
-    return release;
+  previewPublication(options: PublishOptions = {}) {
+    const { changes } = preparePublication(this, options);
+    return { ...changes, options: { ...options, baseReleaseId: changes.baseReleaseId,
+      reviewRevision: (this.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n } };
+  }
+  publish(options: PublishOptions = {}) {
+    return publish(this, options);
   }
   withdraw(id: string, revision: number, archive = false) {
     return this.store.raw
@@ -390,19 +324,7 @@ export class Site {
             label: archive ? '归档' : '撤下',
             entries: current.entries.filter((e) => e.id !== id),
           };
-          this.store.raw
-            .prepare('INSERT INTO releases VALUES(?,?,?)')
-            .run(next.id, JSON.stringify(next), next.createdAt);
-          this.store.raw
-            .prepare(
-              'INSERT INTO search_documents SELECT ?,entry_id,path,title,description FROM search_documents WHERE release_id=? AND entry_id<>?',
-            )
-            .run(next.id, current.id, id);
-          this.store.raw
-            .prepare(
-              'INSERT INTO search_fts SELECT ?,entry_id,tokens FROM search_fts WHERE release_id=? AND entry_id<>?',
-            )
-            .run(next.id, current.id, id);
+          storeRelease(this.store.raw, next);
           this.store.setState('release', next.id);
         }
         return saved;
@@ -410,21 +332,23 @@ export class Site {
       .immediate();
   }
   rollback(id: string) {
-    if (!this.release(id)) throw new WeavaError('公开版本不存在。', 404);
+    const release = this.release(id);
+    if (!release) throw new WeavaError('公开版本不存在。', 404);
+    this.validateReleaseExtensions(release);
     this.store.raw.transaction(() => this.store.setState('release', id)).immediate();
     return { releaseId: id };
   }
+  validateReleaseExtensions(release: Release) {
+    const missing = new Set<string>();
+    const check = (block: Block) => { if (!blockTypes.includes(block.type) && !this.blockRenderers[block.type]) missing.add(block.type); };
+    for (const entry of release.entries) visitBlocks(entry.blocks, check);
+    for (const layout of release.layouts ?? []) visitBlocks(layout.blocks, check);
+    if (!['weava', 'newsletter', ...this.extensionThemes].includes(release.settings.theme)) missing.add('主题 ' + release.settings.theme);
+    if (missing.size) throw new WeavaError('请先恢复或启用公开版本所需的扩展。', 409, [...missing]);
+  }
   search(query: string, releaseId?: string) {
-    const release = releaseId ?? this.store.state('release');
-    const terms = tokens(query).split(' ').filter(Boolean);
-    if (!release || !terms.length) return [];
-    const match = terms.map((t) => '"' + t.replace(/"/g, '') + '"').join(' AND ');
-    const publicIds = new Set(this.visibleRelease(false, release)?.entries.map((e) => e.id) ?? []);
-    return this.store.raw
-      .prepare(
-        `SELECT d.entry_id id,d.path,d.title,d.description FROM search_fts s JOIN search_documents d ON d.release_id=s.release_id AND d.entry_id=s.entry_id WHERE search_fts MATCH ? AND s.release_id=? ORDER BY rank LIMIT 60`,
-      )
-      .all(match, release).filter((row: any) => publicIds.has(row.id));
+    const release = this.visibleRelease(false, releaseId);
+    return release ? searchRelease(this.store.raw, release, query) : [];
   }
   setOwner(password: string) {
     if (password.length < 10) throw new WeavaError('密码至少 10 个字符。');

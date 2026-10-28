@@ -8,9 +8,18 @@ import {
   responsiveImages,
   imageAttributes,
   escape as e,
+  renderNavigation,
+  resolveContentLinks,
+  queryPublished,
+  contentQuery,
+  pageLinks,
+  renderEntryTemplate,
+  renderSharedRegion,
+  layouts,
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
+import { entrySchema } from '@weava/contracts';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
 const owner = site.authenticate(token);
@@ -38,18 +47,33 @@ if (preview) {
         .prepare('SELECT data FROM revisions WHERE scope=? AND id=? AND revision=?')
         .get('entry', id, version)
     : null;
-  const value = version
+  let value = version
     ? stored
       ? JSON.parse((stored as any).data)
       : null
     : site.store.get('entry', id)?.value;
+  if (id.startsWith('layout:')) {
+    const layout = layouts(site).find((row) => row.id === id.slice(7))?.value;
+    if (!layout) return new Response('布局不存在。', { status: 404 });
+    value = entrySchema.parse({ id, kind: layout.appliesTo === 'content' ? 'content' : 'page', title: '示例标题', description: '示例摘要', path: '/layout-preview/',
+      type: site.store.list('type')[0]?.id ?? 'post', template: layout.kind === 'template' ? layout.id : 'page', document: { version: 1, format: 'markdown', source: '## 示例正文\n\n这里显示内容正文。' },
+      blocks: layout.kind === 'template' ? [] : layout.blocks });
+  }
   entry = value ? { ...value, html: renderDocument(value.document) } : null;
   if (!entry) return new Response('草稿修订不存在。', { status: 404 });
   release = {
     ...release,
     settings: site.settings().value,
     types: site.store.list('type').map((r) => r.value),
+    layouts: layouts(site).map((row) => row.value),
   };
+  const selectedLayout = Astro.url.searchParams.get('layout');
+  if (selectedLayout) {
+    const layout = release.layouts.find((layout) => layout.id === selectedLayout);
+    if (!layout) return new Response('布局不存在。', { status: 404 });
+    entry = layout.kind === 'template' ? { ...entry, template: layout.id } : { ...entry, kind: 'page', template: 'page', blocks: layout.blocks, title: layout.label };
+  }
+  release = { ...release, entries: [...release.entries.filter((item) => item.id !== entry.id), entry] };
 } else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname));
 const privateArticle = entry?.visibility === 'private';
 if (preview || privateArticle) {
@@ -127,14 +151,17 @@ const title = entry?.title ?? (missing ? '页面未找到' : '搜索');
 const description = entry?.description ?? settings.description;
 const content = responsiveImages(
   site,
-  entry?.blocks.length
-    ? renderBlocks(entry.blocks, release, entry, (await siteExtension)?.blocks)
-    : (entry?.html ?? ''),
+  entry ? renderEntryTemplate(entry, release, (await siteExtension)?.blocks, { url: Astro.url, editable: preview && Astro.url.searchParams.get('editor') === '1', editTemplate: preview && !!Astro.url.searchParams.get('layout') && release.layouts?.find((layout) => layout.id === Astro.url.searchParams.get('layout'))?.kind === 'template' }) : '',
 );
-const results =
-  Astro.url.pathname === '/search/'
-    ? site.search(Astro.url.searchParams.get('q') ?? '', release.id)
-    : [];
+const headerRegion = responsiveImages(site, renderSharedRegion('header', release, entry, (await siteExtension)?.blocks));
+const footerRegion = responsiveImages(site, renderSharedRegion('footer', release, entry, (await siteExtension)?.blocks));
+const beforeRegion = responsiveImages(site, renderSharedRegion('before', release, entry, (await siteExtension)?.blocks));
+const afterRegion = responsiveImages(site, renderSharedRegion('after', release, entry, (await siteExtension)?.blocks));
+const resultsPage = Astro.url.pathname === '/search/'
+  ? queryPublished(site, { ...contentQuery(Astro.url.searchParams), pageSize: 20 }, true, release.id)
+  : { items: [], page: 1, pageSize: 20, total: 0, pages: 0 };
+const results = resultsPage.items;
+const searchLinks = pageLinks(resultsPage, Astro.url);
 const schema = {
   '@context': 'https://schema.org',
   '@type': entry?.kind === 'content' ? 'Article' : 'WebPage',
@@ -154,7 +181,7 @@ const schema = {
 ---
 
 <!doctype html>
-{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={canonical} schema={schema} content={content} results={results} preview={preview} missing={missing} owner={owner} /> : <>
+{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={canonical} schema={schema} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages }} preview={preview} missing={missing} owner={owner} /> : <>
 <html lang={settings.language}>
   <head
     ><meta charset="utf-8" /><meta
@@ -186,7 +213,7 @@ const schema = {
     data-release={release.id}
     data-track={!preview && !privateArticle && entry?.kind === 'content' ? 'true' : 'false'}
   >
-    <a class="skip" href="#main">跳到正文</a><header class="site-header wrap">
+    <a class="skip" href="#main">跳到正文</a>{headerRegion ? <header class="wrap" set:html={headerRegion} /> : <header class="site-header wrap">
       <a class="brand" href="/"
         >{
           settings.logo ? (
@@ -198,49 +225,14 @@ const schema = {
       ><button class="menu-button" aria-expanded="false" aria-controls="nav">菜单</button><nav
         id="nav"
       >
-        {
-          settings.navigation.map((n) => (
-            <a href={n.url} aria-current={entry?.path === n.url ? 'page' : undefined}>
-              {n.label}
-            </a>
-          ))
-        }<a href="/search/" aria-label="搜索">⌕</a>
+        <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label="搜索">⌕</a>
       </nav>
-    </header>
+    </header>}
+    {beforeRegion && <div class="wrap shared-region" set:html={beforeRegion} />}
     <main id="main" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
       {
-        entry?.kind === 'content' && (
-          <header class="article-heading">
-            <h1>{entry.title}</h1>
-            {privateArticle && <span>私密</span>}
-            <div class="meta">
-              {entry.author} ·{' '}
-              {entry.publishedAt
-                ? new Intl.DateTimeFormat(settings.language, {
-                    timeZone: settings.timezone,
-                    dateStyle: 'medium',
-                  }).format(new Date(entry.publishedAt))
-                : ''}
-            </div>
-            {entry.cover && <img {...imageAttributes(site, entry.cover)} alt="" class="cover" />}
-          </header>
-        )
-      }
-      {
         entry && (
-          <div class:list={[entry.kind === 'content' ? 'prose' : 'page-body']} set:html={content} />
-        )
-      }
-      {
-        entry?.kind === 'content' && (
-          <aside
-            class="prose"
-            set:html={renderFields(
-              release.types.find((type) => type.id === entry.type)?.fields ?? [],
-              entry.fields,
-              release,
-            )}
-          />
+          <div class="page-body" set:html={content} />
         )
       }
       {
@@ -280,15 +272,16 @@ const schema = {
                   </a>
                 ))}
               </div>
+              {resultsPage.pages > 1 && <nav class="pagination" aria-label="搜索分页">{searchLinks.previous && <a rel="prev" href={searchLinks.previous}>上一页</a>}<span>{resultsPage.page} / {resultsPage.pages}</span>{searchLinks.next && <a rel="next" href={searchLinks.next}>下一页</a>}</nav>}
             </>
           </section>
         )
       }
-    </main><footer class="wrap site-footer">
+    </main>{afterRegion && <div class="wrap shared-region" set:html={afterRegion} />}{footerRegion ? <footer class="wrap" set:html={footerRegion} /> : <footer class="wrap site-footer">
       <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/')) &&
         <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? '源代码' : '关于'}</a>}
       <a href="/rss.xml">RSS</a>
-    </footer>
+    </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && !privateArticle && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
   </body>
