@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   FileText,
+  ArrowLeft,
+  X,
   PanelsTopLeft,
   Images,
   Palette,
@@ -36,6 +38,8 @@ import { NavigationEditor } from './NavigationEditor.tsx';
 import { TermPicker } from './TermPicker.tsx';
 import { SelectorsProvider, useSelectors } from './Selectors.tsx';
 import { ReferenceField } from './ReferenceField.tsx';
+import { Dialog } from './Dialog.tsx';
+import { useDebouncedValue } from './useDebouncedValue.ts';
 import './style.css';
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 const Comments = lazy(() => import('./Comments.tsx'));
@@ -62,6 +66,17 @@ const tabs = [
 ] as const;
 function App() {
   const selectors = useSelectors();
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 700px)').matches);
+  const [loginPending, setLoginPending] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(true);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 700px)');
+    const update = () => { setCompact(media.matches); setMenu(false); };
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
   const [session, setSession] = useState<any>(null),
     [password, setPassword] = useState(''),
     [error, setError] = useState(''),
@@ -81,6 +96,7 @@ function App() {
     [narrow, setNarrow] = useState(false),
     [history, setHistory] = useState<any[] | null>(null),
     [restoreLocal, setRestoreLocal] = useState<any>(null);
+  const searchTerm = useDebouncedValue(filter);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [conflict, setConflict] = useState<any>(null), [conflictPaused, setConflictPaused] = useState(false);
   const paused = useRef(false);
@@ -91,14 +107,20 @@ function App() {
   const [library, setLibrary] = useState<any>({ items: [], total: 0, pages: 0 });
   const [libraryType, setLibraryType] = useState('');
   const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!compact || !record) return;
+    const frame = requestAnimationFrame(() => document.querySelector<HTMLInputElement>('[aria-label="内容标题"]')?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [compact, record?.id]);
   const current = useRef(record),
     saved = useRef(''),
     running = useRef<Promise<any> | null>(null),
     errorRef = useRef('');
   current.current = record;
   const notify = (message: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
-    setTimeout(() => setToast(''), 3500);
+    toastTimer.current = setTimeout(() => setToast(''), 5000);
   };
   async function refresh() {
     const data = await api('state?summary=1');
@@ -118,17 +140,25 @@ function App() {
   const pendingSchedule = state?.schedules?.some((row: any) => row.value.status === 'scheduled');
   useEffect(() => {
     if (!pendingSchedule) return;
-    const timer = setInterval(() => { api('schedules').then((schedules) => setState((old: any) => ({ ...old, schedules }))).catch((error) => setError(error.message)); }, 5000);
-    return () => clearInterval(timer);
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try { const schedules = await api('schedules'); if (active) setState((old: any) => ({ ...old, schedules })); }
+      catch (error: any) { if (active) setError(error.message); }
+      finally { if (active) timer = setTimeout(poll, 5000); }
+    };
+    timer = setTimeout(poll, 5000);
+    return () => { active = false; clearTimeout(timer); };
   }, [pendingSchedule]);
   useEffect(() => {
     if (!state || !['content', 'pages'].includes(tab)) return;
     let active = true;
-    const params = new URLSearchParams({ kind: tab === 'pages' ? 'page' : 'content', q: filter, status, visibility,
+    setLibraryLoading(true);
+    const params = new URLSearchParams({ kind: tab === 'pages' ? 'page' : 'content', q: searchTerm, status, visibility,
       type: libraryType, page: String(libraryPage), pageSize: '25', sort: 'title', ...Object.fromEntries(Object.entries(fieldFilters).filter(([,value]) => value !== '').map(([key,value]) => ['field.' + key,value])) });
-    api('entries/query?' + params).then((result) => { if (active) setLibrary(result); }).catch((error) => { if (active) setError(error.message); });
+    api('entries/query?' + params).then((result) => { if (active) setLibrary(result); }).catch((error) => { if (active) setError(error.message); }).finally(() => { if (active) setLibraryLoading(false); });
     return () => { active = false; };
-  }, [state, tab, filter, status, visibility, libraryType, libraryPage, fieldFilters]);
+  }, [state, tab, searchTerm, status, visibility, libraryType, libraryPage, fieldFilters]);
   async function persist(): Promise<any> {
     if (running.current) {
       await running.current;
@@ -367,7 +397,10 @@ function App() {
       input.click();
     });
   }
-  if (!session) return <div className="loading-screen">Weava</div>;
+  if (!session) return <main className="loading-screen">
+    <h1>Weava</h1>
+    {error ? <><p role="alert">{error}</p><button onClick={() => { setError(''); api('session').then(setSession).catch((error) => setError(error.message)); }}>重新连接</button></> : <p role="status">正在连接网站…</p>}
+  </main>;
   if (!session.authenticated)
     return (
       <main className="login">
@@ -381,14 +414,18 @@ function App() {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            if (loginPending) return;
+            setLoginPending(true);
+            setError('');
             try {
               await api('login', { password });
               setSession(await api('session'));
               setError('');
             } catch (e: any) {
               setError(e.message);
-            }
+            } finally { setLoginPending(false); }
           }}
+          aria-busy={loginPending}
         >
           <label>
             站主密码
@@ -396,29 +433,31 @@ function App() {
               autoFocus
               type="password"
               autoComplete="current-password"
+              required
+              aria-invalid={!!error}
+              aria-describedby={error ? "login-error" : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <button className="primary" disabled={!session.initialized}>
-            进入网站
+          <button className="primary" disabled={!session.initialized || loginPending}>
+            {loginPending ? '正在登录…' : '进入网站'}
           </button>
         </form>
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert" id="login-error">{error}</p>}
         <a href="/">查看网站 ↗</a>
       </main>
     );
   const items = library.items;
-  return (
-    <div className="app">
-      <aside className={'sidebar ' + (menu ? 'open' : '')}>
+  const navigation = <>
+        {compact && <button className="mobile-menu-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><X size={20} /></button>}
         <a className="app-brand" href="/admin/">
           <span>w</span>Weava
         </a>
         <div className="site-name">{state?.settings.value.name ?? '你的网站'}</div>
-        <nav>
+        <nav aria-label="网站管理">
           {tabs.map(([key, label, Icon]) => (
-            <button className={tab === key ? 'active' : ''} key={key} onClick={() => navigate(key)}>
+            <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''} key={key} onClick={() => navigate(key)}>
               <Icon size={18} />
               {label}
             </button>
@@ -440,18 +479,23 @@ function App() {
             退出
           </button>
         </div>
-      </aside>
-      <div className="main-shell">
+
+  </>;
+  return (
+    <div className="app">
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
+      {compact ? menu && <Dialog className="sidebar mobile-sidebar" label="网站管理" onClose={() => setMenu(false)}>{navigation}</Dialog> : <aside className="sidebar">{navigation}</aside>}
+      <main className="main-shell" id="main-content" tabIndex={-1}>
         <header className="topbar">
-          <button className="mobile-toggle" onClick={() => setMenu(!menu)} aria-label="打开菜单">
+          <button className="mobile-toggle" onClick={() => setMenu(!menu)} aria-label="打开菜单" aria-expanded={menu} aria-haspopup="dialog">
             <Menu size={20} />
           </button>
           <div className="breadcrumb">
-            {state?.settings.value.name}
-            <span>/</span>
-            {tabs.find((t) => t[0] === tab)?.[1]}
+            <span className="breadcrumb-site">{state?.settings.value.name}</span>
+            <span aria-hidden="true">/</span>
+            <strong className="breadcrumb-current">{tabs.find((t) => t[0] === tab)?.[1]}</strong>
           </div>
-          <a href="/" target="_blank" className="view-site">
+          <a href="/" target="_blank" className="view-site" aria-label="打开网站">
             打开网站
             <ArrowUpRight size={14} />
           </a>
@@ -482,8 +526,8 @@ function App() {
         ) : (
           <>
             {['content', 'pages'].includes(tab) && (
-              <div className="content-workspace">
-                <section className="library">
+              <div className={'content-workspace' + (record ? ' has-record' : '')}>
+                <section className="library" aria-label="内容列表" tabIndex={-1}>
                   <div className="library-header">
                     <div>
                       <h1>{tab === 'pages' ? '页面' : '内容'}</h1>
@@ -520,10 +564,13 @@ function App() {
                   </select>
                   {tab === 'content' && <select aria-label="筛选内容类型" value={libraryType} onChange={(event) => { setLibraryType(event.target.value); setFieldFilters({}); }}><option value="">全部类型</option>{state.types.map((type: any) => <option key={type.id} value={type.id}>{type.value.label}</option>)}</select>}
                   {tab === 'content' && state.types.find((row: any) => row.id === libraryType)?.value.fields.filter((field: FieldDefinition) => field.filterable).map((field: FieldDefinition) => <label className="library-field-filter" key={field.key}>{field.label}{field.type === 'select' || field.type === 'boolean' ? <select aria-label={'筛选' + field.label} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })}><option value="">全部</option>{(field.type === 'boolean' ? ['true','false'] : field.options ?? []).map((option) => <option key={option} value={option}>{field.type === 'boolean' ? option === 'true' ? '是' : '否' : option}</option>)}</select> : <input aria-label={'筛选' + field.label} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })} />}</label>)}
-                  <div className="entry-list">
+                  <div className="entry-list" aria-busy={libraryLoading}>
+                    {libraryLoading && <p className="library-status" role="status">正在查找内容…</p>}
+                    {!libraryLoading && !items.length && <p className="library-status" role="status">{filter || status !== 'all' || visibility !== 'all' || libraryType ? '没有符合筛选条件的内容。' : '还没有内容，可以新建第一篇。'}</p>}
                     {items.map((r: any) => (
                       <button
                         key={r.id}
+                        aria-current={record?.id === r.id ? 'true' : undefined}
                         className={record?.id === r.id ? 'selected' : ''}
                         onClick={() => select(r.id)}
                       >
@@ -545,7 +592,7 @@ function App() {
                             })}
                           </time>
                         </div>
-                        <h3>{r.value.title}</h3>
+                        <h2>{r.value.title}</h2>
                         {r.value.visibility === 'private' && <span>私密</span>}
                         <p>{r.value.description || r.value.path}</p>
                       </button>
@@ -556,7 +603,7 @@ function App() {
                 <section className="editing-area">
                   {!record ? (
                     <div className="empty-state">
-                      <div className="empty-mark">✳</div>
+                      <div className="empty-mark" aria-hidden="true"><FileText size={44} strokeWidth={1.4} /></div>
                       <h2>{tab === 'pages' ? '组织你的页面。' : '从一个想法开始。'}</h2>
                       <p>选择现有内容，或创建新的开始。</p>
                       <button className="primary" onClick={newEntry}>
@@ -567,13 +614,18 @@ function App() {
                   ) : (
                     <>
                       <div className="editor-bar">
-                        <span className="save-status">
+                        <button className="editor-back" aria-label="返回内容列表" onClick={async () => {
+                          try { await persist(); current.current = null; setRecord(null); setDirty(false); requestAnimationFrame(() => document.querySelector<HTMLElement>('.library')?.focus({ preventScroll: true })); }
+                          catch (error: any) { setError(error.message); }
+                        }}><ArrowLeft size={16} />返回列表</button>
+                        <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
                           {saving ? <Loader2 size={14} className="spin" /> : <Check size={14} />}{' '}
                           {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
                         </span>
                         <div>
                           <button
                             title="历史版本"
+                            aria-label="历史版本"
                             onClick={async () => {
                               try{await persist();setHistory(await api('history?id=' + record.id));}catch(error:any){setError(error.message);}
                             }}
@@ -846,15 +898,16 @@ function App() {
             )}
           </>
         )}
-      </div>
+      </main>
       {toast && (
         <div className="toast" role="status">
           {toast}
         </div>
       )}
       {publication && (
-        <div className="modal-backdrop"><section className="modal" aria-label="发布变更">
+        <Dialog label="发布变更" onClose={() => setPublication(null)} dismissible={!busy}>
           <div className="modal-title"><h2>发布变更</h2><button disabled={busy} onClick={() => setPublication(null)}>关闭</button></div>
+          {error && <p className="error" role="alert">{error}</p>}
           {publication.settingsChanged && <p>网站设置</p>}
           {publication.layoutsChanged && <p>页面模板与共享区域</p>}
           {publication.termsChanged && <p>分类与标签</p>}
@@ -865,7 +918,7 @@ function App() {
             const result = await task('publish', publication.options, true);
             if (result) { setPublication(null); if (current.current) await select(current.current.id); }
           }}>{busy ? '正在发布…' : '确认发布'}</button>
-        </section></div>
+        </Dialog>
       )}
       {history && record && <Suspense fallback={null}><RevisionDialog id={record.id} history={history} onClose={() => setHistory(null)} onError={setError} onRestore={async (version) => {
         const row = await api('restore', { id: record.id, version, revision: record.revision });
@@ -877,11 +930,10 @@ function App() {
         } catch (error: any) { if (error.status === 409 && current.current) await showConflict(current.current); throw error; }
       }} /></Suspense>}
       {preview && (
-        <div className="modal-backdrop">
-          <section className="preview-modal">
+        <Dialog className="preview-modal" label="实际页面预览" onClose={() => setPreview('')}>
             <div className="modal-title">
               <h2>实际页面预览</h2>
-              <button onClick={() => setNarrow(!narrow)}>{narrow ? '桌面宽度' : '窄屏宽度'}</button>
+              <button aria-pressed={narrow} onClick={() => setNarrow(!narrow)}>{narrow ? '桌面宽度' : '窄屏宽度'}</button>
               <button onClick={() => setPreview('')}>关闭</button>
             </div>
             <iframe
@@ -890,8 +942,7 @@ function App() {
               sandbox="allow-same-origin"
               style={{ width: narrow ? 390 : '100%' }}
             />
-          </section>
-        </div>
+        </Dialog>
       )}
     </div>
   );

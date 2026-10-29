@@ -52,7 +52,7 @@ const listingPage = paginate(matching,
 const listing = listingPage.items;
 const listingLinks = pageLinks(listingPage, Astro.url);
 const date = (item: PublishedEntry, year = false) => item.publishedAt
-  ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: settings.timezone }).format(new Date(item.publishedAt))
+  ? new Intl.DateTimeFormat(settings.language, { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: settings.timezone }).format(new Date(item.publishedAt))
   : '';
 const image = (item: PublishedEntry, sizes: string) => ({ ...imageAttributes(site, item.cover), sizes });
 const archive = release.entries.find((item) => item.kind === 'page' && (item.template === 'newsletter-archive' || item.fields.newsletterLayout === 'archive'));
@@ -106,7 +106,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
       <Fragment set:html={renderNavigation(settings.navigation, activePath, release)} />
     </nav></>}
     {beforeRegion && <div class="nl-wrap shared-region" set:html={beforeRegion} />}
-    <main id="main" class:list={['nl-wrap', { 'nl-reading': entry?.kind === 'content' }]}>
+    <main id="main" tabindex="-1" class:list={['nl-wrap', { 'nl-reading': entry?.kind === 'content' }]}>
       {isHome && feature ? <>
         <div class="nl-page" set:html={content} />
         <section class="nl-lead" aria-label="头条文章">
@@ -170,7 +170,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
         <div class="nl-archive-heading"><h1>{entry!.title}</h1><nav class="nl-tabs" aria-label="文章排序"><a href={`${entry!.path}?sort=latest`} aria-current={sort === 'latest' ? 'true' : undefined}>最新</a><a href={`${entry!.path}?sort=popular`} aria-current={sort === 'popular' ? 'true' : undefined}>热门</a></nav></div>
         {listing.map((item) => <article class="nl-archive-item"><time datetime={item.publishedAt}>{date(item, true)}</time><div><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p></div>{item.cover && <a href={item.path} tabindex="-1" aria-hidden="true"><img {...image(item, '140px')} alt="" loading="lazy" /></a>}</article>)}
         {listingPage.pages > 1 && <nav class="pagination" aria-label="列表分页">{listingLinks.previous && <a href={listingLinks.previous} rel="prev">上一页</a>}<span>{listingPage.page} / {listingPage.pages}</span>{listingLinks.next && <a href={listingLinks.next} rel="next">下一页</a>}</nav>}
-      </section> : isSearch ? <section class="nl-search"><h1>搜索</h1><form method="get"><input type="search" name="q" aria-label="搜索文章" placeholder="搜索文章" value={Astro.url.searchParams.get('q') ?? ''} /><button type="submit">搜索</button></form>{results.map((item) => <article><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p></article>)}
+      </section> : isSearch ? <section class="nl-search"><h1>搜索</h1><form method="get"><input type="search" name="q" aria-label="搜索文章" placeholder="搜索文章" value={Astro.url.searchParams.get('q') ?? ''} /><button type="submit">搜索</button></form>{Astro.url.searchParams.get('q') && !results.length && <p role="status">没有找到匹配的内容，请换个关键词。</p>}{results.map((item) => <article><h2><a href={item.path}>{item.title}</a></h2><p>{item.description}</p></article>)}
         {searchPagination && searchPagination.pages > 1 && <nav class="pagination" aria-label="搜索分页">{searchPagination.previous && <a href={searchPagination.previous} rel="prev">上一页</a>}<span>{searchPagination.page} / {searchPagination.pages}</span>{searchPagination.next && <a href={searchPagination.next} rel="next">下一页</a>}</nav>}
       </section>
         : missing ? <section class="nl-not-found"><h1>页面未找到</h1><a class="nl-see-all" href="/">返回首页</a></section>

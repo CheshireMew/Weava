@@ -223,13 +223,13 @@ const schema = {
           )
         }{settings.name}</a
       ><button class="menu-button" aria-expanded="false" aria-controls="nav">菜单</button><nav
-        id="nav"
+        id="nav" aria-label="主导航"
       >
-        <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label="搜索">⌕</a>
+        <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label="搜索"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
       </nav>
     </header>}
     {beforeRegion && <div class="wrap shared-region" set:html={beforeRegion} />}
-    <main id="main" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
+    <main id="main" tabindex="-1" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
       {
         entry && (
           <div class="page-body" set:html={content} />
@@ -259,6 +259,7 @@ const schema = {
                     type="search"
                     name="q"
                     placeholder="搜索文章、作品或资源"
+                    aria-label="搜索文章、作品或资源"
                     value={Astro.url.searchParams.get('q') ?? ''}
                   />
                   <button class="button">搜索</button>
@@ -272,6 +273,7 @@ const schema = {
                   </a>
                 ))}
               </div>
+              {Astro.url.searchParams.get('q') && !results.length && <p role="status">没有找到匹配的内容，请换个关键词。</p>}
               {resultsPage.pages > 1 && <nav class="pagination" aria-label="搜索分页">{searchLinks.previous && <a rel="prev" href={searchLinks.previous}>上一页</a>}<span>{resultsPage.page} / {resultsPage.pages}</span>{searchLinks.next && <a rel="next" href={searchLinks.next}>下一页</a>}</nav>}
             </>
           </section>
