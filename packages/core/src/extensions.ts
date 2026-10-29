@@ -1,6 +1,7 @@
 import type { Site } from './site.ts';
 import type { Entry, Release, ContentType, FieldDefinition, Block, BlockDefinition } from '@weava/contracts';
 import { ExtensionManager } from './extension-manager.ts';
+import type { MetadataContribution } from './seo.ts';
 export * from './extension-manager.ts';
 export interface Extension {
   id: string;
@@ -17,6 +18,7 @@ export interface Extension {
   panels?: { id: string; label: string; fields: FieldDefinition[] }[];
   schedules?: { id: string; intervalMs: number; run: () => Promise<void> }[];
   render?: (entry: Entry, release: Release) => Promise<string | null> | string | null;
+  metadata?: (entry: Entry, release: Release, url: URL) => Promise<MetadataContribution | null> | MetadataContribution | null;
   route?: (request: Request, release: Release | null) => Promise<Response | null>;
   start?: () => void | Promise<void>;
   stop?: () => void | Promise<void>;

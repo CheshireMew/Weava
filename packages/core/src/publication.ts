@@ -11,6 +11,7 @@ import { storeRelease } from './publication-store.ts';
 import { projectTerms, bindBlockTerms } from './taxonomy.ts';
 import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
 import type { Layout } from '@weava/contracts';
+import { validateSeo } from './seo.ts';
 
 export function preparePublication(site: Site, options: PublishOptions = {}) {
   const transition = site.store.state('extension-transition');
@@ -92,6 +93,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     if (paths.has(entry.path)) throw new WeavaError('网址重复：' + entry.path);
     paths.set(entry.path, entry.id);
     entrySchema.parse(entry);
+    validateSeo(entry, settings.domain);
     site.validateBlocks(entry.blocks, true);
     const definition = types.find((type) => type.id === entry.type);
     if (entry.kind === 'content' && !definition) throw new WeavaError('内容类型不存在：' + entry.type);

@@ -19,6 +19,9 @@ if (existsSync(runtimeFile)) {
 }
 export const site = new Site(root);
 export const analytics = new Analytics(root);
+void analytics.geo.update(false).catch(() => {});
+const geoWatch = setInterval(() => { void analytics.geo.update(false).catch(() => {}); }, 24 * 60 * 60 * 1000);
+geoWatch.unref();
 export const engagement = new Engagement(site.store.raw, site.cliToken());
 site.recoverJobs();
 const jobWatch = setInterval(() => site.recoverJobs(), 5000);
@@ -37,7 +40,7 @@ process.once('exit', stop);
 export const siteExtension = extension(site, { analytics });
 let stopping = false;
 const shutdown = async () => {
-  if (stopping) return; stopping = true; clearInterval(jobWatch);
+  if (stopping) return; stopping = true; clearInterval(jobWatch); clearInterval(geoWatch);
   try { await (await siteExtension).stop(); analytics.close(); site.close(); }
   catch (error) { console.error('Extension shutdown failed:', error); }
   finally { stop(); process.exit(0); }

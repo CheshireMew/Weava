@@ -12,7 +12,7 @@
 {"version":1,"extensions":[{"id":"studio","file":"studio.mjs","enabled":true}]}
 ```
 
-工厂接收 site、apiVersion、frameworkVersion、renderDocument、renderBlocks、z（Zod）和 analytics 等服务。返回的 version 使用三段数字版本；dependencies 支持最低版本。启动依赖先于使用它的扩展，停止顺序相反。缺失、版本不符、循环和载入错误在后台“运行与备份”中显示，独立扩展仍能运行。
+工厂接收 site、apiVersion、frameworkVersion、renderDocument、renderBlocks、pageMetadata、metadataHead、z（Zod）和 analytics 等服务。返回的 version 使用三段数字版本；dependencies 支持最低版本。启动依赖先于使用它的扩展，停止顺序相反。缺失、版本不符、循环和载入错误在后台“运行与备份”中显示，独立扩展仍能运行。
 
 ```ts
 export default ({ site, z }) => ({
@@ -44,6 +44,10 @@ export default ({ site, z }) => ({
 ```
 
 render 返回完整 HTML 时由扩展负责主题展示；返回 null 时继续使用官方主题。route 返回 Response 时接管该请求，返回 null 继续普通路由。panels 自动进入后台外观设置，值保存在 settings.extensions[面板编号]。定时任务防止同一任务重入，服务停止时清理计时器。
+
+`metadata(entry, release, url)` 可返回 SEO 默认字段及 `schema` 节点数组，例如 `{schemaType:'Product',schema:[{'@type':'BreadcrumbList',itemListElement:[...]}]}`。单篇显式设置优先于扩展默认值；规范地址、索引策略、作者和当前内容由核心统一输出。完整 HTML render 同样经过统一 head 合成，旧 JSON-LD 的额外属性会合并，主要页面身份使用当前值；来源区域和公开访问统计由框架补齐。route 返回的独立 Response 属于扩展自行维护的接口，不会被当作内容页自动改写。FAQ 只从当前输出中带 `data-weava-faq` 的可见问答结构生成。
+
+自定义表单只有在实际业务成功后才发送 `document.dispatchEvent(new CustomEvent('weava:analytics',{detail:{name:'contact:success'}}))`。名称可使用字母、数字、下划线、点、冒号与短横线，最多 80 字符；不要把邮箱、正文或凭据放进名称。Newsletter 的点赞、评论、复制和分享在成功边界发送事件，普通点击仍按点击统计。
 
 定时任务与 start/stop 只在站点服务中运行，发布任务和升级检查使用 worker 模式，仅注册声明与渲染器。异步停止等待正在运行的任务结束，错误会提供诊断。工厂应只返回声明，把外部服务初始化放在 start 中，迁移只使用同步事务内的数据操作。
 

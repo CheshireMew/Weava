@@ -1,0 +1,5 @@
+---
+import { metadataHead, type PageMetadata } from '@weava/core';
+const { metadata } = Astro.props as { metadata: PageMetadata };
+---
+<Fragment set:html={metadataHead(metadata)} />

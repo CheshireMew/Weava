@@ -11,6 +11,17 @@ import {
   recoverRestore,
   atomicJson,
   now,
+  pullSearchData,
+  planSearchData,
+  writeWordpressStatisticsExportScript,
+  extractWordpressStatistics,
+  readWordpressStatistics,
+  inspectWordpressStatistics,
+  planWordpressStatistics,
+  importWordpressStatistics,
+  wordpressStatisticsSources,
+  wordpressStatisticsReport,
+  verifyWordpressStatistics,
 } from '@weava/core';
 import { seedDemo } from '../../core/src/demo.ts';
 import { migrateCrypto } from '../../core/src/migrate.ts';
@@ -35,7 +46,7 @@ function output(value: any) {
 function root() {
   return resolve(program.opts().site);
 }
-async function request(action: string, data?: any) {
+async function request(action: string, data?: any, format: 'json' | 'text' = 'json') {
   const config = existsSync(join(root(), 'site.json'))
     ? JSON.parse(readFileSync(join(root(), 'site.json'), 'utf8'))
     : {};
@@ -46,7 +57,7 @@ async function request(action: string, data?: any) {
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: data === undefined ? undefined : JSON.stringify(data),
   });
-  const result = (await response.json()) as any;
+  const result = format === 'text' ? await response.text() : await response.json() as any;
   if (!response.ok) throw new Error(JSON.stringify(result));
   return result;
 }
@@ -161,6 +172,7 @@ program
   );
 for (const name of ['content', 'page', 'settings', 'media']) {
   const command = program.command(name);
+  if (['content', 'page'].includes(name)) command.command('get').requiredOption('--id <id>').action(async (opts) => output(await request('entry/' + encodeURIComponent(opts.id))));
   command
     .command('list')
     .option('--page <page>', '页码', '1')
@@ -201,10 +213,47 @@ for (const name of ['content', 'page', 'settings', 'media']) {
 program
   .command('publish')
   .option('--id <id...>')
+  .option('--input <file>', '使用 publication preview 返回的原始检查结果')
   .option('--wait')
   .action(async (opts) =>
-    output(await wait(await request('publish', { ids: opts.id }), !!opts.wait)),
+    output(await wait(await request('publish', (() => {
+      if (opts.input && opts.id) throw new Error('--input 与 --id 不能同时使用。');
+      if (!opts.input) return { ids: opts.id };
+      const review = JSON.parse(readFileSync(resolve(opts.input), 'utf8').replace(/^\ufeff/, ''));
+      if (!review.options || !Object.hasOwn(review.options, 'baseReleaseId') || !Number.isInteger(review.options.reviewRevision)) throw new Error('需要完整的发布预检结果。');
+      return review.options;
+    })()), !!opts.wait)),
   );
+const publication = program.command('publication');
+publication.command('preview').option('--id <id...>').option('--scope <scope>').option('--output <file>').action(async (opts) => {
+  const review = await request('publication', { ...(opts.id ? { ids: opts.id } : {}), ...(opts.scope ? { scope: opts.scope } : {}) });
+  if (opts.output) writeFileSync(resolve(opts.output), JSON.stringify(review, null, 2));
+  output(review);
+});
+const seo = program.command('seo');
+seo.command('audit').option('--draft', '检查当前候选工作稿').option('--http', '读取实际公开 HTTP 响应，最多 200 页').action(async (opts) => output(await request('seo/audit', { target: opts.draft ? 'draft' : 'published', http: !!opts.http })));
+seo.command('reports').action(async () => output(await request('seo/audits')));
+seo.command('metadata').requiredOption('--id <id>').option('--path <path>', '包含分页或筛选参数的页面地址').action(async (opts) => output(await request('seo/metadata?' + new URLSearchParams({ id: opts.id, ...(opts.path ? { path: opts.path } : {}) }))));
+const searchData = program.command('search-data');
+const analytics = program.command('analytics');
+analytics.command('wordpress-verify').option('--source <id>').action(opts=>output(verifyWordpressStatistics(root(),opts.source)));
+analytics.command('wordpress-sources').action(()=>output(wordpressStatisticsSources(root())));
+analytics.command('wordpress-report').option('--source <id>').option('--start <date>').option('--end <date>').option('--path <path>').option('--visitor <id>').option('--page <page>').option('--output <file>','将历史来源报告保存为 JSON').action((opts)=>{const params=new URLSearchParams(Object.fromEntries(['source','start','end','path','visitor','page'].filter(k=>opts[k]).map(k=>[k,String(opts[k])])));const report=wordpressStatisticsReport(root(),params);if(opts.output){const file=resolve(opts.output);writeFileSync(file,JSON.stringify(report,null,2),{flag:'wx'});output({path:file,sourceId:report.sourceId,totals:report.totals});}else output(report);});
+const analyticsQuery = (opts: Record<string,any>) => new URLSearchParams(Object.fromEntries(['start','end','path','channel','country','browser','os','device','model','id','page'].filter((key)=>opts[key]).map((key)=>[key,String(opts[key])])));
+analytics.command('report').option('--start <date>').option('--end <date>').option('--path <path>').option('--channel <channel>').option('--country <code>').option('--browser <browser>').option('--os <os>').option('--device <device>').option('--model <model>').action(async(opts)=>output(await request('analytics?'+analyticsQuery(opts))));
+analytics.command('realtime').option('--path <path>').action(async(opts)=>output(await request('analytics/realtime?'+analyticsQuery(opts))));
+analytics.command('visitor').requiredOption('--id <id>').option('--start <date>').option('--end <date>').option('--page <page>').action(async(opts)=>output(await request('analytics/visitor?'+analyticsQuery(opts))));
+analytics.command('export').requiredOption('--output <file>').option('--dataset <dataset>','pages、daily、sources、countries、browsers、os、devices、models、visitors、links、actions、campaigns、crawlers、lifetime','pages').option('--start <date>').option('--end <date>').option('--path <path>').option('--channel <channel>').option('--country <code>').option('--device <device>').action(async(opts)=>{const query=analyticsQuery(opts);query.set('dataset',opts.dataset);const text=await request('analytics/export?'+query,undefined,'text');const file=resolve(opts.output);writeFileSync(file,text);output({path:file,dataset:opts.dataset,bytes:Buffer.byteLength(text)});});
+analytics.command('geo-status').action(async()=>output(await request('analytics/geo')));
+analytics.command('geo-update').action(async()=>{let state=await request('analytics/geo',{});const deadline=Date.now()+75000;while(state.updating&&Date.now()<deadline){await new Promise((r)=>setTimeout(r,1000));state=await request('analytics/geo');}if(state.error||state.updating)process.exitCode=1;output(state);});
+searchData.command('plan').requiredOption('--config <file>', '连接配置，计划阶段不请求外部服务').action((opts) => output(planSearchData(JSON.parse(readFileSync(resolve(opts.config), 'utf8').replace(/^\ufeff/, '')))));
+searchData.command('report').action(async () => output(await request('search-data')));
+searchData.command('import').requiredOption('--input <file>').action(async (opts) => output(await request('search-data/import', JSON.parse(readFileSync(resolve(opts.input), 'utf8').replace(/^\ufeff/, '')))));
+searchData.command('pull').requiredOption('--config <file>', '本地连接配置；令牌只用于本次请求').option('--output <file>', '保存不含凭据的数据集').action(async (opts) => {
+  const dataset = await pullSearchData(JSON.parse(readFileSync(resolve(opts.config), 'utf8').replace(/^\ufeff/, '')));
+  if (opts.output) writeFileSync(resolve(opts.output), JSON.stringify(dataset, null, 2));
+  output(await request('search-data/import', dataset));
+});
 program
   .command('rollback')
   .requiredOption('--id <id>')
@@ -331,6 +380,29 @@ migrate.command('wordpress-views')
   .action(async (opts) => {
     assertOffline(root());
     output(await migrateWordPressViews(resolve(opts.input), root()));
+  });
+migrate.command('wordpress-statistics-script')
+  .requiredOption('--wordpress-root <path>','来源服务器上的 WordPress 绝对目录')
+  .requiredOption('--output <file>','创建只读导出脚本，拒绝覆盖已有文件')
+  .option('--php','输出独立 PHP 文件，默认输出可供 SSH 执行的 shell 脚本')
+  .action(opts=>output(writeWordpressStatisticsExportScript(opts.wordpressRoot,opts.output,opts.php?'php':'shell')));
+migrate.command('wordpress-statistics-extract')
+  .requiredOption('--input <file>','server-ops JSON 响应或原始导出快照')
+  .requiredOption('--output <file>','创建校验后的独立快照文件')
+  .action(opts=>output(extractWordpressStatistics(resolve(opts.input),resolve(opts.output))));
+migrate.command('wordpress-statistics-inspect')
+  .requiredOption('--input <file>','独立快照或 server-ops JSON 响应')
+  .action(opts=>output(inspectWordpressStatistics(readWordpressStatistics(resolve(opts.input)))));
+migrate.command('wordpress-statistics')
+  .requiredOption('--input <file>','WP Statistics 完整只读快照')
+  .option('--dry-run','只预检，默认行为，不修改站点')
+  .option('--plan-output <file>','保存预检方案，拒绝覆盖已有文件')
+  .option('--apply','按预检方案导入；目标必须离线')
+  .option('--review <file>','此前保存的预检方案 JSON')
+  .action(async opts=>{
+    if(opts.apply&&opts.dryRun)throw new Error('--apply 与 --dry-run 不能同时使用。');
+    if(opts.apply){if(!opts.review)throw new Error('请先预检并使用 --review 提供方案。');const review=JSON.parse(readFileSync(resolve(opts.review),'utf8').replace(/^\ufeff/,''));output(await importWordpressStatistics(resolve(opts.input),root(),review.review));}
+    else {const plan=planWordpressStatistics(resolve(opts.input),root());if(opts.planOutput)writeFileSync(resolve(opts.planOutput),JSON.stringify(plan,null,2),{flag:'wx'});output(plan);}
   });
 try {
   await program.parseAsync();

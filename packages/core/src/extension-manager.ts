@@ -9,6 +9,7 @@ import { renderDocument } from './documents.ts';
 import { renderBlocks } from './render.ts';
 import { inside, uuid } from './storage.ts';
 import { visitBlocks } from './layouts.ts';
+import { pageMetadata, metadataHead, customEvidence, type MetadataContribution } from './seo.ts';
 
 const identifier = z.string().regex(/^[a-z][a-z0-9-]*$/);
 export const extensionManifestSchema = z.object({ version: z.literal(1), extensions: z.array(z.object({ id: identifier, file: z.string().endsWith('.mjs'), enabled: z.boolean().default(true) })) });
@@ -51,7 +52,7 @@ export class ExtensionManager {
         const file = inside(folder, descriptor.file);
         const factory = (await import(pathToFileURL(file).href)).default;
         if (typeof factory !== 'function') throw new Error('扩展需要默认导出工厂函数。');
-        const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, z, ...this.services });
+        const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, pageMetadata, metadataHead, z, ...this.services });
         identifier.parse(ext.id); if (descriptor.id && ext.id !== descriptor.id) throw new Error('扩展编号与清单不一致。'); member.id = ext.id;
         if (ext.apiVersion !== 1) throw new Error('扩展 API 版本不兼容。');
         versionSchema.parse(ext.version ?? '0.0.0');
@@ -150,8 +151,14 @@ export class ExtensionManager {
       }, task.intervalMs); timer.unref(); return timer;
     }));
   }
-  async render(entry: Entry, release: Release) { if (this.changing) throw new WeavaError('扩展正在切换，请稍后重试。', 503); for (const ext of this.active) { const html = await ext.render?.(entry, release); if (html != null) return html; } return null; }
-  async validateRelease(release:Release){for(const entry of release.entries)try{await this.render(entry,release);}catch(error:any){throw new WeavaError('扩展无法渲染“'+entry.title+'”：'+error.message,400,{id:entry.id});}}
+  async render(entry: Entry, release: Release) { if (this.changing) throw new WeavaError('扩展正在切换，请稍后重试。', 503); for (const ext of this.active) { const html = await ext.render?.(entry, release); if (html != null) return customEvidence(html, entry); } return null; }
+  async metadata(entry: Entry | undefined, release: Release, url: URL, options: Parameters<typeof pageMetadata>[3] = {}) {
+    if (this.changing) throw new WeavaError('扩展正在切换，请稍后重试。', 503);
+    let contribution: MetadataContribution = {};
+    if (entry) for (const ext of this.active) { const value = await ext.metadata?.(entry, release, url); if (value) contribution = { ...contribution, ...value, schema: [...(contribution.schema ?? []), ...(value.schema ?? [])] }; }
+    return pageMetadata(entry, release, url, { ...options, contribution });
+  }
+  async validateRelease(release:Release){for(const entry of release.entries)try{const html=await this.render(entry,release);await this.metadata(entry,release,new URL(entry.path,release.settings.domain),{html:html??undefined});}catch(error:any){throw new WeavaError('扩展无法渲染“'+entry.title+'”：'+error.message,400,{id:entry.id});}}
   async route(request: Request, release: Release | null) { for (const ext of this.active) { const response = await ext.route?.(request, release); if (response != null) return response; } return null; }
   usage(id: string) {
     const ext = this.members.find((member) => member.id === id)?.extension;

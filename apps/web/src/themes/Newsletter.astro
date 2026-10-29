@@ -1,4 +1,6 @@
 ---
+import SeoHead from '../components/SeoHead.astro';
+import type { PageMetadata } from '@weava/core';
 import type { Release, PublishedEntry } from '@weava/contracts';
 import { site, analytics, engagement } from '../runtime.ts';
 import { imageAttributes, renderFields, articleOutline, renderNavigation, selectEntries, paginate, pageLinks, layoutFor } from '@weava/core';
@@ -13,6 +15,7 @@ interface Props {
   description: string;
   canonical: string;
   schema: Record<string, any>;
+  metadata: PageMetadata;
   content: string;
   headerRegion?: string;
   footerRegion?: string;
@@ -24,7 +27,7 @@ interface Props {
   missing: boolean;
   owner: boolean;
 }
-const { release, entry, title, description, canonical, schema, content, headerRegion, footerRegion, beforeRegion, afterRegion, results, searchPagination, preview, missing, owner } = Astro.props;
+const { release, entry, title, description, canonical, schema, metadata, content, headerRegion, footerRegion, beforeRegion, afterRegion, results, searchPagination, preview, missing, owner } = Astro.props;
 const settings = release.settings;
 const privateArticle = entry?.visibility === 'private';
 const posts = release.entries.filter((item) => item.kind === 'content' && item.visibility !== 'private')
@@ -74,21 +77,12 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>{isHome ? settings.name : `${title} · ${settings.name}`}</title>
-    <meta name="description" content={description} />
-    <meta name="robots" content={preview || privateArticle || missing || entry?.indexable === false ? 'noindex,nofollow' : 'index,follow'} />
-    <link rel="canonical" href={canonical} />
+    <SeoHead metadata={metadata} />
     <link rel="alternate" type="application/rss+xml" title={settings.name} href="/rss.xml" />
-    <meta property="og:title" content={isHome ? settings.name : title} />
-    <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
-    <meta property="og:type" content={entry?.kind === 'content' ? 'article' : 'website'} />
-    {entry?.cover && <meta property="og:image" content={new URL(entry.cover, settings.domain).href} />}
-    <script type="application/ld+json" set:html={JSON.stringify(schema).replaceAll('<', '\u003c')} />
   </head>
   <body class="newsletter" data-theme="newsletter" data-release={release.id}
     data-article-id={interactive ? entry?.id : undefined} data-canonical={canonical} data-language={settings.language} data-timezone={settings.timezone}
-    data-track={!preview && !privateArticle && entry?.kind === 'content' ? 'true' : 'false'}
+    data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
     style={`--nl-accent:${settings.themeConfig.accent};--nl-width:${settings.themeConfig.width}px;--paper:#fff;font-family:${settings.themeConfig.font}`}>
     <a class="skip" href="#main">跳到正文</a>
     {headerRegion ? <header class="nl-wrap" set:html={headerRegion} /> : <>
@@ -180,6 +174,6 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
     {footerRegion ? <footer class="nl-wrap" set:html={footerRegion} /> : <footer class="nl-footer nl-wrap"><a href="/">{settings.name}</a><nav aria-label="页脚"><a href="/">首页</a><a href={archiveUrl}>归档</a><a href="/rss.xml">RSS</a><a href="/sitemap.xml">站点地图</a></nav><span>{settings.footer}</span></footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && isArticle && <script src="/weava-article.js" defer is:inline />}
-    {!preview && !privateArticle && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
+    {!preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   </body>
 </html>

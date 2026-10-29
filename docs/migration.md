@@ -41,6 +41,10 @@ scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress-views --input D:\
 
 输入格式为 `wordpress-view-totals-v1`，包含 `sourceId`、`capturedAt` 和 `entries: [{postId, views}]`。按 WordPress 原编号对应已经迁移的文章。导入前保存统计库副本，原快照及结果留在 imports；重复导入相同快照不会重复累计，较旧快照或同篇文章的其他重叠统计来源会被拒绝。历史累计浏览保存在独立计数表，不伪造访问日期、访客或每日趋势；热门排序使用历史累计加 Weava 新记录的浏览量。原文中的旧元数据仅作为档案，不再直接决定主题排序。
 
+## WP Statistics
+
+WP Statistics 的每日汇总、访客、地区设备及访问关系有独立的[迁移工具](wordpress-statistics.md)，与上述文章累计计数分开。工具默认只预检，支持生成只读服务器导出脚本、server-ops 响应校验、来源快照去重、备份与导入后核验；真实统计留到切换站点时再采集。
+
 ## 加密网站
 
 当前加密网站位于 E:\Code\crypto.blacknico.com，作为只读来源。迁移实例为 E:\Code\WeavaSites\crypto-blacknico。框架仓库没有复制文章、第三方媒体、原邀请码或统计数据库。

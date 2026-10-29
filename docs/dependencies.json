@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-28T16:38:43.552Z",
+  "generatedAt": "2026-10-29T14:24:57.351Z",
   "frameworkLicense": "AGPL-3.0-only",
   "packages": [
     {
@@ -177,6 +177,20 @@
       "usage": "runtime"
     },
     {
+      "name": "maxmind",
+      "version": "5.0.7",
+      "license": "MIT",
+      "homepage": "https://github.com/runk/node-maxmind",
+      "usage": "runtime"
+    },
+    {
+      "name": "ua-parser-js",
+      "version": "1.0.41",
+      "license": "MIT",
+      "homepage": "https://uaparser.dev",
+      "usage": "runtime"
+    },
+    {
       "name": "typescript",
       "version": "7.0.2",
       "license": "Apache-2.0",
@@ -265,6 +279,13 @@
       "version": "2.16.0",
       "license": "MIT",
       "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/sanitize-html",
+      "usage": "development"
+    },
+    {
+      "name": "@types/ua-parser-js",
+      "version": "0.7.39",
+      "license": "MIT",
+      "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ua-parser-js",
       "usage": "development"
     }
   ]

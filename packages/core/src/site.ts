@@ -7,6 +7,7 @@ import { loadRelease, storeRelease, searchRelease } from './publication-store.ts
 import { preparePublication, publish } from './publication.ts';
 import { saveTerm, ensureTerm, attachTerms } from './taxonomy.ts';
 import { layouts, referencedLayouts, visitBlocks } from './layouts.ts';
+import { validateSeo, webUrl } from './seo.ts';
 import type { Term } from '@weava/contracts';
 import {
   defaultSettings,
@@ -23,6 +24,7 @@ import {
   type PublishOptions,
   validateBlockProps,
   blockDefinitions,
+  siteSeoSchema,
   type BlockDefinition,
 } from '@weava/contracts';
 export class Site {
@@ -50,6 +52,10 @@ export class Site {
     return this.store.get('settings', 'site')!;
   }
   saveSettings(value: Settings, revision: number) {
+    if (value.seo) {
+      value = { ...value, seo: siteSeoSchema.parse(value.seo) };
+      for (const item of [value.seo?.publisherUrl, value.seo?.image, ...(value.seo?.sameAs ?? [])]) if (item) webUrl(item, value.domain);
+    }
     if (!value.name?.trim()) throw new WeavaError('请填写网站名称。');
     const navigation = (items: Settings['navigation'], depth = 0) => {
       if (!Array.isArray(items) || depth > 5) throw new WeavaError('导航层级最多为六层。');
@@ -138,6 +144,11 @@ export class Site {
     if (/^\/(admin|api|_astro|_admin|media|__preview|__health)(\/|$)/.test(input.path))
       throw new WeavaError('这个网址由系统使用。');
     const previous = this.store.get('entry', input.id);
+    for (const item of input.evidence ?? []) {
+      const old = previous?.value.evidence?.find((value: any) => value.id === item.id);
+      if (old?.status === 'verified' && (old.claim !== item.claim || old.url !== item.url || old.title !== item.title)) item.status = 'pending';
+    }
+    validateSeo(input, this.settings().value.domain);
     if ((previous?.revision ?? null) !== revision)
       throw new WeavaError('内容已被其他窗口修改，请重新载入。', 409, {
         id: input.id,

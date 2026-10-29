@@ -1363,3 +1363,8 @@ button.primary:active:not(:disabled), .icon-primary:active:not(:disabled) { back
   .spin { animation: none; }
   .spin + span { text-decoration: underline dotted; text-underline-offset: 4px; }
 }
+/* Search and source forms share the existing admin layout. */
+.seo-fields { margin-block: 16px; }
+.seo-fields summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+.seo-fields fieldset { min-width: 0; border: 1px solid var(--line, #ddd); border-radius: 6px; margin-block: 12px; padding: 12px; }
+.search-data-json { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }

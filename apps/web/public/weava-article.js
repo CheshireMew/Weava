@@ -1,4 +1,5 @@
 (() => {
+  const track = (name) => document.dispatchEvent(new CustomEvent('weava:analytics', { detail: { name } }));
   const toc = document.querySelector('[data-toc]');
   if (toc) {
     const handle = toc.querySelector('[data-toc-toggle]');
@@ -58,7 +59,7 @@
       const input = document.createElement('textarea'); input.value = canonical; input.style.position = 'fixed'; input.style.opacity = '0'; document.body.append(input); input.select();
       const copied = document.execCommand('copy'); input.remove(); if (!copied) throw new Error('复制失败，请从地址栏复制链接。');
     }
-    notify('链接已复制');
+    notify('链接已复制'); track('article:copy');
   };
   document.querySelectorAll('[data-article-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.articleAction;
@@ -66,7 +67,7 @@
       if (action === 'copy') await copyLink();
       if (action === 'share') {
         if (navigator.share) {
-          try { await navigator.share({ title: document.querySelector('h1')?.textContent || document.title, url: canonical }); }
+          try { await navigator.share({ title: document.querySelector('h1')?.textContent || document.title, url: canonical }); track('article:share'); }
           catch (error) { if (error.name !== 'AbortError') await copyLink(); }
         } else await copyLink();
       }
@@ -122,7 +123,7 @@
   likeButtons.forEach((button) => button.addEventListener('click', async () => {
     if (likeBusy) return;
     likeBusy = true; likeButtons.forEach((item) => { item.disabled = true; }); ++summaryVersion;
-    try { await readerReady; updateCounts(await api('like', { liked: !liked })); }
+    try { await readerReady; const data = await api('like', { liked: !liked }); updateCounts(data); track(data.liked ? 'article:like' : 'article:unlike'); }
     catch (error) { notify(error.message); }
     finally { likeBusy = false; likeButtons.forEach((item) => { item.disabled = false; }); }
   }));
@@ -151,6 +152,7 @@
     posting = true; submit.disabled = true; submit.textContent = '发布中…'; message.textContent = '';
     try {
       const data = await api('comment', { author: authorInput.value, body: bodyInput.value, captchaId, captcha: captchaInput.value, clientId });
+      track('article:comment');
       ++summaryVersion; page = 1; sort.value = 'latest'; render(data, false);
       try { localStorage.setItem('weava-comment-author', authorInput.value.trim()); } catch {}
       bodyInput.value = ''; captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; message.textContent = '评论已发布';

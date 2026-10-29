@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { existsSync, readFileSync, openSync, closeSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { auditRelease, auditBasis, storeAudit, auditStatus, fetchAuditResponses, renderEntryTemplate, importSearchData, searchDataReport } from '@weava/core';
 function json(value: any, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(value), {
     status,
@@ -109,11 +110,15 @@ export const ALL: APIRoute = async (context) => {
         { 'X-Total-Count': String(result.total), 'X-Total-Pages': String(result.pages), 'X-Page': String(result.page), 'X-Page-Size': String(result.pageSize) });
     }
     if (route === 'v1/analytics' && method === 'POST') {
+      if (request.headers.get('dnt') === '1') return json({ accepted: 0 });
       if (
         request.headers.get('Origin') &&
         new URL(request.headers.get('Origin')!).host !== (request.headers.get('host') ?? url.host)
       )
         throw new DomainError('请求来源无效。', 403);
+      let ip = '';
+      try { ip = context.clientAddress; } catch {}
+      if (process.env.WEAVA_TRUST_PROXY === '1') ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || ip;
       return json(
         analytics.collect(
           await request.json(),
@@ -121,9 +126,11 @@ export const ALL: APIRoute = async (context) => {
           new Set(
             site
               .visibleRelease()
-              ?.entries.filter((e) => e.kind === 'content')
+              ?.entries
+              .filter((e) => e.visibility !== 'private')
               .map((e) => e.path) ?? [],
           ),
+          { ip, origin: url.origin, language: request.headers.get('accept-language') || '' },
         ),
       );
     }
@@ -161,6 +168,30 @@ export const ALL: APIRoute = async (context) => {
       return json({ ok: true });
     }
     const data = isWrite ? await request.json() : null;
+    if (action === 'seo/audit' && method === 'POST') {
+      const target = data?.target === 'draft' ? 'draft' : 'published';
+      const release = target === 'draft' ? preparePublication(site, data?.options ?? {}).release : site.release();
+      if (!release) throw new DomainError('网站尚未发布，请选择工作稿检查。');
+      const manager = await siteExtension;
+      if (data?.http && target !== 'published') throw new DomainError('HTTP 检查只能读取已发布页面。');
+      const basis = auditBasis(site, target);
+      const responses = data?.http ? await fetchAuditResponses(release, url.origin) : undefined;
+      const report = await auditRelease(release, { target, basis, responses, blocks: manager.blocks, render: (entry, release) => manager.render(entry, release), metadata: (entry, release, url, options) => manager.metadata(entry, release, url, options) });
+      storeAudit(site, report);
+      return json(auditStatus(site, report));
+    }
+    if (action === 'seo/audits' && method === 'GET') return json(site.store.list('seo-audit').map((row) => auditStatus(site, row.value)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    if (action === 'seo/metadata' && method === 'GET') {
+      const release = site.visibleRelease();
+      if (!release) throw new DomainError('网站尚未发布。');
+      const entry = release.entries.find((entry) => entry.id === url.searchParams.get('id'));
+      if (!entry) throw new DomainError('公开内容不存在。', 404);
+      const manager = await siteExtension;
+      const html = await manager.render(entry, release) || renderEntryTemplate(entry, release, manager.blocks);
+      return json(await manager.metadata(entry, release, new URL(url.searchParams.get('path') || entry.path, release.settings.domain), { html }));
+    }
+    if (action === 'search-data' && method === 'GET') return json(searchDataReport(site));
+    if (action === 'search-data/import' && method === 'POST') return json(importSearchData(site, data));
     if (action === 'import/revisions' && method === 'GET') return json(Object.fromEntries(['entry', 'type', 'term', 'layout', 'settings', 'redirect'].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]))));
     if (action === 'import/wxr' && method === 'POST') {
       if (typeof data.xml !== 'string') throw new DomainError('请选择 WXR XML 文件。');
@@ -287,11 +318,17 @@ export const ALL: APIRoute = async (context) => {
       });
     }
     if (action === 'analytics')
-      return json(analytics.report(url.searchParams, site.settings().value.timezone));
+      return json({ ...analytics.report(url.searchParams, site.settings().value.timezone), pageTitles: Object.fromEntries(site.visibleRelease()?.entries.map((e) => [e.path, e.title]) || []) });
+    if (action === 'analytics/realtime' && method === 'GET') return json(analytics.realtime(url.searchParams));
+    if (action === 'analytics/visitor' && method === 'GET') return json(analytics.visitor(url.searchParams.get('id') || '', url.searchParams, site.settings().value.timezone));
+    if (action === 'analytics/geo' && method === 'GET') return json(analytics.geo.status());
+    if (action === 'analytics/geo' && method === 'POST') {
+      void analytics.geo.update().catch(() => {});
+      return json(analytics.geo.status(), 202);
+    }
     if (action === 'analytics/export') {
-      const report = analytics.report(url.searchParams, site.settings().value.timezone);
-      const group = url.searchParams.get('group') ?? 'pages';
-      return new Response(csv((report as any)[group] ?? report.pages), {
+      if (!url.searchParams.has('dataset') && url.searchParams.has('group')) url.searchParams.set('dataset', url.searchParams.get('group')!);
+      return new Response(analytics.export(url.searchParams, site.settings().value.timezone), {
         headers: {
           'Content-Type': 'text/csv; charset=utf-8',
           'Content-Disposition': 'attachment; filename="weava-analytics.csv"',

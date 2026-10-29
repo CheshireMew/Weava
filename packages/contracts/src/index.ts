@@ -1,7 +1,24 @@
 import { z } from 'zod';
 export * from './blocks.ts';
+export * from './analytics.ts';
 export const VERSION = '0.1.0';
 export const API_VERSION = 1;
+export const schemaTypes = ['Article', 'TechArticle', 'WebPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'Product', 'SoftwareApplication', 'CreativeWork'] as const;
+export const seoSchema = z.object({
+  title: z.string().max(300).optional(), description: z.string().max(2000).optional(),
+  canonical: z.string().optional(), image: z.string().optional(), imageAlt: z.string().optional(),
+  schemaType: z.enum(schemaTypes).optional(), authorType: z.enum(['Person', 'Organization']).optional(), authorUrl: z.string().optional(),
+});
+export const siteSeoSchema = z.object({
+  publisherType: z.enum(['Person', 'Organization']).optional(), publisherName: z.string().optional(),
+  publisherUrl: z.string().optional(), image: z.string().optional(), sameAs: z.array(z.string()).max(30).optional(),
+});
+export const evidenceSchema = z.object({
+  id: z.string().min(1), claim: z.string().default(''), title: z.string().default(''), url: z.string().default(''),
+  status: z.enum(['pending', 'verified']).default('pending'), verifiedAt: z.string().optional(), validUntil: z.string().optional(),
+});
+export type Evidence = z.infer<typeof evidenceSchema>;
+export type Seo = z.infer<typeof seoSchema>;
 export const fieldSchema: z.ZodType<FieldDefinition> = z.lazy(() =>
   z.object({
     key: z.string().regex(/^[a-zA-Z][\w-]*$/),
@@ -49,6 +66,7 @@ export const typeSchema = z.object({
   fields: z.array(fieldSchema),
   pathPrefix: z.string().default('/posts/'),
   template: z.string().default('article'),
+  schemaType: z.enum(schemaTypes).optional(),
 });
 export type ContentType = z.infer<typeof typeSchema>;
 export const documentSchema = z.discriminatedUnion('format', [
@@ -111,6 +129,8 @@ export const entrySchema = z.object({
   publishedAt: timestamp.optional(),
   compatibility: z.record(z.string(), z.any()).optional(),
   source: z.record(z.string(), z.any()).optional(),
+  seo: seoSchema.optional(),
+  evidence: z.array(evidenceSchema).max(200).optional(),
 });
 export type Entry = z.infer<typeof entrySchema>;
 export const layoutSchema = z.object({
@@ -140,6 +160,7 @@ export interface Term {
   parentId?: string;
 }
 export interface Settings {
+  seo?: z.infer<typeof siteSeoSchema>;
   name: string;
   domain: string;
   language: string;

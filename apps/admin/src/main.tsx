@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   entrySchema,
+  schemaTypes,
   defaultSettings,
   type Entry,
   type FieldDefinition,
@@ -41,6 +42,9 @@ import { ReferenceField } from './ReferenceField.tsx';
 import { Dialog } from './Dialog.tsx';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 import './style.css';
+import { SeoFields, SiteSeoFields } from './SeoFields.tsx';
+const SearchTools = lazy(() => import('./SearchTools.tsx'));
+const AnalyticsPanel = lazy(() => import('./AnalyticsPanel.tsx'));
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 const Comments = lazy(() => import('./Comments.tsx'));
 const PageDesigner = lazy(() => import('./PageDesigner.tsx').then((module) => ({ default: module.PageDesigner })));
@@ -62,6 +66,7 @@ const tabs = [
   ['comments', '评论', MessageSquare],
   ['appearance', '外观与导航', Palette],
   ['analytics', '访问统计', ChartNoAxesCombined],
+  ['search-tools', '搜索与检查', Search],
   ['operations', '运行与备份', Settings2],
 ] as const;
 function App() {
@@ -806,6 +811,7 @@ function App() {
                             />
                             允许搜索引擎收录
                           </label>
+                          <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} />
                           <div className="settings-divider" />
                           <button
                             onClick={() => {
@@ -892,6 +898,7 @@ function App() {
               />
             )}
             {tab === 'analytics' && <AnalyticsPanel onError={setError} />}
+            {tab === 'search-tools' && <Suspense fallback={<p>正在载入检查…</p>}><SearchTools /></Suspense>}
             {tab === 'comments' && <Suspense fallback={<p>加载中…</p>}><Comments onError={setError} /></Suspense>}
             {tab === 'operations' && (
               <Operations state={state} task={task} refresh={refresh} onError={setError} />
@@ -1107,6 +1114,7 @@ function TypeManager({
               }
             />
             <label>默认模板<select value={selected.value.template} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, template: event.target.value } })}>{templates.filter((row) => row.value.kind === 'template' && row.value.appliesTo !== 'page').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select></label>
+            <label>页面语义<select value={selected.value.schemaType ?? ''} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, schemaType: event.target.value || undefined } })}><option value="">自动</option>{schemaTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
             <button
               className="primary"
               onClick={() =>
@@ -1264,6 +1272,7 @@ function SettingsPanel({
         </div>
       </div>
       <div className="settings-panels">
+        <SiteSeoFields value={value} onChange={set} />
         <section className="form-card">
           <h2>网站</h2>
           {[
@@ -1387,95 +1396,6 @@ function SettingsPanel({
           </section>
         ))}
       </div>
-    </div>
-  );
-}
-function AnalyticsPanel({ onError }: { onError: (s: string) => void }) {
-  const [data, setData] = useState<any>(null),
-    [start, setStart] = useState(''),
-    [end, setEnd] = useState('');
-  const query = () =>
-    new URLSearchParams({ ...(start ? { start } : {}), ...(end ? { end } : {}) }).toString();
-  const refresh = () =>
-    api('analytics?' + query())
-      .then(setData)
-      .catch((e) => onError(e.message));
-  useEffect(() => {
-    refresh();
-  }, []);
-  return (
-    <div className="panel">
-      <div className="panel-title">
-        <div>
-          <h1>访问统计</h1>
-          <p>了解内容如何被发现与阅读。</p>
-        </div>
-        <a className="button" href={'/api/admin/v1/analytics/export?' + query()}>
-          导出 CSV
-        </a>
-      </div>
-      <div className="date-range">
-        <input
-          aria-label="开始日期"
-          type="date"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-        />
-        <span>至</span>
-        <input
-          aria-label="结束日期"
-          type="date"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-        />
-        <button onClick={refresh}>查询</button>
-      </div>
-      {data && (
-        <>
-          <div className="metrics">
-            {[
-              ['views', '浏览'],
-              ['visitors', '访客'],
-              ['sessions', '会话'],
-              ['clicks', '链接点击'],
-            ].map(([key, label]) => (
-              <article key={key}>
-                <span>{label}</span>
-                <strong>{data[key]}</strong>
-              </article>
-            ))}
-          </div>
-          <div className="form-card">
-            <h2>每日趋势</h2>
-            <div className="bar-chart">
-              {data.daily.map((d: any) => (
-                <div key={d.date} title={`${d.date}：${d.views} 次浏览`}>
-                  <span
-                    style={{
-                      height: Math.max(
-                        3,
-                        (120 * d.views) / Math.max(1, ...data.daily.map((v: any) => v.views)),
-                      ),
-                    }}
-                  />
-                  <small>{d.date.slice(5)}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-          <TableView rows={data.pages} />
-          {data.historicalViews > 0 && <>
-            <h2>累计文章浏览</h2>
-            <p>累计 {data.lifetimeViews.toLocaleString()} 次，其中迁移历史浏览 {data.historicalViews.toLocaleString()} 次。历史计数没有每日明细，不计入上方日期区间。</p>
-            <TableView rows={data.lifetimePages} />
-          </>}
-          <h2>链接点击</h2>
-          <TableView rows={data.links} />
-          {data.legacySources.length > 0 && (
-            <p>另保留 {data.legacySources.length} 份迁移前统计档案，存放在站点 imports 目录。</p>
-          )}
-        </>
-      )}
     </div>
   );
 }

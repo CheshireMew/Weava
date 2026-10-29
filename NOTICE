@@ -7,3 +7,9 @@ The license text was obtained from the SPDX license-list-data project:
 https://github.com/spdx/license-list-data/blob/main/text/AGPL-3.0-only.txt
 
 Site content, third-party media, private configuration, and migrated archives are not part of this source distribution.
+
+The analytics world map is derived from Natural Earth's public-domain 110m country boundaries:
+https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_110m_admin_0_countries.geojson
+https://www.naturalearthdata.com/about/terms-of-use/
+Optional country geolocation uses DB-IP Lite data under CC BY 4.0, downloaded separately per site.
+IP Geolocation by DB-IP: https://db-ip.com — https://db-ip.com/db/lite.php

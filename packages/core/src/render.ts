@@ -4,6 +4,7 @@ import { queryEntries, pageLinks } from './query.ts';
 import { load } from 'cheerio';
 import { validateBlockProps } from '@weava/contracts';
 import { layoutFor, builtInLayouts } from './layouts.ts';
+import { renderEvidence } from './seo.ts';
 export interface RenderOptions {
   url?: URL; strict?: boolean; editable?: boolean; editBody?: boolean;
   editTemplate?: boolean;
@@ -147,7 +148,7 @@ export function renderBlocks(
             return `<article class="prose block">${target ? renderDocument(target.document) : ''}</article>`;
           }
           case 'faq':
-            return `<section class="block">${(p.items ?? []).map((i: any) => `<details><summary>${e(i.question)}</summary><div class="prose">${renderDocument({ version: 1, format: 'markdown', source: i.answer ?? '' })}</div></details>`).join('')}</section>`;
+            return `<section class="block" data-weava-faq>${(p.items ?? []).map((i: any) => `<details><summary>${e(i.question)}</summary><div class="prose">${renderDocument({ version: 1, format: 'markdown', source: i.answer ?? '' })}</div></details>`).join('')}</section>`;
           case 'callout':
             return `<aside class="callout block">${p.title ? `<strong>${e(p.title)}</strong>` : ''}${text()}</aside>`;
           case 'divider':
@@ -210,7 +211,7 @@ export function renderBlocks(
 }
 export function renderEntryTemplate(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const template = layoutFor(entry, release);
-  return `<div class="entry-template template-${e(template.id)}" data-template="${e(template.id)}">${renderBlocks(template.blocks, release, entry, custom, { ...options, editable: options.editTemplate, editBody: options.editTemplate ? false : options.editable })}</div>`;
+  return `<div class="entry-template template-${e(template.id)}" data-template="${e(template.id)}">${renderBlocks(template.blocks, release, entry, custom, { ...options, editable: options.editTemplate, editBody: options.editTemplate ? false : options.editable })}${renderEvidence(entry)}</div>`;
 }
 export function renderSharedRegion(position: 'header' | 'before' | 'after' | 'footer', release: Release, entry?: Entry, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const id = release.settings.regions?.[position];

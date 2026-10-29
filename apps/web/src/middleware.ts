@@ -1,7 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
-import { site, siteExtension } from './runtime.ts';
+import { site, siteExtension, analytics } from './runtime.ts';
 import { inside, normalizePath } from '@weava/core';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
@@ -102,6 +102,9 @@ const serve = defineMiddleware(async (context, next) => {
 });
 export const onRequest = defineMiddleware(async (context, next) => {
   const response = (await serve(context, next)) ?? new Response(null, { status: 500 });
+  if (context.request.method === 'GET' && site.visibleRelease()?.entries.some((entry) => entry.path === context.url.pathname)) {
+    try { analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status); } catch {}
+  }
   if (!context.url.pathname.startsWith('/_astro/')) {
     const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     vary.add('Cookie');

@@ -30,7 +30,8 @@ describe('historical article views', () => {
       const report = analytics.report(new URLSearchParams());
       expect(report.views).toBe(1);
       expect(report.visitors).toBe(1);
-      expect(report.daily).toHaveLength(1);
+      expect(report.daily.reduce((sum, day) => sum + day.views, 0)).toBe(1);
+      expect(report.daily.filter((day) => day.views > 0)).toHaveLength(1);
       expect(report.historicalViews).toBe(1149);
       expect(report.lifetimeViews).toBe(1150);
       expect(report.lifetimePages.find((p)=>p.path==='/中文/')!.views).toBe(101);

@@ -16,9 +16,12 @@ import {
   renderEntryTemplate,
   renderSharedRegion,
   layouts,
+  pageMetadata,
+  composeMetadata,
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
+import SeoHead from '../components/SeoHead.astro';
 import { entrySchema } from '@weava/contracts';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
@@ -124,11 +127,8 @@ if (Astro.url.pathname === '/rss.xml')
 if (entry) {
   const custom = await (await siteExtension)?.render?.(entry, release);
   if (custom) {
-    const html = preview
-      ? custom
-          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace('</head>', '<meta name="robots" content="noindex,nofollow"></head>')
-      : custom;
+    const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, html: custom });
+    const html = composeMetadata(custom, metadata, { preview, track: !preview && !privateArticle, releaseId: release.id });
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -162,56 +162,27 @@ const resultsPage = Astro.url.pathname === '/search/'
   : { items: [], page: 1, pageSize: 20, total: 0, pages: 0 };
 const results = resultsPage.items;
 const searchLinks = pageLinks(resultsPage, Astro.url);
-const schema = {
-  '@context': 'https://schema.org',
-  '@type': entry?.kind === 'content' ? 'Article' : 'WebPage',
-  name: title,
-  url: canonical,
-  description,
-  inLanguage: settings.language,
-  ...(entry?.kind === 'content'
-    ? {
-        headline: title,
-        datePublished: entry.publishedAt,
-        dateModified: entry.modifiedAt,
-        author: { '@type': 'Person', name: entry.author || settings.name },
-      }
-    : {}),
-};
+const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, missing, html: content + headerRegion + beforeRegion + afterRegion + footerRegion });
+const schema = metadata.schema;
 ---
 
 <!doctype html>
-{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={canonical} schema={schema} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages }} preview={preview} missing={missing} owner={owner} /> : <>
+{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={metadata.canonical} schema={schema} metadata={metadata} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages }} preview={preview} missing={missing} owner={owner} /> : <>
 <html lang={settings.language}>
   <head
     ><meta charset="utf-8" /><meta
       name="viewport"
       content="width=device-width,initial-scale=1"
-    /><title>{title} · {settings.name}</title><meta name="description" content={description} /><meta
-      name="robots"
-      content={preview || privateArticle || missing || entry?.indexable === false
-        ? 'noindex,nofollow'
-        : 'index,follow'}
-    /><link rel="canonical" href={canonical} /><link
+    /><SeoHead metadata={metadata} /><link
       rel="alternate"
       type="application/rss+xml"
       href="/rss.xml"
-    /><meta property="og:title" content={title} /><meta
-      property="og:description"
-      content={description}
-    /><meta property="og:url" content={canonical} />{
-      entry?.cover && (
-        <meta property="og:image" content={new URL(entry.cover, settings.domain).href} />
-      )
-    }<script
-      type="application/ld+json"
-      set:html={JSON.stringify(schema).replaceAll('<', '\u003c')}
     /></head
   >
   <body
     style={`--accent:${theme.accent};--paper:${theme.background};--width:${theme.width}px;--radius:${theme.radius}px;--space:${theme.spacing}px;font-family:${theme.font}`}
     data-release={release.id}
-    data-track={!preview && !privateArticle && entry?.kind === 'content' ? 'true' : 'false'}
+    data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
   >
     <a class="skip" href="#main">跳到正文</a>{headerRegion ? <header class="wrap" set:html={headerRegion} /> : <header class="site-header wrap">
       <a class="brand" href="/"
@@ -285,7 +256,7 @@ const schema = {
       <a href="/rss.xml">RSS</a>
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
-    {!preview && !privateArticle && entry?.kind === 'content' && <script src="/weava-analytics.js" defer is:inline />}
+    {!preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   </body>
 </html>
 </>}

@@ -28,7 +28,11 @@
 | rollback | POST `{id}` 切换公开版本 |
 | jobs、job/id、logs?id=… | 查询任务；logs 支持 offset，每页最多 20000 字符 |
 | backup、verify | POST `{path}` 创建或校验目录备份 |
-| analytics、analytics/export | GET 报告或 CSV，支持 start、end、path |
+| analytics、analytics/export | GET 完整报表或 CSV，支持 start、end、path、channel、country、browser、os、device、model；导出用 dataset，兼容 group |
+| analytics/realtime、analytics/visitor、analytics/geo | GET 当前在线、分页访客轨迹、地区库状态；POST analytics/geo 更新免费数据库，完整口径见 [访问统计](analytics.md) |
+| seo/audit、seo/audits | POST `{target:"published"\|"draft",http?:boolean}` 创建检查；GET 不可变报告及当前 stale 状态；HTTP 只适用于已发布页面 |
+| seo/metadata?id=…&path=… | GET 指定公开内容的最终元信息，path 可带分页或筛选参数 |
+| search-data、search-data/import | GET 搜索数据与 AI 观测报告；POST 标准数据集，验证后保存，同编号同内容可重试 |
 | comments?status=all\|visible\|hidden&page=1 | GET 评论管理列表，每页 30 条，返回 items、total、hasMore |
 | comment | POST `{id,status:"visible"\|"hidden"}` 显示或隐藏评论 |
 | export | GET 站点设置、类型与内容的 JSON 交换格式 |
@@ -40,6 +44,8 @@
 | maintenance/archives、maintenance/archive?id=…、maintenance/restore | GET 归档列表或校验后的内容；POST `{id}` 任务恢复历史，不切换当前工作稿或公开版本 |
 
 异步操作可以带 Idempotency-Key，同一个标识只领取一次执行权。重试相同任务取得同一个编号，不再启动另一个进程。
+
+WP Statistics 历史迁移通过 CLI 提供 `migrate wordpress-statistics-script/extract/inspect`、`migrate wordpress-statistics`（默认只预检，写入需 `--apply --review`）、`analytics wordpress-sources/wordpress-report/wordpress-verify`。它不依赖服务器账号，也不合并原生统计与历史累计，完整命令和格式见 [迁移工具](wordpress-statistics.md)。
 
 公开接口为 `/api/v1/content`、`/api/v1/search?q=…`、`/api/v1/analytics`。内容列表不返回草稿、兼容模板或编辑器状态。内容与搜索结果保持 JSON 数组响应，支持 page、pageSize（或 limit，最多 100），并通过 X-Total-Count、X-Total-Pages、X-Page、X-Page-Size 返回分页信息。内容列表支持 kind、type、category、tag、q、sort 及 field.字段名。字段必须在类型中声明 filterable，并选择对应 type；数字、日期、布尔和选项条件会校验。后台 entries/query 与 CLI 使用同一查询服务；分类可以用稳定编号、slug 或名称，上级分类包含其后代。
 
@@ -61,6 +67,10 @@ scripts/run.ps1 --site E:\Code\WeavaSites\demo export --output D:\Tools\weava\ex
 ```
 
 `page`、`settings`、`media` 同样有 list/save；保存输入遵循对应 API。content/page list 返回分页对象，支持 --page、--page-size、--type、--category、--tag、--query、--status、--visibility。
+
+`content get --id 编号` 与 `page get --id 编号` 返回完整工作稿和修订号。`publication preview --id 编号 --output 文件.json` 保存检查结果，`publish --input 文件.json --wait` 使用其中原始 options 发布；检查后发生变动会拒绝执行，需要重新检查。`seo audit --http` 读取最多 200 个实际公开页面，`seo audit --draft` 检查候选生成内容，`seo reports` 读取保存结果，`seo metadata --id 编号 --path '/?page=2'` 检查具体地址策略。
+
+`search-data plan/pull --config 文件.json` 分别给出请求计划、执行可选连接器；`search-data import --input 数据集.json` 和 `search-data report` 导入、查看观测。完整数据合同、凭据边界、请求预算及示例见[搜索与内容改进](seo-improvements.md)。统计报告新增 sources、actions、crawlers，CSV 仍按原有页面浏览与点击口径导出；声明爬虫请求与访客事件分开。
 
 JSON import 默认新增或跳过完全相同的对象。空的已初始化站点允许应用导出的设置和类型；已有不同对象需要 --merge，并在输入中提供 revisions，例如 `{"entry:内容编号":123,"settings:site":456}`。--dry-run 执行同样的校验但回滚全部写入。正式导入也在一个事务中完成，后续对象失败不会留下前半批。JSON 交换不包含媒体二进制文件，完整站点恢复仍使用 backup。Markdown 内容保存为 `{version:1, format:"markdown", source:"正文"}`，由 content save 写入。外部工具通过 CLI 或 API 工作，产品没有内置 Agent 或模型服务。
 

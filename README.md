@@ -10,6 +10,7 @@
 - 实际页面画布、模板、共享区域、区块组合、响应式布局、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
 - 公开与私密文章、媒体访问控制、图片派生尺寸、浏览统计与目录备份恢复。
 - Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、后台评论管理。
+- 完整访问统计、来源与设备分析、访客轨迹、实时在线、免费本地地区库及世界地图、同期对比与 CSV 导出。
 - 标准 WordPress WXR 预检与导入、页面和类型转换、附件与评论迁移，以及原有来源目录和历史浏览量迁移。
 
 仓库仅包含框架源码、文档和测试。站点数据库、文章、图片、密码、统计及迁移档案保存在独立实例目录中，不属于此仓库。
@@ -51,6 +52,8 @@ pnpm weava --site E:\Code\WeavaSites\demo dev
 - [使用与编辑](docs/authoring.md)
 - [架构与数据](docs/architecture.md)
 - [API 与 CLI](docs/interfaces.md)
+- [访问统计与免费地区库](docs/analytics.md)
+- [WP Statistics 迁移工具](docs/wordpress-statistics.md)
 - [主题与扩展](docs/extensions.md)
 - [运行、备份和恢复](docs/operations.md)
 - [旧站迁移](docs/migration.md)
