@@ -2,6 +2,14 @@ import type { APIRoute } from 'astro';
 import { site, analytics, engagement, siteExtension } from '../../runtime.ts';
 import { stageMedia, csv, storageUsage, queryPublished, queryDrafts, contentQuery, exportSite, importSite, schedules, schedulePublication, cancelSchedule, retrySchedule, projectTerms, layouts, saveLayout, queryMedia, saveMediaMetadata, mediaReferences, archiveMedia, entryRevision, entryChanges, mergeEntry, saveMergedEntry, importWordPressWxr, digest } from '@weava/core';
 import { WeavaError as DomainError, VERSION as frameworkVersion } from '@weava/contracts';
+import { checkEntry, queryReferences } from '@weava/core';
+import { contentViews, creationTemplates, saveContentView, saveCreationTemplate, createContent, structuredBody } from '@weava/core';
+import { mediaGroups, saveMediaGroup, moveMedia } from '@weava/core';
+import { previewBulkEdit, applyBulkEdit } from '@weava/core';
+import { siteSchema, siteOpenApi, siteTypes } from '@weava/core';
+import { redirectRecords, previewRedirects, saveRedirects } from '@weava/core';
+import { publicationPlans, savePublicationPlan, reviewPublicationPlan, cancelPublicationPlan } from '@weava/core';
+import { imagePresets, saveImagePreset } from '@weava/core';
 import { planHistoryArchive, historyArchives, historyArchiveContents, programStatus, SCHEMA_VERSION, preparePublication } from '@weava/core';
 import { join } from 'node:path';
 import { existsSync, readFileSync, openSync, closeSync, writeFileSync } from 'node:fs';
@@ -95,12 +103,13 @@ export const ALL: APIRoute = async (context) => {
         return json(engagement.summary(id, reader, Number(url.searchParams.get('page')) || 1, url.searchParams.get('sort') === 'oldest' ? 'oldest' : 'latest'));
       let network = 'unknown';
       try { network = context.clientAddress; } catch {}
+      if (['v1/comment-captcha', 'v1/comment'].includes(route) && entry.allowComments === false) throw new DomainError('这篇内容已关闭新评论。', 403);
       if (route === 'v1/comment-captcha') return json(await engagement.createCaptcha(reader, network));
       if (route === 'v1/like') {
         if (typeof data.liked !== 'boolean') throw new DomainError('点赞状态无效。');
         return json(engagement.setLike(id, reader, data.liked, network));
       }
-      const comment = engagement.postComment(id, reader, network, data);
+      const comment = engagement.postComment(id, reader, network, data, site.release()?.settings.commentModeration === false ? 'visible' : 'pending');
       return json({ ...engagement.summary(id, reader), comment });
     }
     if (['v1/search', 'v1/content'].includes(route) && method === 'GET') {
@@ -168,6 +177,7 @@ export const ALL: APIRoute = async (context) => {
       return json({ ok: true });
     }
     const data = isWrite ? await request.json() : null;
+    if (action === 'schema' && method === 'GET') return url.searchParams.get('format') === 'types' ? new Response(siteTypes(site), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } }) : json(url.searchParams.get('format') === 'openapi' ? siteOpenApi(site) : siteSchema(site));
     if (action === 'seo/audit' && method === 'POST') {
       const target = data?.target === 'draft' ? 'draft' : 'published';
       const release = target === 'draft' ? preparePublication(site, data?.options ?? {}).release : site.release();
@@ -192,7 +202,7 @@ export const ALL: APIRoute = async (context) => {
     }
     if (action === 'search-data' && method === 'GET') return json(searchDataReport(site));
     if (action === 'search-data/import' && method === 'POST') return json(importSearchData(site, data));
-    if (action === 'import/revisions' && method === 'GET') return json(Object.fromEntries(['entry', 'type', 'term', 'layout', 'settings', 'redirect'].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]))));
+    if (action === 'import/revisions' && method === 'GET') return json(Object.fromEntries(['entry', 'type', 'term', 'layout', 'settings', 'redirect', 'content-view', 'creation-template'].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]))));
     if (action === 'import/wxr' && method === 'POST') {
       if (typeof data.xml !== 'string') throw new DomainError('请选择 WXR XML 文件。');
       const options = { ...data.options, mediaDirectory: undefined };
@@ -206,9 +216,12 @@ export const ALL: APIRoute = async (context) => {
       return json({
         settings: site.settings(),
         types: site.store.list('type'),
+        contentViews: contentViews(site),
+        creationTemplates: creationTemplates(site),
         terms: site.terms(),
         layouts: layouts(site),
         schedules: schedules(site),
+        publicationPlans: publicationPlans(site),
         entries: url.searchParams.get('summary') === '1' ? [] : site.entries(),
         entryCount: site.store.raw.prepare("SELECT COUNT(*) n FROM records WHERE scope='entry'").get(),
         media: site.store.list('media'),
@@ -216,12 +229,18 @@ export const ALL: APIRoute = async (context) => {
         releases: site.releases(),
         themes: [{ id: 'weava', label: 'Weava' }, { id: 'newsletter', label: 'Newsletter' }, ...((await siteExtension)?.themes ?? [])],
         extensionPanels: (await siteExtension)?.panels ?? [],
+        fieldWidgets: site.fieldWidgets,
         extensionBlocks: Object.keys((await siteExtension)?.blocks ?? {}),
         extensionBlockDefinitions: Object.fromEntries(Object.entries((await siteExtension).blockDefinitions).map(([key, value]) => [key, { label: value.label, fields: value.fields }])),
         extensions: (await siteExtension).status(),
         program: {...programStatus(site.root),databaseSchema:SCHEMA_VERSION},
       });
     if (action === 'entries') return json(site.entries());
+    if (action === 'redirects' && method === 'GET') return json(redirectRecords(site));
+    if (action === 'redirects/preview' && method === 'POST') return json(previewRedirects(site, data));
+    if (action === 'redirects/save' && method === 'POST') return json(saveRedirects(site, data));
+    if (action === 'entries/bulk/preview' && method === 'POST') { const { values, ...preview } = previewBulkEdit(site, data); return json(preview); }
+    if (action === 'entries/bulk/apply' && method === 'POST') return json(applyBulkEdit(site, data));
     if (action === 'extensions' && method === 'GET') return json((await siteExtension).status());
     if (action === 'extensions/usage' && method === 'GET') return json((await siteExtension).usage(url.searchParams.get('id') ?? ''));
     if (action === 'extensions/toggle' && method === 'POST') {
@@ -232,6 +251,12 @@ export const ALL: APIRoute = async (context) => {
       status: url.searchParams.get('status') ?? undefined, visibility: url.searchParams.get('visibility') ?? undefined }));
     if (action === 'publication' && method === 'POST'){const review=site.previewPublication(data??{});await (await siteExtension).validateRelease(preparePublication(site,review.options).release);return json(review);}
     if (action === 'schedules' && method === 'GET') return json(schedules(site));
+    if (action === 'plans' && method === 'GET') return json(publicationPlans(site));
+    if (action === 'plans' && method === 'POST') return json(savePublicationPlan(site, data.value, data.revision ?? null));
+    if (action === 'plans/entry' && method === 'GET') { const id = url.searchParams.get('id') ?? '', row = site.store.get('entry', id); if (!row) throw new DomainError('内容不存在。', 404); return json({ id, title: row.value.title, revision: row.revision, publishedRevision: site.release()?.entries.find((entry) => entry.id === id)?.revisionId }); }
+    if (action === 'plans/preview' && method === 'POST') { const checked = reviewPublicationPlan(site, data.id, data.revision); await (await siteExtension).validateRelease(preparePublication(site, checked.review.options).release); return json(checked); }
+    if (action === 'plans/run' && method === 'POST') { if (!data.options) throw new DomainError('请先检查发布计划。'); reviewPublicationPlan(site, data.id, data.revision); return json(await execute('publish', { planId: data.id, planRevision: data.revision, options: data.options }, request.headers.get('Idempotency-Key') ?? undefined), 202); }
+    if (action === 'plans/cancel' && method === 'POST') return json(cancelPublicationPlan(site, data.id, data.revision));
     if (action === 'schedule' && method === 'POST') return json(schedulePublication(site, data.id, data.revision, data.dueAt));
     if (action === 'schedule/cancel' && method === 'POST') return json(cancelSchedule(site, data.id, data.revision));
     if (action === 'schedule/retry' && method === 'POST') return json(retrySchedule(site, data.id, data.revision));
@@ -252,6 +277,18 @@ export const ALL: APIRoute = async (context) => {
     if (action === 'maintenance/restore' && method === 'POST') return json(await execute('restore-history',data),202);
     if (action === 'maintenance/archives' && method === 'GET') return json(historyArchives(site).map(({privateMedia,...row})=>row));
     if (action === 'maintenance/archive' && method === 'GET') return json(historyArchiveContents(site,url.searchParams.get('id') ?? ''));
+    if (action === 'authoring/views' && method === 'GET') return json(contentViews(site));
+    if (action === 'authoring/views' && method === 'POST') return json(saveContentView(site, data.value, data.revision ?? null));
+    if (action === 'authoring/templates' && method === 'GET') return json(creationTemplates(site));
+    if (action === 'authoring/templates' && method === 'POST') return json(saveCreationTemplate(site, data.value, data.revision ?? null));
+    if (action === 'entries/create' && method === 'POST') return json(createContent(site, data));
+    if (action === 'entry/structure' && method === 'POST') return json(structuredBody(data.value));
+    if (action === 'entry/check' && method === 'POST') return json(checkEntry(site, data.value, { required: data.required !== false }));
+    if (action === 'references/query' && method === 'GET') return json(queryReferences(site, {
+      referenceTypes: url.searchParams.has('types') ? url.searchParams.get('types')!.split(',').filter(Boolean) : undefined,
+      referenceFilters: url.searchParams.has('filters') ? JSON.parse(url.searchParams.get('filters')!) : undefined,
+      query: url.searchParams.get('q') ?? '', page: Number(url.searchParams.get('page') || 1), pageSize: Number(url.searchParams.get('pageSize') || 18),
+    }));
     if (action === 'entry' && method === 'POST')
       return json(site.saveEntry(data.value, data.revision ?? null));
     if (action.startsWith('entry/') && method === 'GET') {
@@ -280,6 +317,13 @@ export const ALL: APIRoute = async (context) => {
     if (action === 'restore') return json(site.restore(data.id, data.version, data.revision));
     if (action === 'withdraw') return json(site.withdraw(data.id, data.revision, !!data.archive));
     if (action === 'media' && method === 'GET') return json(site.store.list('media'));
+    if (action === 'media/groups' && method === 'GET') return json(mediaGroups(site));
+    if (action === 'media/presets' && method === 'GET') return json(imagePresets(site));
+    if (action === 'media/presets' && method === 'POST') return json(saveImagePreset(site, data.value, data.revision ?? null));
+    if (action === 'media/variants' && method === 'GET') return json(site.store.list('media-variant').filter((row) => row.value.parentId === url.searchParams.get('id')));
+    if (action === 'media/variant' && method === 'POST') return json(await execute('media-variant', data, request.headers.get('Idempotency-Key') ?? undefined), 202);
+    if (action === 'media/groups' && method === 'POST') return json(saveMediaGroup(site, data.value, data.revision ?? null));
+    if (action === 'media/move' && method === 'POST') return json(moveMedia(site, data.items, data.groupId ?? null));
     if (action === 'media/query' && method === 'GET') return json(queryMedia(site, url.searchParams));
     if (action === 'media/info' && method === 'POST') return json(saveMediaMetadata(site, data.id, data.value, data.revision));
     if (action === 'media/references' && method === 'GET') return json(mediaReferences(site, url.searchParams.get('id') ?? ''));

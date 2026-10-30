@@ -40,6 +40,8 @@ const program = new Command()
   .option('--site <path>', '站点目录', resolve(framework, '../WeavaSites/demo'))
   .option('--url <url>', '运行中的服务地址')
   .option('--human', '人工阅读格式');
+program.command('schema').option('--format <format>', 'json、openapi 或 types', 'json').option('--output <path>')
+  .action(async (opts) => { if (!['json','openapi','types'].includes(opts.format)) throw new Error('格式需要是 json、openapi 或 types。'); const result = await request('schema?format=' + opts.format, undefined, opts.format === 'types' ? 'text' : 'json'); if (opts.output) { writeFileSync(resolve(opts.output), typeof result === 'string' ? result : JSON.stringify(result, null, 2)); output({ path: resolve(opts.output) }); } else if (typeof result === 'string') console.log(result); else output(result); });
 function output(value: any) {
   console.log(JSON.stringify(value, null, program.opts().human ? 2 : 0));
 }
@@ -172,6 +174,28 @@ program
   );
 for (const name of ['content', 'page', 'settings', 'media']) {
   const command = program.command(name);
+  if (name === 'media') {
+    const groups = command.command('group');
+    const presets = command.command('preset');
+    presets.command('list').action(async () => output(await request('media/presets')));
+    presets.command('save').requiredOption('--input <file>').action(async (opts) => output(await request('media/presets', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+    command.command('variant').requiredOption('--input <file>').option('--wait').action(async (opts) => output(await wait(await request('media/variant', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, ''))), !!opts.wait)));
+
+    groups.command('list').action(async () => output(await request('media/groups')));
+    groups.command('save').requiredOption('--input <file>').action(async (opts) => output(await request('media/groups', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+    command.command('move').requiredOption('--input <file>').action(async (opts) => output(await request('media/move', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+  }
+  if (name === 'content' || name === 'page') command.command('check').requiredOption('--input <file>')
+    .option('--draft', '只检查草稿有效值，允许暂时缺少必填项')
+    .action(async (opts) => {
+      const source = JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, ''));
+      const result = await request('entry/check', { value: source.value ?? source, required: !opts.draft });
+      output(result); if (!result.valid) process.exitCode = 1;
+    });
+  if (name === 'content' || name === 'page') command.command('new').option('--type <id>').option('--template <id>').option('--title <title>').option('--path <path>')
+    .action(async (opts) => output(await request('entries/create', { kind: name === 'page' ? 'page' : 'content', type: opts.type, templateId: opts.template, title: opts.title, path: opts.path })));
+  if (name === 'content' || name === 'page') command.command('bulk').requiredOption('--input <file>').option('--apply', '提交带 review 的已检查修改')
+    .action(async (opts) => output(await request(opts.apply ? 'entries/bulk/apply' : 'entries/bulk/preview', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
   if (['content', 'page'].includes(name)) command.command('get').requiredOption('--id <id>').action(async (opts) => output(await request('entry/' + encodeURIComponent(opts.id))));
   command
     .command('list')
@@ -210,6 +234,21 @@ for (const name of ['content', 'page', 'settings', 'media']) {
       ),
     );
 }
+for (const [name, endpoint] of [['view', 'authoring/views'], ['creation-template', 'authoring/templates']] as const) {
+  const command = program.command(name);
+  command.command('list').action(async () => output(await request(endpoint)));
+  command.command('save').requiredOption('--input <file>').action(async (opts) => output(await request(endpoint, JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+}
+const redirects = program.command('redirect');
+const plans = program.command('publication-plan');
+plans.command('list').action(async () => output(await request('plans')));
+plans.command('save').requiredOption('--input <file>').action(async (opts) => output(await request('plans', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+plans.command('preview').requiredOption('--id <id>').requiredOption('--revision <revision>').action(async (opts) => output(await request('plans/preview', { id: opts.id, revision: Number(opts.revision) })));
+plans.command('run').requiredOption('--input <file>', 'plans preview 的完整结果').option('--wait').action(async (opts) => { const checked = JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')); output(await wait(await request('plans/run', { id: checked.plan.id, revision: checked.plan.revision, options: checked.review.options }), !!opts.wait)); });
+plans.command('cancel').requiredOption('--id <id>').requiredOption('--revision <revision>').action(async (opts) => output(await request('plans/cancel', { id: opts.id, revision: Number(opts.revision) })));
+redirects.command('list').action(async () => output(await request('redirects')));
+redirects.command('preview').requiredOption('--input <file>').action(async (opts) => output(await request('redirects/preview', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
+redirects.command('save').requiredOption('--input <file>').action(async (opts) => output(await request('redirects/save', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, '')))));
 program
   .command('publish')
   .option('--id <id...>')

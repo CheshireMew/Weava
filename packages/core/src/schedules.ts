@@ -2,6 +2,7 @@ import { WeavaError } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { now, uuid } from './storage.ts';
 import {preparePublication} from './publication.ts';
+import { runPublicationPlans } from './publication-plans.ts';
 import type {Release} from '@weava/contracts';
 
 export interface PublicationSchedule {
@@ -81,6 +82,7 @@ export function runSchedules(site: Site, clock = Date.now(), onlyId?:string, rev
   return { completed, failed };
 }
 export async function runSchedulesAsync(site:Site,validate:(release:Release)=>Promise<void>,clock=Date.now()){
+  await runPublicationPlans(site, validate, clock);
   const completed:string[]=[],failed:string[]=[];
   for(const queued of schedules(site).filter((row)=>row.value.status==='scheduled'&&Date.parse(row.value.dueAt)<=clock).slice(0,20)){
     if(site.store.raw.prepare("SELECT 1 FROM jobs WHERE operation='publish' AND status IN ('queued','running')").get())break;

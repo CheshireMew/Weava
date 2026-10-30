@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-29T14:24:57.351Z",
+  "generatedAt": "2026-10-30T11:05:34.444Z",
   "frameworkLicense": "AGPL-3.0-only",
   "packages": [
     {
@@ -188,6 +188,13 @@
       "version": "1.0.41",
       "license": "MIT",
       "homepage": "https://uaparser.dev",
+      "usage": "runtime"
+    },
+    {
+      "name": "shiki",
+      "version": "4.5.0",
+      "license": "MIT",
+      "homepage": "https://github.com/shikijs/shiki#readme",
       "usage": "runtime"
     },
     {

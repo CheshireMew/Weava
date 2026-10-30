@@ -1,13 +1,14 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'cheerio';
-import { WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
+import { effectiveFields, fieldIssues, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { normalizePath } from './site.ts';
 import { now, uuid, digest } from './storage.ts';
 import { renderDocument, validateFields } from './documents.ts';
-import { renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
+import { renderBlocks, renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
 import { storeRelease } from './publication-store.ts';
+import { validateEditorial, entrySummary } from './editorial.ts';
 import { projectTerms, bindBlockTerms } from './taxonomy.ts';
 import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
 import type { Layout } from '@weava/contracts';
@@ -24,8 +25,9 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   if (options.reviewRevision !== undefined && options.reviewRevision !== (site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n)
     throw new WeavaError('工作稿已变化，请重新查看发布内容。', 409);
   const scope = options.scope ?? (options.ids ? 'entries' : 'all');
-  if (!['all', 'entries', 'settings', 'layouts', 'terms'].includes(scope)) throw new WeavaError('发布范围无效。');
-  if (scope === 'entries' && !options.ids?.length) throw new WeavaError('请选择需要发布的内容。');
+  if (!['all', 'entries', 'settings', 'layouts', 'terms', 'routes'].includes(scope)) throw new WeavaError('发布范围无效。');
+  if (scope === 'entries' && !options.ids?.length && !options.withdrawIds?.length) throw new WeavaError('请选择需要发布的内容。');
+  if (options.withdrawIds?.length && scope !== 'entries') throw new WeavaError('撤下内容需要使用内容发布范围。');
   if (scope !== 'entries' && options.ids !== undefined) throw new WeavaError('发布范围与内容选择不一致。');
   const snapshot = site.store.raw.transaction(() => ({ previous: site.release(), drafts: site.store.list('entry'),
     settings: site.settings(), types: site.store.list('type').map((row) => row.value),
@@ -34,8 +36,8 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   if (scope === 'settings' && options.settingsRevision !== undefined && options.settingsRevision !== snapshot.settings.revision)
     throw new WeavaError('待发布设置已变化，请重新载入。', 409);
   const previous = snapshot.previous;
-  let settings: Settings = ['entries', 'layouts', 'terms'].includes(scope) && previous ? previous.settings : snapshot.settings.value;
-  const types = ['settings', 'layouts', 'terms'].includes(scope) && previous ? previous.types : snapshot.types;
+  let settings: Settings = ['entries', 'layouts', 'terms', 'routes'].includes(scope) && previous ? previous.settings : snapshot.settings.value;
+  const types = ['settings', 'layouts', 'terms', 'routes'].includes(scope) && previous ? previous.types : snapshot.types;
   const selected = scope === 'entries' ? new Set(options.ids!) : null;
   if (selected) for (const id of selected) {
     const row = snapshot.drafts.find((draft) => draft.id === id);
@@ -52,9 +54,9 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
       snapshot.drafts[index] = { id, revision, value: JSON.parse(historical.data), updatedAt: historical.created_at };
     }
   }
-  const entries = new Map(previous?.entries.map((entry) => [entry.id, entry]) ?? []);
+  const entries = new Map(previous?.entries.map((entry) => [entry.id, structuredClone(entry)]) ?? []);
   const time = now();
-  if (!['settings', 'layouts', 'terms'].includes(scope)) for (const row of snapshot.drafts) {
+  if (!['settings', 'layouts', 'terms', 'routes'].includes(scope)) for (const row of snapshot.drafts) {
     if (selected && !selected.has(row.id)) continue;
     const entry = entrySchema.parse(row.value);
     if (entry.status === 'archived') { entries.delete(entry.id); continue; }
@@ -66,7 +68,13 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     entries.set(entry.id, { ...entry, status: 'published', publishedAt: entry.publishedAt || old?.publishedAt || time,
       html: renderDocument(entry.document), modifiedAt: row.updatedAt, revisionId: row.revision });
   }
-  const terms: Term[] = ['entries', 'layouts'].includes(scope) && previous ? [...(previous.terms ?? [])] : site.terms().map((row) => row.value);
+  for (const id of options.withdrawIds ?? []) {
+    if (selected?.has(id)) throw new WeavaError('同一内容不能同时发布和撤下。');
+    const old = previous?.entries.find((entry) => entry.id === id);
+    if (!old || options.withdrawRevisions?.[id] !== undefined && old.revisionId !== options.withdrawRevisions[id]) throw new WeavaError('待撤下的公开内容已变化，请重新检查。', 409);
+    entries.delete(id);
+  }
+  const terms: Term[] = ['entries', 'layouts', 'routes'].includes(scope) && previous ? [...(previous.terms ?? [])] : site.terms().map((row) => row.value);
   for (const entry of entries.values()) {
     // Legacy records receive stable references in the candidate, without rewriting author history.
     const normalized = entry.termIds ? entry : { ...entry, termIds: { categories: [] as string[], tags: [] as string[] } };
@@ -83,11 +91,12 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
       }
     entries.set(entry.id, { ...projectTerms(normalized, terms), blocks: bindBlockTerms(normalized.blocks, [...(previous?.terms ?? []), ...terms]) });
   }
-  if (!['entries', 'layouts'].includes(scope) || !previous) settings = { ...settings, taxonomies: settings.taxonomies.map((item) => {
+  if (!['entries', 'layouts', 'routes'].includes(scope) || !previous) settings = { ...settings, taxonomies: settings.taxonomies.map((item) => {
     const term = terms.find((term) => term.id === item.id || (term.kind === 'category' && term.label === item.label));
     return term ? { ...item, ...term } : item;
   }) };
-  const redirects = { ...snapshot.aliases, ...previous?.redirects };
+  const redirects = { ...previous?.redirects, ...(['all', 'routes'].includes(scope) ? snapshot.aliases : {}) };
+  for (const [from, value] of Object.entries(redirects)) if (value.disabled) delete redirects[from];
   const paths = new Map<string, string>();
   for (const entry of entries.values()) {
     if (paths.has(entry.path)) throw new WeavaError('网址重复：' + entry.path);
@@ -97,7 +106,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     site.validateBlocks(entry.blocks, true);
     const definition = types.find((type) => type.id === entry.type);
     if (entry.kind === 'content' && !definition) throw new WeavaError('内容类型不存在：' + entry.type);
-    if (definition) validateFields(definition.fields, entry.fields);
+    if (definition) validateFields(effectiveFields(definition.fields, site.fieldWidgets), entry.fields);
   }
   for (const old of previous?.entries ?? []) {
     const changed = entries.get(old.id);
@@ -122,7 +131,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   }
   const release: Release = { id: uuid(), createdAt: time, entries: [...entries.values()], settings, types,
     redirects, terms, label: options.label ?? (scope === 'settings' ? '发布设置' : '发布') };
-  const catalog = new Map((['entries', 'settings', 'terms'].includes(scope) && previous ? previous.layouts ?? builtInLayouts : snapshot.layouts).map((layout) => [layout.id, layout]));
+  const catalog = new Map((['entries', 'settings', 'terms', 'routes'].includes(scope) && previous ? previous.layouts ?? builtInLayouts : snapshot.layouts).map((layout) => [layout.id, layout]));
   const include = (id: string, seen = new Set<string>()) => {
     if (seen.has(id)) return;
     seen.add(id);
@@ -140,19 +149,17 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   }
   for (const id of Object.values(settings.regions ?? {})) if (id) include(id);
   release.layouts = [...catalog.values()];
+  for (const entry of release.entries) {
+    if (!entry.description && entry.summaryMode && entry.summaryMode !== 'manual') entry.description = entrySummary(entry, entry.blocks.length ? renderBlocks(entry.blocks, release, entry, site.blockRenderers) : entry.html, (blocks) => renderBlocks(blocks, release, entry, site.blockRenderers));
+  }
+  validateEditorial(release);
   site.validateReleaseExtensions(release);
   validateLayouts(release.layouts);
   for (const layout of release.layouts) site.validateBlocks(layout.blocks);
   const missing: any[] = [];
   const references = (defs: FieldDefinition[], values: Record<string, any>, id: string) => {
-    for (const field of defs) {
-      const value = values[field.key];
-      if (value === undefined || value === null || value === '') continue;
-      for (const item of field.multiple ? value : [value]) {
-        if (field.type === 'reference' && !entries.has(item)) missing.push({ id, field: field.key, reference: item });
-        if (field.type === 'group') references(field.fields ?? [], item, id);
-      }
-    }
+    const errors = fieldIssues(effectiveFields(defs, site.fieldWidgets), values, { prefix: 'fields.', reference: (target) => entries.get(target), requireReferences: true });
+    if (errors.length) throw new WeavaError(errors.some((error) => error.code === 'reference') ? '内容字段校验失败，引用无效。' : '内容字段校验失败。', 400, errors.map((error) => ({ id, ...error })));
   };
   const validPath = (path: string, seen = new Set<string>()): boolean => {
     if (paths.has(path) || /^\/(media|api|video|search)(\/|$)/.test(path) || ['/rss.xml', '/sitemap.xml', '/robots.txt'].includes(path)) return true;
@@ -197,11 +204,12 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   catch (error: any) { throw new WeavaError('导航引用无效：' + error.message); }
   for (const validate of site.publicationValidators) validate(release);
   if (options.failAt === 'validate') throw new WeavaError('测试：发布校验失败。');
-  const before = new Map(previous?.entries.map((entry) => [entry.id, entry]) ?? []);
+  const before = new Map(previous?.entries.map((entry) => [entry.id, structuredClone(entry)]) ?? []);
   const changes = {
     scope, baseReleaseId: previous?.id ?? null,
     settingsChanged: digest(previous?.settings ?? null) !== digest(settings),
     layoutsChanged: digest(previous?.layouts ?? builtInLayouts) !== digest(release.layouts),
+    routesChanged: digest(previous?.redirects ?? {}) !== digest(redirects),
     termsChanged: digest(previous?.terms ?? []) !== digest(terms),
     entries: release.entries.filter((entry) => digest(before.get(entry.id) ?? null) !== digest(entry))
       .map((entry) => ({ id: entry.id, title: entry.title, path: entry.path, revision: entry.revisionId, action: before.has(entry.id) ? 'update' : 'add' })),

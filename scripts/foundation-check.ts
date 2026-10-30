@@ -16,6 +16,11 @@ import { checkOrganization } from './check-organization.ts';
 import { checkMaintenance } from './check-maintenance.ts';
 import { checkProgramUpgrade } from './check-program-upgrade.ts';
 import { checkFiveSites } from './check-five-sites.ts';
+import { checkContentModels } from './check-content-models.ts';
+import { checkAuthoringTools } from './check-authoring-tools.ts';
+import { checkWritingRecovery } from './check-writing-recovery.ts';
+import { checkMediaGroups } from './check-media-groups.ts';
+import { seedCmsFinish, checkCmsFinish } from './check-cms-finish.ts';
 
 const framework = resolve(import.meta.dirname, '..');
 const output = 'D:/Tools/cache/weava/foundation-' + Date.now();
@@ -34,6 +39,7 @@ site.saveSettings({ ...settings.value, name: '隔离验收站', navigation: [{ l
 site.publish();
 const token = site.cliToken();
 if (process.argv.includes('--extensions')) seedExtensions(root);
+if (process.argv.includes('--cms-finish')) seedCmsFinish(root);
 site.close();
 if (production) {
   const status = await new Promise<number | null>((resolve) => {
@@ -187,6 +193,11 @@ try {
   if (process.argv.includes('--authoring')) evidence.wordpress = await checkImport({ origin, api, cli, page, context, output });
   if (process.argv.includes('--extensions')) evidence.extensions = await checkExtensions({ origin, api, cli, page, context, output, root });
   if (process.argv.includes('--organization')) evidence.organization = await checkOrganization({ origin, api, cli, page, context, output });
+  if (process.argv.includes('--cms-models')) evidence.contentModels = await checkContentModels({ origin, api, cli, page, output });
+  if (process.argv.includes('--authoring-tools')) evidence.authoringTools = await checkAuthoringTools({ origin, api, cli, page, output });
+  if (process.argv.includes('--writing-recovery')) evidence.writingRecovery = await checkWritingRecovery({ origin, api, page, context, password, output });
+  if (process.argv.includes('--media-groups')) evidence.mediaGroups = await checkMediaGroups({ origin, api, cli, page, output });
+  if (process.argv.includes('--cms-finish')) evidence.cmsFinish = await checkCmsFinish({ origin, api, cli, page, context, output, root });
   if (process.argv.includes('--maintenance')) evidence.maintenance = await checkMaintenance({ origin, api, cli, page, context, output });
   if (process.argv.includes('--five-sites')) evidence.fiveSites = await checkFiveSites(output,framework);
   await page.setViewportSize({ width: 390, height: 844 });

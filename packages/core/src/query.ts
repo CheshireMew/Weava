@@ -1,4 +1,4 @@
-import { WeavaError, type ContentQuery, type PageResult, type PublishedEntry, type ContentType, type Term } from '@weava/contracts';
+import { WeavaError, referenceMatches, fieldSchema, type FieldDefinition, type ContentQuery, type PageResult, type PublishedEntry, type ContentType, type Term } from '@weava/contracts';
 import type { Site } from './site.ts';
 export function queryPublished(site: Site, input: ContentQuery = {}, search = false, releaseId?: string) {
   const release = site.visibleRelease(false, releaseId), entries = release?.entries ?? [];
@@ -15,7 +15,10 @@ export function queryDrafts(site: Site, input: ContentQuery & { status?: string;
         input.status === 'changed' ? summary.published && summary.hasChanges : row.value.status === input.status && !summary.published));
   });
   const result = queryEntries(drafts.map((row) => ({ ...row.value, html: '', modifiedAt: row.updatedAt, revisionId: row.revision })), input, site.store.list('type').map((row) => row.value), site.terms().map((row) => row.value));
-  return { ...result, items: result.items.map((entry) => summaries.get(entry.id)!) };
+  return { ...result, items: result.items.map((entry) => {
+    const row = summaries.get(entry.id)!, columns = site.store.get('type', entry.type)?.value.admin?.columns ?? [];
+    return { ...row, value: { ...row.value, fields: Object.fromEntries(columns.filter((key: string) => Object.hasOwn(entry.fields, key)).map((key: string) => [key, entry.fields[key]])) } };
+  }) };
 }
 export function paginate<T>(items: T[], page = 1, pageSize = 24): PageResult<T> {
   if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
@@ -54,16 +57,25 @@ export function selectEntries(entries: PublishedEntry[], input: ContentQuery = {
 }
 export function queryEntries(entries: PublishedEntry[], input: ContentQuery = {}, types?: ContentType[], terms: Term[] = []): PageResult<PublishedEntry> {
   const page = input.page ?? 1, pageSize = input.pageSize ?? 24;
-  if (input.sort && !['date', 'oldest', 'title'].includes(input.sort)) throw new WeavaError('排序方式无效。');
+  if (input.sort && !['date', 'oldest', 'title', '-title', 'publishedAt', '-publishedAt', 'updatedAt', '-updatedAt'].includes(input.sort)) throw new WeavaError('排序方式无效。');
   const items = selectEntries(entries, input, types, terms);
   items.sort((a, b) => {
-    const value = input.sort === 'title' ? a.title.localeCompare(b.title) :
+    const value = input.sort === 'title' || input.sort === '-title' ? a.title.localeCompare(b.title) * (input.sort === '-title' ? -1 : 1) :
+      input.sort === 'updatedAt' || input.sort === '-updatedAt' ? String(a.updatedAt ?? '').localeCompare(String(b.updatedAt ?? '')) * (input.sort.startsWith('-') ? -1 : 1) :
+      input.sort === 'publishedAt' ? String(a.publishedAt ?? '').localeCompare(String(b.publishedAt ?? '')) :
       String(b.publishedAt ?? '').localeCompare(String(a.publishedAt ?? '')) * (input.sort === 'oldest' ? -1 : 1);
     return value || a.id.localeCompare(b.id);
   });
   return paginate(items, page, pageSize);
 }
 
+export function queryReferences(site: Site, input: { referenceTypes?: string[]; referenceFilters?: FieldDefinition['referenceFilters']; query?: string; page?: number; pageSize?: number }) {
+  const field = fieldSchema.parse({ key: 'reference', label: '内容引用', type: 'reference', referenceTypes: input.referenceTypes, referenceFilters: input.referenceFilters });
+  const q = input.query?.normalize('NFKC').toLowerCase();
+  const rows = site.store.list('entry').filter((row) => row.value.status !== 'archived' && referenceMatches(field, row.value) && (!q || (row.value.title + ' ' + row.value.description).normalize('NFKC').toLowerCase().includes(q)));
+  rows.sort((a, b) => a.value.title.localeCompare(b.value.title) || a.id.localeCompare(b.id));
+  return paginate(rows, input.page, input.pageSize);
+}
 export function contentQuery(params: URLSearchParams): ContentQuery {
   const fields = Object.fromEntries([...params].filter(([key,value]) => key.startsWith('field.') && value !== '').map(([key, value]) => [key.slice(6), value]));
   const kind = params.get('kind');

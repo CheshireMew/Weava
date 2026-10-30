@@ -1,4 +1,5 @@
-import { entrySchema, typeSchema, layoutSchema, WeavaError, type Settings, type Term, type Layout } from '@weava/contracts';
+import { entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, WeavaError, type Settings, type Term, type Layout } from '@weava/contracts';
+import { saveContentView, saveCreationTemplate } from './authoring.ts';
 import { saveLayout } from './layouts.ts';
 import type { Site } from './site.ts';
 import { digest } from './storage.ts';
@@ -10,6 +11,8 @@ export interface SiteExchange {
   entries?: unknown[];
   terms?: Term[];
   layouts?: Layout[];
+  contentViews?: unknown[];
+  creationTemplates?: unknown[];
   redirects?: Record<string, { target: string; entryId?: string }>;
 }
 export interface ImportOptions {
@@ -20,7 +23,8 @@ export interface ImportOptions {
 export function exportSite(site: Site): SiteExchange {
   return { version: 1, settings: site.settings().value, types: site.store.list('type').map((row) => row.value),
     entries: site.store.list('entry').map((row) => row.value), terms: site.terms().map((row) => row.value), layouts: site.store.list('layout').map((row) => row.value),
-    redirects: Object.fromEntries(site.store.list('redirect').map((row) => [row.id, row.value])) };
+    redirects: Object.fromEntries(site.store.list('redirect').map((row) => [row.id, row.value])),
+    contentViews: site.store.list('content-view').map((row) => row.value), creationTemplates: site.store.list('creation-template').map((row) => row.value) };
 }
 const comparable = (scope: string, value: any) => scope === 'entry' ? { ...value, updatedAt: undefined } : value;
 function fingerprint(scope: string, value: any) {
@@ -32,12 +36,14 @@ function fingerprint(scope: string, value: any) {
 export function importSite(site: Site, source: SiteExchange, options: ImportOptions = {}) {
   if (source?.version !== 1) throw new WeavaError('不支持这个站点交换格式版本。');
   if (options.mode && !['create', 'merge'].includes(options.mode)) throw new WeavaError('导入方式无效。');
-  for (const key of ['entries', 'types', 'terms', 'layouts'] as const)
+  for (const key of ['entries', 'types', 'terms', 'layouts', 'contentViews', 'creationTemplates'] as const)
     if (source[key] !== undefined && !Array.isArray(source[key])) throw new WeavaError('导入的 ' + key + ' 需要是列表。');
   const types = (source.types ?? []).map((value) => typeSchema.parse(value));
   const entries = (source.entries ?? []).map((value) => entrySchema.parse(value));
   const layouts = (source.layouts ?? []).map((value) => layoutSchema.parse(value));
-  const groups = [['type', types], ['entry', entries], ['term', source.terms ?? []], ['layout', layouts]] as const;
+  const views = (source.contentViews ?? []).map((value) => contentViewSchema.parse(value));
+  const templates = (source.creationTemplates ?? []).map((value) => creationTemplateSchema.parse(value));
+  const groups = [['type', types], ['entry', entries], ['term', source.terms ?? []], ['layout', layouts], ['content-view', views], ['creation-template', templates]] as const;
   const conflicts: { scope: string; id: string; revision: number; reason: string }[] = [];
   const empty = !site.store.list('entry').length && !site.release();
   const rows = new Map<string, ReturnType<Site['store']['get']>>();
@@ -99,7 +105,9 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
         const [layout] = layoutQueue.splice(available, 1);
         save('layout', layout.id, layout, (revision) => saveLayout(site, layout, revision));
       }
-      for (const entry of entries) save('entry', entry.id, entry, (revision) => site.saveEntry(entry, revision));
+      for (const entry of entries) save('entry', entry.id, entry, (revision) => site.saveEntry(entry, revision, { references: entries }));
+      for (const view of views) save('content-view', view.id, view, (revision) => saveContentView(site, view, revision));
+      for (const template of templates) save('creation-template', template.id, template, (revision) => saveCreationTemplate(site, template, revision));
       for (const [id, value] of Object.entries(source.redirects ?? {})) save('redirect', id, value, (revision) => site.store.put('redirect', id, value, revision));
       if (options.dryRun) throw dryRun;
     }).immediate();

@@ -18,7 +18,7 @@ import {
   INSERT_ORDERED_LIST_COMMAND,
 } from '@lexical/list';
 import { LinkNode, AutoLinkNode, TOGGLE_LINK_COMMAND } from '@lexical/link';
-import { CodeNode, CodeHighlightNode, $createCodeNode } from '@lexical/code';
+import { CodeNode, CodeHighlightNode, $createCodeNode, $isCodeNode } from '@lexical/code';
 import {
   TableNode,
   TableRowNode,
@@ -236,6 +236,8 @@ function Toolbar({
 }) {
   const [editor] = useLexicalComposerContext();
   const selectors = useSelectors();
+  const [codeLanguage, setCodeLanguage] = useState('text');
+  const codeSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const linkSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const captureLink = (mode: 'link' | 'video') => { linkSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); setLink(link ? null : mode); };
   const [link, setLink] = useState<'link' | 'video' | null>(null),
@@ -254,7 +256,7 @@ function Toolbar({
               ? $createHeadingNode('h2')
               : kind === 'quote'
                 ? $createQuoteNode()
-                : $createCodeNode();
+                : $createCodeNode(codeLanguage);
           replacement.append(...top.getChildren());
           top.replace(replacement);
         }
@@ -284,6 +286,7 @@ function Toolbar({
           editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
         )}
         {button('代码', <Code size={17} />, () => block('code'))}
+        <select aria-label="代码语言" value={codeLanguage} onMouseDown={() => { codeSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); }} onChange={(event) => { const language = event.target.value; setCodeLanguage(language); editor.update(() => { if (codeSelection.current) $setSelection(codeSelection.current); const selection = $getSelection(); if ($isRangeSelection(selection)) for (const node of selection.getNodes()) { const top = node.getTopLevelElement(); if ($isCodeNode(top)) top.setLanguage(language); } }); }}>{['text','typescript','javascript','python','json','html','css','bash','sql','yaml'].map((language) => <option key={language}>{language}</option>)}</select>
         {button('链接', <Link size={16} />, () => captureLink('link'))}
         {button('插入视频', <Video size={17} />, () => captureLink('video'))}
         {button('表格', <Table size={16} />, () =>

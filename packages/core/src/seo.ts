@@ -131,6 +131,7 @@ export function composeMetadata(html: string, meta: PageMetadata, options: { pre
   $('body').attr('data-track', options.track ? 'true' : 'false');
   if (options.releaseId) $('body').attr('data-release', options.releaseId);
   if (options.track && !$('script[src="/weava-analytics.js"]').length) $('body').append('<script src="/weava-analytics.js" defer></script>');
+  if (!options.preview && $('[data-copy-code]').length && !$('script[src="/weava-code.js"]').length) $('body').append('<script src="/weava-code.js" defer></script>');
   return $.html();
 }
 export function metadataHead(meta: PageMetadata) {

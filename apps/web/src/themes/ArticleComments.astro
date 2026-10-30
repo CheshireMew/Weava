@@ -1,12 +1,12 @@
 ---
 import type { ArticleComment } from '@weava/core';
-interface Props { items: ArticleComment[]; hasMore: boolean; language: string; timezone: string; }
-const { items, hasMore, language, timezone } = Astro.props;
+interface Props { allowComments?: boolean; items: ArticleComment[]; hasMore: boolean; language: string; timezone: string; }
+const { items, hasMore, language, timezone, allowComments = true } = Astro.props;
 const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 ---
 <section id="comments" class="nl-comments" aria-labelledby="comments-heading">
   <div class="nl-comments-heading"><h2 id="comments-heading">评论</h2><select aria-label="评论排序" data-comment-sort><option value="latest">最新</option><option value="oldest">最早</option></select></div>
-  <form class="nl-comment-form" data-comment-form>
+  <form class="nl-comment-form" data-comment-form hidden={!allowComments} data-closed={!allowComments ? "true" : undefined}>
     <span class="nl-comment-avatar" aria-hidden="true">我</span>
     <div class="nl-comment-inputs">
       <textarea name="body" aria-label="评论内容" placeholder="写下你的评论…" required maxlength="4000" rows="3"></textarea>
@@ -19,6 +19,7 @@ const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: ti
       <noscript><p>启用 JavaScript 后可加载验证码并发表评论。</p></noscript>
     </div>
   </form>
+  {!allowComments && <p>这篇内容已关闭新评论。</p>}
   <div class="nl-comment-list" data-comment-list>
     {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{comment.author.slice(0, 1)}</span><div><header><strong>{comment.author}</strong><time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header><p>{comment.body}</p></div></article>)}
   </div>

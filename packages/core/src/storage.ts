@@ -15,7 +15,7 @@ import { resolve, join, relative, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { WeavaError } from '@weava/contracts';
 import { storeRelease } from './publication-store.ts';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 export const records = sqliteTable('records', {
   scope: text().notNull(),
   id: text().notNull(),
@@ -120,6 +120,16 @@ export class Storage {
         }
       }
       this.raw.exec("INSERT INTO schema_migrations VALUES(3,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+    }).immediate();
+    if (version.v < 4) this.raw.transaction(() => {
+      const commentsExist = this.raw.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='article_comments'").get();
+      if (commentsExist) this.raw.exec('ALTER TABLE article_comments RENAME TO article_comments_v3');
+      this.raw.exec(`CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden','pending')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));`);
+      if (commentsExist) this.raw.exec('INSERT INTO article_comments SELECT * FROM article_comments_v3; DROP TABLE article_comments_v3;');
+      this.raw.exec(`CREATE INDEX comments_entry ON article_comments(entry_id,status,created_at);
+        CREATE INDEX comments_reader ON article_comments(reader_key,created_at);
+        CREATE INDEX comments_network ON article_comments(network_key,created_at);
+        INSERT INTO schema_migrations VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     }).immediate();
     this.db = drizzle(this.raw);
     for (const dir of ['media', 'themes', 'extensions', 'logs', 'archives', 'imports'])

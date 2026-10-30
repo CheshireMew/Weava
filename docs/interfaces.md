@@ -10,8 +10,13 @@
 | state | 获取列表摘要、设置、类型、媒体、任务和扩展面板 |
 | entry/id | GET 指定条目的完整工作稿 |
 | entry | POST `{value, revision}` 保存内容或页面，新内容 revision 为 null |
+| entry/check | POST `{value,required?}` 检查未保存候选，返回 valid、字段路径 errors 和规范化 value，不写修订 |
+| entries/create | POST `{kind,type?,templateId?,title?,path?}` 从空白或新建模板创建独立草稿 |
+| references/query | GET `types=类型标识列表&filters=JSON等值条件&q=…&page=…`，与关联保存校验共用限制 |
+| authoring/views、authoring/templates | GET 命名筛选/新建模板；POST `{value,revision}` 保存或归档恢复 |
 | settings、types | GET 读取；POST `{value, revision}` 保存 |
 | media | GET 列表；POST `{name, base64}` 返回 202 媒体任务；完成后的 result 为媒体记录 |
+| media/groups、media/move | GET 分组；POST groups `{value,revision}`；POST move `{items:[{id,revision}],groupId}`，null 为未分组 |
 | history?id=… | GET 历史记录 |
 | revision?id=…&version=…、revision/compare?id=…&from=…&to=… | GET 不可变修订；或两个修订及内容差异和正文预览 |
 | entry/merge、entry/merge/save | POST `{id,baseRevision,value,choices?}` 预览三方合并；保存再带 currentRevision，冲突 choices 按返回的 JSON 指针选择 local 或 remote |
@@ -33,7 +38,7 @@
 | seo/audit、seo/audits | POST `{target:"published"\|"draft",http?:boolean}` 创建检查；GET 不可变报告及当前 stale 状态；HTTP 只适用于已发布页面 |
 | seo/metadata?id=…&path=… | GET 指定公开内容的最终元信息，path 可带分页或筛选参数 |
 | search-data、search-data/import | GET 搜索数据与 AI 观测报告；POST 标准数据集，验证后保存，同编号同内容可重试 |
-| comments?status=all\|visible\|hidden&page=1 | GET 评论管理列表，每页 30 条，返回 items、total、hasMore |
+| comments?status=all\|visible\|hidden\|pending&page=1 | GET 评论管理列表，每页 30 条，返回 items、total、hasMore |
 | comment | POST `{id,status:"visible"\|"hidden"}` 显示或隐藏评论 |
 | export | GET 站点设置、类型与内容的 JSON 交换格式 |
 | import | POST `{value, options:{mode?,dryRun?,revisions?}}`，全量预检后在一个事务中导入；不自动发布 |
@@ -81,5 +86,9 @@ JSON import 默认新增或跳过完全相同的对象。空的已初始化站�
 `media save` 会等待后台媒体处理完成后返回任务结果。API 调用者可以用 Idempotency-Key 重试同一上传请求，并通过 job/id 查询派生图片生成进度。原文件按内容散列保存，媒体处理失败时文件仍然保留，空间检查可以定位未引用文件。
 
 离线标准迁移使用 `migrate wxr --input 文件.xml --dry-run`，预检通过后去掉 --dry-run 导入。可选 --download-media、--media-dir 离线目录、--settings、--no-comments，以及 --merge-revisions 当前修订号文件。离线目录按来源 URL 的完整路径存放附件；该命令要求目标实例停止。后台 import/wxr 可在服务运行时通过任务完成，同样不会自动发布。
+
+新增内容管理入口与数据格式见[六个 CMS 项目的借鉴与实施](cms-improvements.md)。其中 `schema --format json|openapi|types` 从当前实例定义生成资料；OpenAPI 当前覆盖内容、类型、常用筛选、新建模板与媒体分组的写入及候选检查接口，其余接口仍以本页为准。
+
+新评论默认保存为 `pending`，不计入访客评论数或列表；后台审核通过才显示。设置 `commentModeration:false` 并发布设置后，新评论直接显示。内容的 `allowComments:false` 发布后拒绝验证码及新评论，旧评论和点赞仍可使用。
 
 内容记录的 `visibility` 为 `public` 或 `private`，缺省为 `public`；它与 `status` 独立。后台与 CLI 均可保存该字段，再通过 publish 发布可见性变更。公开 API 永远不返回私密文章，站主可通过带认证的 `entry/id` 获取完整工作稿。

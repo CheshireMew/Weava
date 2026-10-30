@@ -9,6 +9,8 @@ import { Analytics } from './analytics.ts';
 import { importWordPressWxr } from './wordpress-wxr.ts';
 import { archiveHistory, restoreHistoryArchive } from './history-archive.ts';
 import { preparePublication } from './publication.ts';
+import { runPublicationPlan } from './publication-plans.ts';
+import { imageVariant } from './image-variants.ts';
 const [root, id] = process.argv.slice(2);
 const site = new Site(root);
 const job = site.job(id);
@@ -25,10 +27,13 @@ try {
     // Use the same registered block renderers as the web process before committing a candidate.
     extensionAnalytics = new Analytics(root);
     const manager=await extension(site, { analytics: extensionAnalytics }, { mode: 'worker' });
+    if (job.payload.planId) result = await runPublicationPlan(site, job.payload.planId, job.payload.planRevision, (release) => manager.validateRelease(release), job.payload.options, id);
+    else {
     const review=site.previewPublication(job.payload);
     await manager.validateRelease(preparePublication(site,review.options).release);
     const release = site.publish({ ...review.options, jobId: id });
     result = { releaseId: release.id, entries: release.entries.length };
+    }
   } else if (job.operation === 'backup')
     result = await createBackup(
       site,
@@ -43,6 +48,7 @@ try {
       job.payload.name,
     );
   else if (job.operation === 'media-edit') result = await cropMedia(site, job.payload.id, job.payload.revision, job.payload.crop);
+  else if (job.operation === 'media-variant') result = await imageVariant(site, job.payload);
   else if (job.operation === 'import-wxr') result = await importWordPressWxr(site, readFileSync(inside(join(site.root, 'imports'), job.payload.sourcePath), 'utf8'), job.payload.options, (message) => site.updateJob(id, { message }));
   else if (job.operation === 'archive-history') result = await archiveHistory(site, job.payload.options, job.payload.review);
   else if (job.operation === 'restore-history') result = restoreHistoryArchive(site, job.payload.id);

@@ -21,6 +21,7 @@ const list = { title: string, contentType: string, category: string, tag: string
   sort: z.enum(['date', 'title', 'oldest']).optional(), limit: number(1, 500), pageKey: string,
   fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional() };
 export const blockDefinitions: Record<string, BlockDefinition> = {
+  code: { label: '代码', fields: [field('source', '代码', 'textarea'), field('language', '语言'), { ...field('lineNumbers', '行号', 'select'), options: ['show', 'hide'] }, field('highlight', '重点行，例如 1,3-5')], schema: props({ source: string, language: string, lineNumbers: z.enum(['show', 'hide']).optional(), highlight: string }) },
   text: { label: '文字', fields: [field('text', '内容', 'textarea')], schema: props({ text: string }) },
   richtext: { label: '正文', fields: [field('text', '内容', 'textarea')], schema: props({ text: string }) },
   hero: { label: '主视觉', fields: [field('eyebrow', '眉题'), field('title', '标题'), field('description', '说明', 'textarea'), field('buttonLabel', '按钮文字'), field('buttonUrl', '按钮网址', 'url'), field('image', '图片', 'media')],

@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { z } from 'zod';
-import { blockTypes, typeSchema, WeavaError, VERSION, validateBlockProps, type Block, type Entry, type Release } from '@weava/contracts';
+import { fieldWidgetSchema, blockTypes, typeSchema, WeavaError, VERSION, validateBlockProps, type Block, type Entry, type Release } from '@weava/contracts';
 import type { Extension } from './extensions.ts';
 import type { Site } from './site.ts';
 import { renderDocument } from './documents.ts';
@@ -109,6 +109,13 @@ export class ExtensionManager {
       let attemptedBackup: string | undefined;
       try {
         for (const dependency of ext.dependencies ?? []) if (!this.active.some((item) => item.id === dependency.id)) throw new Error('依赖扩展启动失败：' + dependency.id);
+        for (const [id, widget] of Object.entries(ext.fieldWidgets ?? {})) {
+          if (!id.startsWith(ext.id + ':') || this.site.fieldWidgets[id]) throw new Error('字段输入器编号需要以扩展编号开头且不能重复：' + id);
+          const parsed = fieldWidgetSchema.parse(widget);
+          if ((parsed.control === 'range') !== (parsed.type === 'number')) throw new Error('range 输入器需要数字基础类型，其它输入器需要文字基础类型。');
+          if (parsed.pattern) new RegExp(parsed.pattern, 'u');
+          this.site.fieldWidgets[id] = parsed;
+        }
         for (const theme of ext.themes ?? []) if (themes.has(theme.id)) throw new Error('主题编号重复：' + theme.id);
         for (const panel of ext.panels ?? []) if (panels.has(panel.id)) throw new Error('设置面板编号重复：' + panel.id);
         for (const type of ext.contentTypes ?? []) if (types.has(type.id)) throw new Error('多个扩展声明了相同内容类型：' + type.id);
@@ -138,7 +145,7 @@ export class ExtensionManager {
         }
         this.diagnostics[this.members.indexOf(member)] = this.snapshotDiagnostic(member, 'active');
         if (this.mode === 'runtime') this.startTasks(ext);
-      } catch (error: any) { if (this.mode === 'runtime') await Promise.resolve().then(() => ext.stop?.()).catch(() => {}); this.diagnostics[this.members.indexOf(member)] = { ...this.snapshotDiagnostic(member, 'failed', error.message), ...(attemptedBackup ? { backup: attemptedBackup } : {}) }; }
+      } catch (error: any) { for (const id of Object.keys(ext.fieldWidgets ?? {})) delete this.site.fieldWidgets[id]; if (this.mode === 'runtime') await Promise.resolve().then(() => ext.stop?.()).catch(() => {}); this.diagnostics[this.members.indexOf(member)] = { ...this.snapshotDiagnostic(member, 'failed', error.message), ...(attemptedBackup ? { backup: attemptedBackup } : {}) }; }
     }
   }
   private startTasks(ext: Extension) {
@@ -168,6 +175,9 @@ export class ExtensionManager {
       if ((ext.contentTypes ?? []).some((type) => value.kind === 'content' && type.id === value.type) || (ext.themes ?? []).some((theme) => value.theme === theme.id)) used = true;
       if (used) result.push({ kind, id, label });
     };
+    const usesWidget = (fields: any[]): boolean => fields.some((field) => !!ext.fieldWidgets?.[field.widget] || field.fields && usesWidget(field.fields));
+    for (const row of this.site.store.list('type')) if (usesWidget(row.value.fields)) result.push({ kind: 'type', id: row.id, label: row.value.label });
+    for (const type of this.site.release()?.types ?? []) if (usesWidget(type.fields)) result.push({ kind: 'published-type', id: type.id, label: type.label });
     for (const row of this.site.store.list('entry')) inspect('entry', row.id, row.value.title, row.value);
     for (const row of this.site.store.list('layout')) inspect('layout', row.id, row.value.label, row.value);
     inspect('settings', 'site', '网站设置工作稿', this.site.settings().value);
@@ -204,7 +214,7 @@ export class ExtensionManager {
     this.disposeSync(); await Promise.allSettled(this.tasks);
     const errors: string[] = [];
     for (const ext of [...this.active].reverse()) try { if (this.mode === 'runtime') await ext.stop?.(); } catch (error: any) { errors.push(ext.id + '：' + error.message); }
-    this.active = []; this.site.blockRenderers = {}; this.site.extensionBlockDefinitions = {}; this.site.extensionThemes = [];
+    this.active = []; this.site.blockRenderers = {}; this.site.extensionBlockDefinitions = {}; this.site.extensionThemes = []; this.site.fieldWidgets = {};
     if (errors.length) throw new WeavaError('扩展停止失败：' + errors.join('；'));
   }
 }

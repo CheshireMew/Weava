@@ -1,3 +1,4 @@
+import { prepareEntryCandidate } from './content-validation.ts';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -24,7 +25,7 @@ import {
   type PublishOptions,
   validateBlockProps,
   blockDefinitions,
-  siteSeoSchema,
+  siteSeoSchema, fieldDefinitionIssues, fieldIssues, effectiveFields, type FieldWidget,
   type BlockDefinition,
 } from '@weava/contracts';
 export class Site {
@@ -34,6 +35,7 @@ export class Site {
   blockRenderers: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {};
   extensionBlockDefinitions: Record<string, BlockDefinition> = {};
   extensionThemes: string[] = [];
+  fieldWidgets: Record<string, FieldWidget> = {};
   extensionCleanup?: () => void;
   publicationValidators: ((release: Release) => void)[] = [];
   constructor(public root: string) {
@@ -52,6 +54,8 @@ export class Site {
     return this.store.get('settings', 'site')!;
   }
   saveSettings(value: Settings, revision: number) {
+    const previousSettings = this.settings().value as Settings;
+    value = { ...value, themeSettings: { ...previousSettings.themeSettings, ...value.themeSettings, [previousSettings.theme]: previousSettings.themeConfig, [value.theme]: value.themeConfig } };
     if (value.seo) {
       value = { ...value, seo: siteSeoSchema.parse(value.seo) };
       for (const item of [value.seo?.publisherUrl, value.seo?.image, ...(value.seo?.sameAs ?? [])]) if (item) webUrl(item, value.domain);
@@ -109,6 +113,12 @@ export class Site {
   }
   saveType(value: ContentType, revision: number | null) {
     const type = typeSchema.parse(value);
+    const definitions = effectiveFields(type.fields, this.fieldWidgets);
+    const definitionErrors = fieldDefinitionIssues(definitions);
+    const fieldKeys = new Set(type.fields.map((field) => field.key));
+    for (const item of type.admin?.fields ?? []) if (!fieldKeys.has(item.key)) throw new WeavaError('后台布局引用了不存在的字段：' + item.key);
+    for (const item of type.admin?.columns ?? []) if (!['title', 'status', 'updatedAt', 'publishedAt', ...fieldKeys].includes(item)) throw new WeavaError('列表引用了不存在的字段：' + item);
+    if (definitionErrors.length) throw new WeavaError('字段定义无效。', 400, definitionErrors);
     const seen = new Set<string>();
     for (const f of type.fields) {
       if (seen.has(f.key)) throw new WeavaError('字段名称重复：' + f.key);
@@ -118,7 +128,8 @@ export class Site {
     const affected = [];
     for (const row of this.store.list('entry').filter((r) => r.value.type === type.id)) {
       try {
-        validateFields(type.fields, row.value.fields);
+        const issues = fieldIssues(definitions, row.value.fields, { reference: (id) => this.store.get('entry', id)?.value });
+        if (issues.length) throw new WeavaError(issues.map((issue) => issue.message).join('；'), 400, issues);
       } catch (e) {
         affected.push({ id: row.id, title: row.value.title, error: String(e) });
       }
@@ -138,8 +149,8 @@ export class Site {
       };
     });
   }
-  saveEntry(value: Entry, revision: number | null) {
-    const input = entrySchema.parse(value);
+  saveEntry(value: Entry, revision: number | null, options: { references?: Entry[] } = {}) {
+    const input = prepareEntryCandidate(this, value, { required: false, ...options });
     input.path = normalizePath(input.path);
     if (/^\/(admin|api|_astro|_admin|media|__preview|__health)(\/|$)/.test(input.path))
       throw new WeavaError('这个网址由系统使用。');
@@ -158,17 +169,6 @@ export class Site {
     input.createdAt = previous?.value.createdAt ?? input.createdAt ?? time;
     input.updatedAt = time;
     if (!previous && revision !== null) throw new WeavaError('内容不存在。', 409);
-    if (input.kind === 'content') {
-      const definition = this.store.get('type', input.type)?.value;
-      if (!definition) throw new WeavaError('内容类型不存在。');
-      validateFields(definition.fields, input.fields, '', false);
-    }
-    // Removed fields survive edits so schema changes cannot silently destroy values.
-    if (previous) input.fields = { ...previous.value.fields, ...input.fields };
-    renderDocument(input.document);
-    this.validateBlocks(input.blocks);
-    const body = (items: Block[]): boolean => items.some((block) => block.type === 'entry-body' || body(block.children ?? []));
-    if (body(input.blocks)) throw new WeavaError('内容正文占位只用于模板，页面内容不能引用自身。');
     if (previous) {
       const a = { ...previous.value, updatedAt: '' },
         b = { ...input, updatedAt: '' };
@@ -272,9 +272,9 @@ export class Site {
       for(const row of this.store.raw.prepare('SELECT data FROM releases').iterate() as Iterable<{data:string}>){const historical=loadRelease(this.store.raw,row.data);for(const entry of historical.entries)if(entry.visibility==='private')entryMedia(entry,privatePaths,historical);}
       for (const row of this.store.list('history-archive')) for (const path of row.value.privateMedia ?? []) privatePaths.add(path);
       // Originals and responsive derivatives have the same access policy.
-      const media = this.store.list('media');
+      const media = this.store.list('media'), variants = this.store.list('media-variant');
       for (const row of media) {
-        const family: string[] = [row.value.url, ...(row.value.derivatives ?? []).map((d: any) => d.url)];
+        const family: string[] = [row.value.url, ...(row.value.derivatives ?? []).map((d: any) => d.url), ...variants.filter((variant) => variant.value.parentId === row.id).map((variant) => variant.value.url)];
         if (family.some((url) => privatePaths.has(url))) family.forEach((url) => privatePaths.add(url));
         if (family.some((url) => publicPaths.has(url))) family.forEach((url) => publicPaths.add(url));
       }

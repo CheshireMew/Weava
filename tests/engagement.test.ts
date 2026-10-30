@@ -18,6 +18,18 @@ function fixture() {
 afterEach(() => { for (const store of stores.splice(0)) store.close(); });
 
 describe('article interactions', () => {
+  it('upgrades existing visible and hidden comments without changing likes or comment identity', () => {
+    const root = join(base, 'version-three'); mkdirSync(root, { recursive: true }); const db = new Database(join(root, 'weava.sqlite'));
+    db.exec(`CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES(3,'before');
+      CREATE TABLE article_likes(entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(entry_id,reader_key)); INSERT INTO article_likes VALUES('article','reader','before');
+      CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));
+      CREATE INDEX comments_entry ON article_comments(entry_id,status,created_at); CREATE INDEX comments_reader ON article_comments(reader_key,created_at); CREATE INDEX comments_network ON article_comments(network_key,created_at);
+      INSERT INTO article_comments VALUES('shown','article','reader','net','client-1','旧读者','旧评论','visible','before'); INSERT INTO article_comments VALUES('hidden','article','reader','net','client-2','旧读者','隐藏评论','hidden','before');`); db.close();
+    const store = new Storage(root); stores.push(store); const engagement = new Engagement(store.raw, 'secret');
+    expect(engagement.counts('article')).toEqual({ likes: 1, comments: 1 }); expect(engagement.summary('article').items[0]).toMatchObject({ id: 'shown', author: '旧读者', body: '旧评论' });
+    expect(store.raw.prepare("SELECT status FROM article_comments WHERE id='hidden'").get()).toEqual({ status: 'hidden' }); store.raw.prepare("UPDATE article_comments SET status='pending' WHERE id='hidden'").run();
+    expect(engagement.counts('article').comments).toBe(1);
+  });
   it('migrates a version-one site without changing existing records', () => {
     const root = join(base, 'migration'); mkdirSync(root, { recursive: true });
     const db = new Database(join(root, 'weava.sqlite'));

@@ -17,7 +17,7 @@ import {
   renderSharedRegion,
   layouts,
   pageMetadata,
-  composeMetadata,
+  composeMetadata, scopedFeed, feedLinks,
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
@@ -110,10 +110,7 @@ if (Astro.url.pathname === '/rss.xml')
       '</link><description>' +
       e(release.settings.description) +
       '</description>' +
-      release.entries
-        .filter((v) => v.kind === 'content' && v.indexable)
-        .sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)))
-        .slice(0, 30)
+      scopedFeed(release, Astro.url.searchParams)
         .map((v) => {
           const date = v.publishedAt
             ? '<pubDate>' + new Date(v.publishedAt).toUTCString() + '</pubDate>'
@@ -173,7 +170,7 @@ const schema = metadata.schema;
     ><meta charset="utf-8" /><meta
       name="viewport"
       content="width=device-width,initial-scale=1"
-    /><SeoHead metadata={metadata} /><link
+    /><SeoHead metadata={metadata} />{feedLinks(entry, release).slice(1).map((link) => <link rel="alternate" type="application/rss+xml" title={link.title} href={link.url} />)}<link
       rel="alternate"
       type="application/rss+xml"
       href="/rss.xml"
@@ -257,6 +254,7 @@ const schema = metadata.schema;
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
+  {!preview && content.includes('data-copy-code') && <script src="/weava-code.js" defer is:inline />}
   </body>
 </html>
 </>}

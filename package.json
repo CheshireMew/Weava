@@ -46,7 +46,8 @@
     "@lexical/html": "0.52.0",
     "lucide-react": "0.468.0",
     "maxmind": "5.0.7",
-    "ua-parser-js": "1.0.41"
+    "ua-parser-js": "1.0.41",
+    "shiki": "4.5.0"
   },
   "devDependencies": {
     "typescript": "7.0.2",

@@ -129,6 +129,7 @@
   }));
   sort.addEventListener('change', () => loadComments().catch((error) => notify(error.message)));
   more.addEventListener('click', () => loadComments(true).catch((error) => notify(error.message)));
+  if (form.dataset.closed === 'true') return;
   const authorInput = form.elements.author, bodyInput = form.elements.body, captchaInput = form.elements.captcha;
   const captchaRow = form.querySelector('[data-captcha-row]'), captchaImage = form.querySelector('[data-captcha-image]'), refresh = form.querySelector('[data-refresh-captcha]'), submit = form.querySelector('[type="submit"]');
   let captchaId = '', captchaPending, posting = false, clientId = '', signature = '';
@@ -155,7 +156,7 @@
       track('article:comment');
       ++summaryVersion; page = 1; sort.value = 'latest'; render(data, false);
       try { localStorage.setItem('weava-comment-author', authorInput.value.trim()); } catch {}
-      bodyInput.value = ''; captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; message.textContent = '评论已发布';
+      bodyInput.value = ''; captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; message.textContent = data.comment?.status === 'pending' ? '评论已提交，等待审核' : '评论已发布';
     } catch (error) { message.textContent = error.message; captchaId = ''; await loadCaptcha(); }
     finally { posting = false; submit.disabled = false; submit.textContent = '发布评论'; }
   });

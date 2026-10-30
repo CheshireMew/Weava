@@ -2,14 +2,16 @@ import MarkdownIt from 'markdown-it';
 import sanitizeHtml from 'sanitize-html';
 import { load } from 'cheerio';
 import type { Document, FieldDefinition } from '@weava/contracts';
-import { WeavaError } from '@weava/contracts';
+import { fieldIssues, WeavaError } from '@weava/contracts';
 import { createHash } from 'node:crypto';
+import { renderCode } from './code-blocks.ts';
 export const escape = (v: any) =>
   String(v ?? '').replace(
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   );
 const md = new MarkdownIt({ html: true, linkify: false, typographer: false });
+md.renderer.rules.fence = (tokens, index) => renderCode(tokens[index].content, tokens[index].info);
 export function sanitize(html: string) {
   return sanitizeHtml(html, {
     allowedTags: [
@@ -90,7 +92,7 @@ function lexicalNode(n: any): string {
     case 'autolink':
       return `<a href="${escape(n.url)}">${inner}</a>`;
     case 'code':
-      return `<pre><code>${inner}</code></pre>`;
+      return renderCode((n.children ?? []).map((child: any) => child.type === 'linebreak' ? '\n' : child.type === 'tab' ? '\t' : child.text ?? '').join(''), n.language ?? 'text');
     case 'code-highlight':
       return escape(n.text);
     case 'table':
@@ -162,48 +164,7 @@ export function tokens(text: string) {
   for (const word of han) for (let i = 0; i < word.length - 1; i++) base.push(word.slice(i, i + 2));
   return [...new Set(base)].join(' ');
 }
-export function validateFields(
-  defs: FieldDefinition[],
-  values: Record<string, any>,
-  prefix = '',
-  required = true,
-) {
-  for (const d of defs) {
-    const v = values[d.key],
-      label = prefix + d.label;
-    if (
-      required &&
-      d.required &&
-      (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length))
-    )
-      throw new WeavaError('请填写' + label);
-    if (v === undefined || v === null || v === '') continue;
-    const entries = d.multiple
-      ? Array.isArray(v)
-        ? v
-        : (() => {
-            throw new WeavaError(label + '需要列表');
-          })()
-      : [v];
-    for (const item of entries) {
-      if (d.type === 'number' && (typeof item !== 'number' || !Number.isFinite(item)))
-        throw new WeavaError(label + '需要数字');
-      if (d.type === 'boolean' && typeof item !== 'boolean')
-        throw new WeavaError(label + '需要布尔值');
-      if (
-        ['text', 'richtext', 'media', 'reference', 'select', 'date'].includes(d.type) &&
-        typeof item !== 'string'
-      )
-        throw new WeavaError(label + '需要文字');
-      if (d.type === 'date' && !Number.isFinite(Date.parse(item)))
-        throw new WeavaError(label + '的日期无效');
-      if (d.type === 'select' && !d.options?.includes(item))
-        throw new WeavaError(label + '选项无效');
-      if (d.type === 'group') {
-        if (typeof item !== 'object' || Array.isArray(item))
-          throw new WeavaError(label + '需要字段组');
-        validateFields(d.fields ?? [], item, label + ' / ', required);
-      }
-    }
-  }
+export function validateFields(defs: FieldDefinition[], values: Record<string, any>, prefix = '', required = true) {
+  const errors = fieldIssues(defs, values, { prefix, required });
+  if (errors.length) throw new WeavaError(errors.map((error) => error.message).join('；'), 400, errors);
 }

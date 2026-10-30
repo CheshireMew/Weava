@@ -1,6 +1,8 @@
 import { z } from 'zod';
+export { z } from 'zod';
 export * from './blocks.ts';
 export * from './analytics.ts';
+export * from './fields.ts';
 export const VERSION = '0.1.0';
 export const API_VERSION = 1;
 export const schemaTypes = ['Article', 'TechArticle', 'WebPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'Product', 'SoftwareApplication', 'CreativeWork'] as const;
@@ -39,6 +41,15 @@ export const fieldSchema: z.ZodType<FieldDefinition> = z.lazy(() =>
     options: z.array(z.string()).optional(),
     filterable: z.boolean().optional(),
     fields: z.array(fieldSchema).optional(),
+    defaultValue: z.unknown().optional(),
+    min: z.number().finite().optional(), max: z.number().finite().optional(),
+    minLength: z.number().int().nonnegative().optional(), maxLength: z.number().int().nonnegative().optional(),
+    minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().nonnegative().optional(),
+    condition: z.object({ field: z.string().min(1), operator: z.enum(['equals', 'notEquals', 'hasValue']), value: z.union([z.string(), z.number(), z.boolean()]).optional() }).optional(),
+    referenceTypes: z.array(z.string().min(1)).min(1).optional(),
+    referenceFilters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+    summaryField: z.string().optional(),
+    widget: z.string().optional(), pattern: z.string().max(500).optional(),
   }),
 );
 export interface FieldDefinition {
@@ -59,7 +70,18 @@ export interface FieldDefinition {
   options?: string[];
   filterable?: boolean;
   fields?: FieldDefinition[];
+  defaultValue?: unknown;
+  min?: number; max?: number;
+  minLength?: number; maxLength?: number;
+  minItems?: number; maxItems?: number;
+  condition?: { field: string; operator: 'equals' | 'notEquals' | 'hasValue'; value?: string | number | boolean };
+  referenceTypes?: string[];
+  referenceFilters?: Record<string, string | number | boolean>;
+  summaryField?: string;
+  widget?: string; pattern?: string;
 }
+export const fieldWidgetSchema = z.object({ label: z.string().min(1), type: z.enum(['text','number']), control: z.enum(['color','range','textarea','url']), pattern: z.string().max(500).optional(), min: z.number().finite().optional(), max: z.number().finite().optional(), minLength: z.number().int().nonnegative().optional(), maxLength: z.number().int().nonnegative().optional() });
+export type FieldWidget = z.infer<typeof fieldWidgetSchema>;
 export const typeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string().min(1),
@@ -67,6 +89,11 @@ export const typeSchema = z.object({
   pathPrefix: z.string().default('/posts/'),
   template: z.string().default('article'),
   schemaType: z.enum(schemaTypes).optional(),
+  admin: z.object({
+    fields: z.array(z.object({ key: z.string(), width: z.enum(['full', 'half']).default('full') })).optional(),
+    columns: z.array(z.string()).optional(),
+    sort: z.enum(['title', '-title', 'publishedAt', '-publishedAt', 'updatedAt', '-updatedAt']).optional(),
+  }).optional(),
 });
 export type ContentType = z.infer<typeof typeSchema>;
 export const documentSchema = z.discriminatedUnion('format', [
@@ -112,6 +139,7 @@ export const entrySchema = z.object({
   title: z.string().min(1).max(300),
   path: z.string().startsWith('/'),
   description: z.string().default(''),
+  summaryMode: z.enum(['manual', 'marker', 'auto']).default('manual'),
   author: z.string().default(''),
   cover: z.string().default(''),
   categories: z.array(z.string()).default([]),
@@ -124,6 +152,9 @@ export const entrySchema = z.object({
   status: z.enum(['draft', 'published', 'archived']).default('draft'),
   visibility: z.enum(['public', 'private']).default('public'),
   indexable: z.boolean().default(true),
+  allowComments: z.boolean().default(true),
+  editorial: z.object({ featured: z.boolean().default(false), weight: z.number().finite().default(0), relatedIds: z.array(z.string()).max(20).default([]) }).optional(),
+  documentation: z.object({ group: z.string().trim().min(1).max(100), order: z.number().finite().default(0), parentId: z.string().optional() }).optional(),
   createdAt: timestamp.optional(),
   updatedAt: timestamp.optional(),
   publishedAt: timestamp.optional(),
@@ -133,6 +164,28 @@ export const entrySchema = z.object({
   evidence: z.array(evidenceSchema).max(200).optional(),
 });
 export type Entry = z.infer<typeof entrySchema>;
+export const contentViewSchema = z.object({
+  id: z.string().min(1), name: z.string().trim().min(1).max(100), archived: z.boolean().default(false),
+  query: z.object({
+    kind: z.enum(['content', 'page']), type: z.string().optional(), query: z.string().optional(),
+    status: z.enum(['all', 'published', 'changed', 'draft', 'archived']).optional(),
+    visibility: z.enum(['all', 'public', 'private']).optional(), category: z.string().optional(), tag: z.string().optional(),
+    fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+    sort: z.enum(['date', 'oldest', 'title', '-title', 'publishedAt', '-publishedAt', 'updatedAt', '-updatedAt']).optional(),
+  }),
+});
+export type ContentView = z.infer<typeof contentViewSchema>;
+export const creationTemplateSchema = z.object({
+  id: z.string().min(1), name: z.string().trim().min(1).max(100), archived: z.boolean().default(false),
+  kind: z.enum(['content', 'page']), type: z.string().default('post'),
+  initial: entrySchema.pick({ title: true, description: true, summaryMode: true, allowComments: true, editorial: true, documentation: true, author: true, cover: true, categories: true, tags: true, termIds: true, fields: true, document: true, blocks: true, template: true, seo: true, visibility: true, indexable: true }).partial(),
+});
+export type CreationTemplate = z.infer<typeof creationTemplateSchema>;
+export const mediaGroupSchema = z.object({ id: z.string().min(1).refine((id) => id !== '__ungrouped__'), label: z.string().trim().min(1).max(100), archived: z.boolean().default(false) });
+export type MediaGroup = z.infer<typeof mediaGroupSchema>;
+export const imageSpecSchema = z.object({ width: z.number().int().min(16).max(2400), height: z.number().int().min(16).max(2400).optional(), fit: z.enum(['cover','contain']).default('cover'), format: z.enum(['webp','avif','jpeg','png']).default('webp'), quality: z.number().int().min(20).max(100).default(82) });
+export const imagePresetSchema = z.object({ id: z.string().min(1), label: z.string().trim().min(1).max(100), archived: z.boolean().default(false), spec: imageSpecSchema });
+export type ImageSpec = z.infer<typeof imageSpecSchema>;
 export const layoutSchema = z.object({
   id: z.string().regex(/^[a-zA-Z][\w:-]*$/), label: z.string().min(1),
   kind: z.enum(['template', 'region', 'pattern']),
@@ -160,6 +213,8 @@ export interface Term {
   parentId?: string;
 }
 export interface Settings {
+  commentModeration?: boolean;
+  themeSettings?: Record<string, Settings['themeConfig']>;
   seo?: z.infer<typeof siteSeoSchema>;
   name: string;
   domain: string;
@@ -211,6 +266,7 @@ export const defaultSettings: Settings = {
   sourceUrl: '',
 };
 export const blockTypes = [
+  'code',
   'text',
   'richtext',
   'hero',
@@ -251,12 +307,12 @@ export interface Release {
   entries: PublishedEntry[];
   types: ContentType[];
   label: string;
-  redirects?: Record<string, { target: string; entryId?: string }>;
+  redirects?: Record<string, { target: string; entryId?: string; disabled?: boolean }>;
   terms?: Term[];
   layouts?: Layout[];
 }
 export interface PublishOptions {
-  scope?: 'all' | 'entries' | 'settings' | 'layouts' | 'terms';
+  scope?: 'all' | 'entries' | 'settings' | 'layouts' | 'terms' | 'routes';
   ids?: string[];
   label?: string;
   failAt?: string;
@@ -266,6 +322,8 @@ export interface PublishOptions {
   baseReleaseId?: string | null;
   reviewRevision?: number;
   versions?: Record<string, number>;
+  withdrawIds?: string[];
+  withdrawRevisions?: Record<string, number>;
 }
 export interface ContentQuery {
   page?: number;
@@ -275,7 +333,7 @@ export interface ContentQuery {
   category?: string;
   tag?: string;
   query?: string;
-  sort?: 'date' | 'oldest' | 'title';
+  sort?: 'date' | 'oldest' | 'title' | '-title' | 'publishedAt' | '-publishedAt' | 'updatedAt' | '-updatedAt';
   fields?: Record<string, string | number | boolean>;
 }
 export interface PageResult<T> {

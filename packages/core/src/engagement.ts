@@ -9,7 +9,7 @@ export interface ArticleComment {
   author: string;
   body: string;
   createdAt: string;
-  status?: 'visible' | 'hidden';
+  status?: 'visible' | 'hidden' | 'pending';
 }
 export class Engagement {
   private clock: () => number;
@@ -63,7 +63,7 @@ export class Engagement {
     this.db.prepare('INSERT INTO comment_captchas VALUES(?,?,?,?,0)').run(id, reader, this.hash('captcha:' + id + ':' + word), expiresAt);
     return { id, image: 'data:image/png;base64,' + png.toString('base64'), expiresAt };
   }
-  postComment(entryId: string, token: string, network: string, value: { author: string; body: string; captchaId: string; captcha: string; clientId: string }) {
+  postComment(entryId: string, token: string, network: string, value: { author: string; body: string; captchaId: string; captcha: string; clientId: string }, status: 'visible' | 'pending' = 'visible') {
     const reader = this.reader(token), networkKey = this.hash('network:' + network), time = this.clock();
     const author = String(value.author ?? '').trim(), body = String(value.body ?? '').trim();
     if (!author || author.length > 40 || !body || body.length > 4000) throw new WeavaError('请填写称呼（40 字以内）和评论（4000 字以内）。');
@@ -84,13 +84,13 @@ export class Engagement {
       const networkCount = (this.db.prepare('SELECT COUNT(*) count FROM article_comments WHERE network_key=? AND created_at>?').get(networkKey, cutoff) as any).count;
       if (recent.count >= 10 || networkCount >= 30 || (recent.latest && time - Date.parse(recent.latest) < 15000))
         throw new WeavaError('评论提交太频繁，请稍后再试。', 429);
-      const comment: ArticleComment = { id: randomBytes(16).toString('hex'), entryId, author, body, createdAt: new Date(time).toISOString(), status: 'visible' };
-      this.db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)').run(comment.id, entryId, reader, networkKey, value.clientId, author, body, 'visible', comment.createdAt);
+      const comment: ArticleComment = { id: randomBytes(16).toString('hex'), entryId, author, body, createdAt: new Date(time).toISOString(), status };
+      this.db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)').run(comment.id, entryId, reader, networkKey, value.clientId, author, body, status, comment.createdAt);
       return comment;
     }).immediate();
   }
   comments(status: string = 'all', page = 1) {
-    const parameters = status === 'visible' || status === 'hidden' ? [status] : [];
+    const parameters = ['visible', 'hidden', 'pending'].includes(status) ? [status] : [];
     const where = parameters.length ? 'WHERE status=?' : '';
     const offset = (Math.max(1, Math.floor(page) || 1) - 1) * 30;
     const total = (this.db.prepare(`SELECT COUNT(*) count FROM article_comments ${where}`).get(...parameters) as any).count as number;

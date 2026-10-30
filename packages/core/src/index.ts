@@ -24,3 +24,12 @@ export * from './seo-audit.ts';
 export * from './search-data.ts';
 export * from './search-connectors.ts';
 export {preparePublication} from './publication.ts';
+
+export * from './content-validation.ts';
+export * from './authoring.ts';
+export * from './bulk-edit.ts';
+export * from './editorial.ts';
+export * from './schema-export.ts';
+export * from './redirects.ts';
+export * from './publication-plans.ts';
+export * from './image-variants.ts';

@@ -1368,3 +1368,31 @@ button.primary:active:not(:disabled), .icon-primary:active:not(:disabled) { back
 .seo-fields summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
 .seo-fields fieldset { min-width: 0; border: 1px solid var(--line, #ddd); border-radius: 6px; margin-block: 12px; padding: 12px; }
 .search-data-json { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 420px; overflow: auto; }
+.custom-fields-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.custom-field { grid-column: 1 / -1; min-width: 0; }
+.custom-field.half { grid-column: auto; }
+.custom-field label { display: flex; flex-direction: column; gap: 6px; }
+.custom-field label:has(> input[type="checkbox"]) { flex-direction: row; align-items: center; }
+.custom-field fieldset, .type-admin-layout fieldset { min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.repeated-field details { border-block-end: 1px solid var(--line); margin-bottom: 10px; padding-bottom: 8px; }
+.repeated-field summary { display: grid; gap: 8px; cursor: pointer; }
+.repeated-field summary > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+.repeat-actions { display: flex; flex: none; gap: 4px; }
+.repeat-actions button { padding: 5px 8px; }
+.repeated-field details > .custom-fields-grid { margin-top: 12px; }
+.type-admin-layout { margin-block: 18px; }
+.type-admin-layout > summary { font-weight: 600; cursor: pointer; }
+.type-field-row { display: flex; align-items: center; gap: 8px; margin-block: 10px; }
+.type-field-row > span { flex: 1; }
+.type-field-row label { display: flex; align-items: center; gap: 8px; }
+.entry-custom-column { display: block; color: var(--muted); font-size: 12px; margin-block: 4px; }
+.entry-selection { display: flex; margin: 8px 22px -22px; position: relative; z-index: 1; width: 18px; }
+.entry-selection + button > div:first-child { padding-inline-start: 24px; }
+.content-check { margin-block: 12px; }
+.content-check ul { padding-inline-start: 18px; }
+.saved-view-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 12px; }
+.saved-view-controls > select { width: 100%; }
+.saved-view-controls > label { width: 100%; display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.saved-view-controls button { padding: 6px 9px; }
+.writing > .custom-fields-grid { margin-top: 24px; }
+@media (max-width: 640px) { .custom-field.half { grid-column: 1 / -1; } .repeat-actions { flex-wrap: wrap; } }

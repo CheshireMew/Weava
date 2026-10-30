@@ -3,7 +3,7 @@ import { mkdirSync, existsSync, writeFileSync, statSync, readFileSync } from 'no
 import { inside } from './storage.ts';
 import sharp from 'sharp';
 import { digest, now } from './storage.ts';
-import { WeavaError } from '@weava/contracts';
+import { mediaGroupSchema, WeavaError } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { load } from 'cheerio';
 import { paginate } from './query.ts';
@@ -12,18 +12,45 @@ export function mediaKind(url: string): 'image' | 'video' | 'audio' | 'file' {
   return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(url) ? 'image' : /\.(mp4|webm)$/i.test(url) ? 'video' : /\.mp3$/i.test(url) ? 'audio' : 'file';
 }
 export function queryMedia(site: Site, params: URLSearchParams) {
-  const q = (params.get('q') ?? '').toLowerCase(), kind = params.get('kind');
+  const q = (params.get('q') ?? '').toLowerCase(), kind = params.get('kind'), group = params.get('group');
   const archived = params.get('archived') === 'true';
-  const items = site.store.list('media').filter((row) => !!row.value.archived === archived && (!q || String(row.value.name).toLowerCase().includes(q)) && (!kind || mediaKind(row.value.url) === kind))
+  const items = site.store.list('media').filter((row) => !!row.value.archived === archived && (!group || (group === '__ungrouped__' ? !row.value.groupId : row.value.groupId === group)) && (!q || String(row.value.name).toLowerCase().includes(q)) && (!kind || mediaKind(row.value.url) === kind))
     .sort((a, b) => String(b.value.createdAt).localeCompare(String(a.value.createdAt)) || a.id.localeCompare(b.id));
   return paginate(items, Number(params.get('page') ?? 1), Number(params.get('pageSize') ?? 24));
 }
-export function saveMediaMetadata(site: Site, id: string, value: { name: string; alt?: string; caption?: string }, revision: number) {
+export const mediaGroups = (site: Site) => site.store.list('media-group');
+export function saveMediaGroup(site: Site, input: unknown, revision: number | null) {
+  const value = mediaGroupSchema.parse(input);
+  return site.store.raw.transaction(() => {
+    if (mediaGroups(site).some((row) => row.id !== value.id && !row.value.archived && !value.archived && row.value.label === value.label)) throw new WeavaError('已有同名媒体分组。');
+    return site.store.put('media-group', value.id, value, revision);
+  }).immediate();
+}
+function validGroup(site: Site, id: string | null | undefined) {
+  if (id === undefined || id === null || id === '') return;
+  if (typeof id !== 'string') throw new WeavaError('媒体分组编号无效。');
+  const group = site.store.get('media-group', id);
+  if (!group || group.value.archived) throw new WeavaError('媒体分组不存在或已归档。');
+}
+export function moveMedia(site: Site, items: { id: string; revision: number }[], groupId: string | null) {
+  if (!Array.isArray(items) || !items.length || items.some((item) => !item || typeof item.id !== 'string' || !Number.isSafeInteger(item.revision)) || new Set(items.map((item) => item.id)).size !== items.length) throw new WeavaError('请选择媒体并提供修订号，每项只能出现一次。');
+  return site.store.raw.transaction(() => {
+    validGroup(site, groupId);
+    return items.map((item) => {
+      const row = site.store.get('media', item.id);
+      if (!row || row.revision !== item.revision) throw new WeavaError('媒体信息已变化，请重新载入。', 409);
+      return site.store.put('media', row.id, { ...row.value, groupId: groupId || null }, row.revision, '移动媒体分组');
+    });
+  }).immediate();
+}
+export function saveMediaMetadata(site: Site, id: string, value: { name: string; alt?: string; caption?: string; groupId?: string | null; focalPoint?: { x: number; y: number } }, revision: number) {
   const row = site.store.get('media', id);
   if (!row || row.revision !== revision) throw new WeavaError('媒体信息已变化，请重新载入。', 409);
   if (typeof value?.name !== 'string' || !value.name.trim() || value.name.length > 300 || typeof (value.alt ?? '') !== 'string' || (value.alt?.length ?? 0) > 1000 ||
     typeof (value.caption ?? '') !== 'string' || (value.caption?.length ?? 0) > 4000) throw new WeavaError('媒体名称、说明或图注无效。');
-  return site.store.put('media', id, { ...row.value, name: value.name.trim(), alt: value.alt ?? '', caption: value.caption ?? '' }, revision, '更新媒体信息');
+  if (value.groupId !== undefined && value.groupId !== row.value.groupId) validGroup(site, value.groupId);
+  if (value.focalPoint && (['x','y'] as const).some((axis) => !Number.isFinite(value.focalPoint![axis]) || value.focalPoint![axis] < 0 || value.focalPoint![axis] > 100)) throw new WeavaError('图片焦点需要在 0～100 之间。');
+  return site.store.put('media', id, { ...row.value, name: value.name.trim(), alt: value.alt ?? '', caption: value.caption ?? '', ...(value.groupId !== undefined ? { groupId: value.groupId || null } : {}), ...(value.focalPoint ? { focalPoint: value.focalPoint } : {}) }, revision, '更新媒体信息');
 }
 export function archiveMedia(site: Site, items: { id: string; revision: number }[], archived: boolean) {
   if (!Array.isArray(items) || !items.length) throw new WeavaError('请选择媒体。');

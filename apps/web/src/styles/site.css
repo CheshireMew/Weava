@@ -468,3 +468,21 @@ input::placeholder, textarea::placeholder { color: var(--site-muted, #526257); o
 @media (prefers-reduced-motion: reduce) {
   .card { transition: none; }
 }
+.doc-navigation { display: flex; flex-direction: column; gap: .6rem; padding: 1rem; border: 1px solid var(--line, #ddd); margin-block: 1rem; }
+.doc-navigation [aria-current="page"] { font-weight: 700; }
+.has-documentation { display: grid; grid-template-columns: minmax(140px, 200px) minmax(0, 1fr); gap: 0 2rem; }
+.has-documentation > .doc-breadcrumbs { grid-column: 1 / -1; }
+.has-documentation > .doc-navigation { grid-column: 1; grid-row: 2; align-self: start; position: sticky; top: 1rem; margin-top: 0; max-height: calc(100vh - 2rem); overflow: auto; }
+.doc-navigation a { padding-inline-start: calc(var(--doc-depth, 0) * .8rem); overflow-wrap: anywhere; }
+.has-documentation > :is(.doc-content, .doc-pagination, .related-content) { grid-column: 2; min-width: 0; }
+@media (max-width: 800px) { .has-documentation { grid-template-columns: minmax(0, 1fr); } .has-documentation > .doc-navigation { position: static; grid-row: auto; max-height: none; } .has-documentation > :is(.doc-content, .doc-pagination, .related-content) { grid-column: 1; } }
+.doc-breadcrumbs { margin-block: 1rem; }
+.doc-pagination { display: flex; justify-content: space-between; gap: 1rem; margin-block: 2rem; }
+.related-content { display: grid; gap: .75rem; margin-block: 2rem; }
+.code-block { position: relative; margin-block: 1.5rem; min-width: 0; }
+.code-block pre { overflow: auto; padding: 2.5rem 1rem 1rem; background: #f6f8fa; color: #24292e; }
+.code-block > button { position: absolute; top: .25rem; right: .4rem; font-size: .75rem; padding: .3rem .5rem; }
+.code-line { display: inline-block; min-width: 100%; }
+.code-line.highlighted { background: #fff2b5; }
+.line-numbers .code-line::before { content: attr(data-line); display: inline-block; width: 2.5em; text-align: right; margin-right: 1em; color: #6a737d; user-select: none; }
+.syntax-d73a49 { color: #d73a49; } .syntax-005cc5 { color: #005cc5; } .syntax-032f62 { color: #032f62; } .syntax-6a737d { color: #6a737d; } .syntax-6f42c1 { color: #6f42c1; } .syntax-22863a { color: #22863a; } .syntax-e36209 { color: #e36209; }

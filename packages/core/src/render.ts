@@ -2,9 +2,11 @@ import type { Block, Entry, Release, PublishedEntry, FieldDefinition } from '@we
 import { escape as e, renderDocument, articleOutline } from './documents.ts';
 import { queryEntries, pageLinks } from './query.ts';
 import { load } from 'cheerio';
-import { validateBlockProps } from '@weava/contracts';
+import { fieldVisible, validateBlockProps } from '@weava/contracts';
 import { layoutFor, builtInLayouts } from './layouts.ts';
 import { renderEvidence } from './seo.ts';
+import { recommendedEntries, renderDocumentNavigation } from './editorial.ts';
+import { renderCode } from './code-blocks.ts';
 export interface RenderOptions {
   url?: URL; strict?: boolean; editable?: boolean; editBody?: boolean;
   editTemplate?: boolean;
@@ -45,6 +47,7 @@ export function renderFields(
   release: Release,
 ): string {
   const rows = defs.flatMap((d) => {
+    if (!fieldVisible(d, values)) return [];
     const value = values[d.key];
     if (value === undefined || value === null || value === '') return [];
     const items = d.multiple ? value : [value];
@@ -151,6 +154,7 @@ export function renderBlocks(
             return `<section class="block" data-weava-faq>${(p.items ?? []).map((i: any) => `<details><summary>${e(i.question)}</summary><div class="prose">${renderDocument({ version: 1, format: 'markdown', source: i.answer ?? '' })}</div></details>`).join('')}</section>`;
           case 'callout':
             return `<aside class="callout block">${p.title ? `<strong>${e(p.title)}</strong>` : ''}${text()}</aside>`;
+          case 'code': return renderCode(String(p.source ?? ''), String(p.language ?? 'text'), { lineNumbers: p.lineNumbers === 'show', highlight: p.highlight });
           case 'divider':
             return '<hr class="block">';
           case 'spacer':
@@ -211,7 +215,10 @@ export function renderBlocks(
 }
 export function renderEntryTemplate(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const template = layoutFor(entry, release);
-  return `<div class="entry-template template-${e(template.id)}" data-template="${e(template.id)}">${renderBlocks(template.blocks, release, entry, custom, { ...options, editable: options.editTemplate, editBody: options.editTemplate ? false : options.editable })}${renderEvidence(entry)}</div>`;
+  const nav = renderDocumentNavigation(entry, release);
+  const related = entry.kind === 'content' && release.settings.theme !== 'newsletter' ? recommendedEntries(entry, release) : [];
+  const body = renderBlocks(template.blocks, release, entry, custom, { ...options, editable: options.editTemplate, editBody: options.editTemplate ? false : options.editable }) + renderEvidence(entry);
+  return `<div class="entry-template template-${e(template.id)}${entry.documentation ? ' has-documentation' : ''}" data-template="${e(template.id)}">${nav.before}${entry.documentation ? `<div class="doc-content">${body}</div>` : body}${nav.after}${related.length ? `<section class="related-content"><h2>相关内容</h2>${related.map((item) => `<a href="${e(item.path)}">${e(item.title)}</a>`).join('')}</section>` : ''}</div>`;
 }
 export function renderSharedRegion(position: 'header' | 'before' | 'after' | 'footer', release: Release, entry?: Entry, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const id = release.settings.regions?.[position];

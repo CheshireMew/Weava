@@ -25,16 +25,16 @@ export default function Comments({ onError }: { onError: (message: string) => vo
   return <div className="panel comments-panel">
     <div className="panel-title"><h1>评论{data ? ` · ${data.total}` : ''}</h1>
       <select aria-label="评论状态" value={status} disabled={busy} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
-        <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option>
+        <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option><option value="pending">待审核</option>
       </select>
     </div>
     {data ? <>
       {!data.items.length && <p className="muted">暂无评论</p>}
       {data.items.map((row) => <article className="admin-comment form-card" key={row.id}>
-        <header><strong>{row.author}</strong><time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
+        <header><strong>{row.author}</strong><time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
         {row.path ? <a href={row.path + '#comments'} target="_blank" rel="noreferrer">{row.title}</a> : <span>{row.title}</span>}
         <p>{row.body}</p>
-        <button disabled={busy} onClick={() => moderate(row)}>{row.status === 'visible' ? '隐藏评论' : '恢复显示'}</button>
+        <button disabled={busy} onClick={() => moderate(row)}>{row.status === 'pending' ? '通过审核' : row.status === 'visible' ? '隐藏评论' : '恢复显示'}</button>
       </article>)}
       <nav className="comment-pagination" aria-label="评论分页">
         <button disabled={page === 1 || busy} onClick={() => setPage(page - 1)}>上一页</button><span>第 {page} 页</span><button disabled={!data.hasMore || busy} onClick={() => setPage(page + 1)}>下一页</button>

@@ -24,6 +24,7 @@ export function planHistoryArchive(site: Site, input: HistoryRetention): Plan {
   const protectedRevisions = new Set((site.store.raw.prepare('SELECT revision FROM records').all() as {revision:number}[]).map((row) => row.revision));
   for (const row of releases.filter((row) => !releaseIds.includes(row.id))) for (const entry of loadRelease(site.store.raw,row.data).entries) if (entry.revisionId) protectedRevisions.add(entry.revisionId);
   for (const row of site.store.list('publication-schedule')) if (['scheduled','running','failed'].includes(row.value.status)) protectedRevisions.add(row.value.entryRevision);
+  for (const row of site.store.list('publication-plan')) if (['draft','scheduled','failed'].includes(row.value.status)) for (const action of row.value.actions) protectedRevisions.add(action.revision);
   const seen = new Map<string,number>(), revisions: number[] = [], privateMedia = new Set<string>();
   for(const row of releases.filter((row)=>releaseIds.includes(row.id))){const release=loadRelease(site.store.raw,row.data);for(const entry of release.entries)if(entry.visibility==='private')for(const path of mediaUrls([entry.cover,entry.document,entry.blocks,entry.fields,referencedLayouts(entry,release)]))privateMedia.add(path);}
   for (const row of site.store.raw.prepare('SELECT revision,scope,id,data,created_at FROM revisions ORDER BY revision DESC').iterate() as Iterable<{revision:number;scope:string;id:string;data:string;created_at:string}>) {

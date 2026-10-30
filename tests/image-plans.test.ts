@@ -1,0 +1,56 @@
+import { afterEach, expect, it } from 'vitest';
+import sharp from 'sharp';
+import { readFileSync } from 'node:fs';
+import { Site, savePublicationPlan, reviewPublicationPlan, runPublicationPlan, runPublicationPlans, cancelPublicationPlan, uploadMedia, saveMediaMetadata, saveImagePreset, imageVariant } from '@weava/core';
+import { entrySchema } from '@weava/contracts';
+const root = 'D:/Tools/cache/weava/tests/image-plans-' + Date.now(), sites: Site[] = []; let sequence = 0;
+const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); return site; };
+const entry = (id: string, extra = {}) => entrySchema.parse({ id, kind: 'page', title: id, path: '/' + id + '/', ...extra });
+afterEach(() => sites.splice(0).forEach((site) => site.close()));
+it('publishes frozen revisions and withdraws in one plan without adopting later drafts', async () => {
+  const site = create(), old = site.saveEntry(entry('old'), null), a = site.saveEntry(entry('a'), null), b = site.saveEntry(entry('b'), null);
+  site.publish({ ids: [old.id] });
+  const plan = savePublicationPlan(site, { id: 'launch', name: '上线', actions: [{ id: a.id, revision: a.revision, action: 'publish' }, { id: b.id, revision: b.revision, action: 'publish' }, { id: old.id, revision: old.revision, action: 'withdraw' }] }, null);
+  site.saveEntry({ ...a.value, title: '后来改稿' }, a.revision);
+  const check = reviewPublicationPlan(site, plan.id, plan.revision);
+  await runPublicationPlan(site, plan.id, plan.revision, async () => {}, check.review.options);
+  expect(site.release()!.entries.map((entry) => entry.id)).toEqual(['a', 'b']); expect(site.release()!.entries[0].title).toBe('a');
+  expect(site.store.get('entry', 'a')!.value.title).toBe('后来改稿'); expect(site.store.get('publication-plan', plan.id)!.value.status).toBe('complete');
+  await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {})).rejects.toThrow(/变化/);
+});
+it('keeps the active release intact on renderer failure and runs overdue persisted plans once', async () => {
+  const site = create(), a = site.saveEntry(entry('a'), null); site.publish({ ids: ['a'] }); const first = site.release()!.id;
+  const b = site.saveEntry(entry('b'), null), plan = savePublicationPlan(site, { id: 'due', name: '定时批次', dueAt: new Date(Date.now() + 10000).toISOString(), actions: [{ id: b.id, revision: b.revision, action: 'publish' }] }, null);
+  const failed = await runPublicationPlans(site, async () => { throw new Error('渲染失败'); }, Date.now() + 20000);
+  expect(failed.failed).toEqual([plan.id]); expect(site.release()!.id).toBe(first);
+  const current = site.store.get('publication-plan', plan.id)!;
+  const retry = savePublicationPlan(site, { ...current.value, dueAt: new Date(Date.now() + 10000).toISOString() }, current.revision);
+  site.close(); sites.splice(sites.indexOf(site), 1); const reopened = new Site(site.root); sites.push(reopened);
+  expect((await runPublicationPlans(reopened, async () => {}, Date.now() + 20000)).completed).toEqual([retry.id]);
+  expect((await runPublicationPlans(reopened, async () => {}, Date.now() + 20000)).completed).toEqual([]);
+  expect(reopened.store.get('entry', a.id)!.revision).toBe(a.revision);
+});
+it('refuses stale plan review, duplicate actions and cancellation without changing publication', async () => {
+  const site = create(), a = site.saveEntry(entry('a'), null); site.publish({ ids: ['a'] });
+  expect(() => savePublicationPlan(site, { id: 'bad', name: '重复', actions: [{ id: 'a', revision: a.revision, action: 'publish' }, { id: 'a', revision: a.revision, action: 'withdraw' }] }, null)).toThrow(/一次/);
+  const plan = savePublicationPlan(site, { id: 'a', name: '计划', actions: [{ id: 'a', revision: a.revision, action: 'withdraw' }] }, null), review = reviewPublicationPlan(site, plan.id, plan.revision);
+  site.saveEntry(entry('b'), null);
+  await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {}, review.review.options)).rejects.toThrow(/预检/);
+  cancelPublicationPlan(site, plan.id, plan.revision);
+  await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {})).rejects.toThrow(/变化/); expect(site.release()!.entries).toHaveLength(1);
+});
+it('reuses parameter-addressed images, respects focal crops and preserves originals and access policy', async () => {
+  const site = create(), blue = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#0000ff' } }).png().toBuffer();
+  const bytes = await sharp({ create: { width: 400, height: 200, channels: 3, background: '#ff0000' } }).composite([{ input: blue, left: 200, top: 0 }]).png().toBuffer();
+  const media = await uploadMedia(site, bytes, 'original.png');
+  const updated = saveMediaMetadata(site, media.id, { name: media.value.name, focalPoint: { x: 90, y: 50 } }, media.revision);
+  saveImagePreset(site, { id: 'square', label: '方图', spec: { width: 100, height: 100, format: 'webp' } }, null);
+  const one = await imageVariant(site, { id: media.id, revision: updated.revision, presetId: 'square' }), two = await imageVariant(site, { id: media.id, revision: updated.revision, presetId: 'square' });
+  expect(one.revision).toBe(two.revision); expect(one.value).toMatchObject({ width: 100, height: 100 });
+  const pixel = await sharp(site.root + one.value.url).extract({ left: 50, top: 50, width: 1, height: 1 }).raw().toBuffer(); expect(pixel[0]).toBeLessThan(20); expect(pixel[2]).toBeGreaterThan(230);
+  const different = await imageVariant(site, { id: media.id, revision: updated.revision, spec: { width: 120, height: 100, format: 'jpeg', quality: 90 } }); expect(different.id).not.toBe(one.id);
+  expect(readFileSync(site.root + media.value.url)).toEqual(bytes);
+  site.saveEntry(entry('private', { visibility: 'private', cover: one.value.url }), null);
+  expect(site.isPrivateMedia(one.value.url)).toBe(true); expect(site.isPrivateMedia(media.value.url)).toBe(true);
+  await expect(imageVariant(site, { id: media.id, revision: media.revision, presetId: 'square' })).rejects.toThrow(/变化/);
+});

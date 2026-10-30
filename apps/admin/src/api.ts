@@ -18,7 +18,10 @@ export async function api(path: string, value?: any) {
   let result: any;
   try { result = await response.json(); }
   catch { throw new ApiError('网站没有返回有效结果，请稍后重试。', response.status); }
-  if (!response.ok) throw new ApiError(result.error || '操作没有完成，请重试。', response.status, result.details);
+  if (!response.ok) {
+    if (response.status === 401 && !['login', 'session'].includes(path) && typeof window !== 'undefined') window.dispatchEvent(new Event('weava-session-expired'));
+    throw new ApiError(result.error || '操作没有完成，请重试。', response.status, result.details);
+  }
   return result;
 }
 export async function waitJob(job: any, onProgress: (job: any) => void) {

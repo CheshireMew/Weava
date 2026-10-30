@@ -2,6 +2,7 @@ import type { Site } from './site.ts';
 import type { Entry, Release, ContentType, FieldDefinition, Block, BlockDefinition } from '@weava/contracts';
 import { ExtensionManager } from './extension-manager.ts';
 import type { MetadataContribution } from './seo.ts';
+import type { FieldWidget } from '@weava/contracts';
 export * from './extension-manager.ts';
 export interface Extension {
   id: string;
@@ -13,9 +14,10 @@ export interface Extension {
   migrations?: { version: number; up: (context: { site: Site }) => void }[];
   contentTypes?: ContentType[];
   themes?: { id: string; label: string }[];
+  fieldWidgets?: Record<string, FieldWidget>;
   blocks?: Record<string, (block: Block, release: Release, entry?: Entry) => string>;
   blockDefinitions?: Record<string, BlockDefinition>;
-  panels?: { id: string; label: string; fields: FieldDefinition[] }[];
+  panels?: { id: string; label: string; themes?: string[]; fields: FieldDefinition[] }[];
   schedules?: { id: string; intervalMs: number; run: () => Promise<void> }[];
   render?: (entry: Entry, release: Release) => Promise<string | null> | string | null;
   metadata?: (entry: Entry, release: Release, url: URL) => Promise<MetadataContribution | null> | MetadataContribution | null;

@@ -138,7 +138,7 @@ describe('search, querying, routes and content relationships', () => {
     expect(resolveContentLinks('<p><a href="entry:missing">链接文字</a></p>', first)).toBe('<p>链接文字</p>');
     site.store.put('redirect', '/loop-a/', { target: '/loop-b/' }, null);
     site.store.put('redirect', '/loop-b/', { target: '/loop-a/' }, null);
-    expect(() => site.publish({ scope: 'settings' })).toThrow(/循环/);
+    expect(() => site.publish({ scope: 'routes' })).toThrow(/循环/);
     expect(site.release()!.id).toBe(first.id);
   });
 });
