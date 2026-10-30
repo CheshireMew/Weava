@@ -7,7 +7,7 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
   const [settings, setSettings] = useState(false), [media, setMedia] = useState(true), [comments, setComments] = useState(true), [merge, setMerge] = useState(false);
   const [report, setReport] = useState<any>(null), [revisions, setRevisions] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState<any>(null);
-  const options = () => ({ settings, downloadMedia: media, comments, mode: merge ? 'merge' : 'create', revisions });
+  const options = () => ({ settings, downloadMedia: media, comments, mode: merge ? 'merge' as const : 'create' as const, revisions });
   const jsonSource = () => { const data = JSON.parse(source!.text.replace(/^\ufeff/, '')); return settings ? data : { ...data, settings: undefined }; };
   const preview = async () => {
     if (!source) return; setBusy(true); setError(null); setProgress('正在完整预检…');

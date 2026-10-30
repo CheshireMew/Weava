@@ -1,4 +1,4 @@
-import { entrySchema, fieldDefaults, fieldIssues, effectiveFields, WeavaError, type Entry, type FieldIssue } from '@weava/contracts';
+import { entrySchema, fieldDefaults, fieldIssues, effectiveFields, contentBlockIssues, WeavaError, type Entry, type FieldIssue } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { normalizePath } from './site.ts';
 import { renderDocument } from './documents.ts';
@@ -20,6 +20,7 @@ export function checkEntry(site: Site, value: unknown, options: { required?: boo
   if (input.kind === 'content') {
     if (!definition) errors.push({ path: 'type', message: '内容类型不存在。', code: 'type' });
     else {
+      errors.push(...contentBlockIssues(input.blocks,definition));
       let fields = definition.fields;
       run('fields', () => { fields = effectiveFields(definition.fields, site.fieldWidgets); });
       input.fields = fieldDefaults(fields, input.fields);

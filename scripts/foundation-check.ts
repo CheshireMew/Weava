@@ -21,6 +21,7 @@ import { checkAuthoringTools } from './check-authoring-tools.ts';
 import { checkWritingRecovery } from './check-writing-recovery.ts';
 import { checkMediaGroups } from './check-media-groups.ts';
 import { seedCmsFinish, checkCmsFinish } from './check-cms-finish.ts';
+import { checkCmsContracts } from './check-cms-contracts.ts';
 
 const framework = resolve(import.meta.dirname, '..');
 const output = 'D:/Tools/cache/weava/foundation-' + Date.now();
@@ -198,6 +199,7 @@ try {
   if (process.argv.includes('--writing-recovery')) evidence.writingRecovery = await checkWritingRecovery({ origin, api, page, context, password, output });
   if (process.argv.includes('--media-groups')) evidence.mediaGroups = await checkMediaGroups({ origin, api, cli, page, output });
   if (process.argv.includes('--cms-finish')) evidence.cmsFinish = await checkCmsFinish({ origin, api, cli, page, context, output, root });
+  if (process.argv.includes('--cms-contracts')) evidence.cmsContracts = await checkCmsContracts({origin,api,cli,page,root,output});
   if (process.argv.includes('--maintenance')) evidence.maintenance = await checkMaintenance({ origin, api, cli, page, context, output });
   if (process.argv.includes('--five-sites')) evidence.fiveSites = await checkFiveSites(output,framework);
   await page.setViewportSize({ width: 390, height: 844 });

@@ -14,7 +14,9 @@
     "noEmit": true,
     "paths": {
       "@weava/core": ["./packages/core/src/index.ts"],
-      "@weava/contracts": ["./packages/contracts/src/index.ts"]
+      "@weava/contracts": ["./packages/contracts/src/index.ts"],
+      "@weava/contracts/api": ["./packages/contracts/src/admin-api.ts"],
+      "@weava/contracts/api-client": ["./packages/contracts/src/api-client.ts"]
     }
   },
   "include": [

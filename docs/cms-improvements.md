@@ -18,9 +18,9 @@
 | 10 | 批量元信息编辑，明确追加/替换/清空，预检和修订检查 | Halo | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 11 | 主题自己的设置归属与显示，切换主题保留原设置 | Halo | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 12 | 评论待审核状态及单篇评论开关，保留旧评论和点赞 | Halo | 已通过本轮源码、单元、正式构建与浏览器验收 |
-| 13 | 从统一字段/接口定义导出机器可读资料，供 CLI 和外部工具使用 | Halo、Payload、Strapi | 部分完成：已有导出；原建议中的接口定义、文档和调用端同步尚未完成 |
+| 13 | 从统一字段/接口定义导出机器可读资料，供 CLI 和外部工具使用 | Halo、Payload、Strapi | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 14 | 文档分组与顺序，侧边导航、面包屑和上一篇/下一篇 | Hugo | 已通过本轮源码、单元、正式构建与浏览器验收 |
-| 15 | 手动推荐/置顶与按主题相关内容推荐，区别于浏览量排行 | Ghost、Hugo | 部分完成：推荐已实现；原建议中匹配不足时回退最新尚未实现 |
+| 15 | 手动推荐/置顶与按主题相关内容推荐，区别于浏览量排行 | Ghost、Hugo | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 16 | 图片使用规格、裁切焦点、尺寸与格式；派生文件按原文件和参数复用 | Hugo、Payload | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 17 | 按类型/分类的订阅源及页面发现入口 | Hugo | 已通过本轮源码、单元、正式构建与浏览器验收 |
 | 18 | 明确手填摘要与正文截断/提取规则，供列表、RSS、SEO 共用 | Hexo | 已通过本轮源码、单元、正式构建与浏览器验收 |
@@ -33,6 +33,42 @@
 研究中附带条件的可分享预览、发布后通知、外部/临时重定向、多语言，保留为有相应实际需求后再启用的设计，不将它们冒充现有缺陷或本轮必做项。不直接搬用来源项目代码，尤其 Strapi 企业模块；这里只采用已解释的行为与组织方法。
 
 验收按每项的正式用户入口和跨层数据链推进。功能测试覆盖错误、旧数据、冲突、发布隔离和必要恢复；最后运行 TypeScript、现有测试、正式构建与新增功能浏览器验收。未完成的行持续保留，不因部分测试通过而标记整轮完成。
+
+## 原建议逐条核对
+
+以下编号对应本聊天六份源码研究的原始顺序，避免只对照后整理的 22 行而漏掉原文细节。2026-10-31 已重新逐条核对原文、实现及实际证据；本轮补齐项与原有项均通过最终回归。表内路径均相对仓库根目录。
+
+| 原建议 | 原文要点及对应清单 | 实现位置 | 实际证明与当前结论 |
+| --- | --- | --- | --- |
+| Ghost 1 | 正文卡片，保存、重开、预览、发布一致（07） | `main.tsx`、`PageDesigner.tsx`、`render.ts` | `check-cms-finish.ts` 正文转换、重开/预览与真实发布；已有 |
+| Ghost 2 | 保存常用正文片段；修改不影响旧文章（07） | `PageDesigner.tsx`、`Blocks.tsx`、`layouts.ts` | 补“保存所选片段”，`check-cms-contracts.ts` 验证只保存选中区块、重新编号、改组合不改已插入内容；正式构建与浏览器复验通过 |
+| Ghost 3 | 多时间点本地恢复、配额失败、过期登录原位恢复，发布重新确认（08） | `local-drafts.ts`、`api.ts`、`main.tsx` | `local-drafts.test.ts`、`check-writing-recovery.ts`；已有 |
+| Ghost 4 | 刊物首页人工推荐及排序（15） | `editorial.ts`、`Newsletter.astro` | 首页推荐、权重、实际头条；`check-cms-finish.ts`；已有 |
+| Ghost 5 | 网址集中维护、整批预检和冲突提示（20） | `redirects.ts`、`RedirectManager.tsx` | `routes-schema.test.ts`、浏览器别名独立发布/301；已有。外部/临时目标依原文按需保留 |
+| Halo 1 | 媒体分组、批量归组、两个筛选入口，URL 与权限不变（09） | `media.ts`、`MediaGroups.tsx`、`Selectors.tsx` | `media-groups.test.ts`、`check-media-groups.ts`；已有 |
+| Halo 2 | 勾选属性、追加/替换/清空、预检、整批保存、独立发布（10） | `bulk-edit.ts`、`BulkEditor.tsx` | 元信息/分类稳定编号、冲突和失败不写入、浏览器批量保存；已有 |
+| Halo 3 | 待审区别隐藏；按文章关闭新评论，旧评论和点赞保留（12） | `engagement.ts`、`storage.ts`、`Comments.tsx` | 旧数据库升级、待审不公开、真实提交/审核/关闭/点赞；已有 |
+| Halo 4 | 主题专属配置与面板，切回恢复，全局信息共用（11） | `site.ts`、`SettingsPanel`、`extensions.ts` | 独立配置单元、主题切换和面板浏览器操作；已有 |
+| Halo 5 | 接口定义、文档和调用端同步，包含参数及响应（13） | `contracts/src/admin-api.ts`、`api-models.ts`、`api-client.ts`、`api-openapi.ts` | 补全 95 个后台操作，服务端与后台/CLI 共用；生成 `api-reference.md` 并检查漂移，类型错误/响应错误测试；正式构建与浏览器复验通过 |
+| Hugo 1 | 分组、层级、顺序贯通侧栏、位置、同组前后篇，随发布撤下回退（14） | `editorial.ts`、`render.ts`、`site.css` | 树/循环/不可访问上级、发布版本导航、桌面侧栏及手机；发布、撤下与回退组合测试也通过 |
+| Hugo 2 | 主题相关度、权重、常见词降权、门槛和稳定排序，匹配不足回退最新（15） | `recommendedEntries` | 补最新兜底；测试手选/相关/最新的次序、去重、同日稳定排序、数量和不可公开项排除；正式构建与浏览器复验通过 |
+| Hugo 3 | 图片用途预设、尺寸比例、焦点、格式质量、准确复用，原图保留（16） | `image-variants.ts`、`ImageVariants.tsx` | 双色图焦点像素、缓存参数、真实规格选择进封面、CLI；已有 |
+| Hugo 4 | 按类型/分类独立订阅，复用查询（17） | `scopedFeed`、`feedLinks`、Astro 路由 | 实际 RSS 内容与发现链接；已有 |
+| Hexo 1 | 后台/CLI 共用初稿模板，与外观模板分离（06） | `authoring.ts`、`AuthoringControls.tsx`、CLI | 独立草稿和网址、区块编号、隐私、正文与新增选项、交换；已有 |
+| Hexo 2 | 摘要来源及优先级，列表/RSS 一致，SEO 独立覆盖，完整正文/修订保留（18） | `entrySummary`、`publication.ts`、`seo.ts` | 手填/标记/自动、区块改稿、多处输出、历史正文保留；已有 |
+| Hexo 3 | 服务端代码高亮、语言、行号/重点行、原代码/模板符号、复制无装饰（19） | `code-blocks.ts`、`documents.ts`、`weava-code.js` | Markdown/Lexical/区块同源、字面值、真实 Windows 剪贴板；已有 |
+| Payload 1 | 引用类型和过滤在选择器及服务端一致（02） | `fields.ts`、`queryReferences`、`content-validation.ts` | 选择/保存/导入前向引用/公开版本检查；已有 |
+| Payload 2 | 默认值、长度/数值/数量、条件、必填与旧值保留（01） | `fields.ts`、`Fields.tsx` | 共用规则、默认只填缺项、隐藏保留、嵌套路径错误、浏览器；已有 |
+| Payload 3 | 命名保存筛选组合（05） | `authoring.ts`、`SavedViewControls` | 保存、应用、归档恢复、交换；已有 |
+| Payload 4 | 候选检查返回全路径错误；无修订/发布/钩子副作用（03） | `checkEntry`、API、CLI | 修订数量前后不变、未保存表单检查、CLI；已有 |
+| Payload 合并项 | 类型生成并入 Halo 5，图片焦点并入 Hugo 3（13、16） | schema 导出、图片规格 | 不遗漏合并项；同对应证据 |
+| Strapi 1 | 类型专属字段排列/宽度、列表列、默认排序，独立于访客模板（04） | `TypeAdminLayout`、`queryDrafts` | 配置持久化、实际列表列和顺序、手机；已有 |
+| Strapi 2 | 重复组摘要标题、折叠、拖动/按钮移动，错误展开（04） | `RepeatedField` | `content-models.test.ts`、`check-content-models.ts`；已有 |
+| Strapi 3 | 可命名组合发布/撤下、固定修订、保存复查（21） | `publication-plans.ts`、`PublicationPlans.tsx` | 单元、浏览器、事务指针写入后真实中断恢复且一次提交；已有，原文带批次条件，本轮已选择实现 |
+| Strapi 4 | 专用输入器映射基础类型，校验、交换、停用兼容（22） | `effectiveFields`、扩展管理、`Fields.tsx` | 规则交集、颜色/滑杆、交换和停用阻止；已有，原文带需求条件，本轮已选择实现 |
+| Strapi 合并项 | 媒体分组；区块选择限制；模型派生接口（09、07、13） | `allowedBlocks`、`contentBlockIssues`、区块选择器 | 补类型级正文区块限制，界面/保存/导入/历史修订发布同样检查；正式构建与浏览器复验通过 |
+
+可分享审稿链接、发布后对外通知、多语言内容关联和外部/临时重定向，六份原文均作为按需候选，仍不属于本轮必做范围。没有将其混入已完成项。
 
 ## 内容模型与写作工具
 
@@ -63,13 +99,13 @@ pnpm weava --site D:\Sites\example media move --input move.json
 
 ## 编辑、阅读与发布
 
-文章可用“使用区块正文”把当前正文转换成独立区块，再使用既有的页面设计器增加代码、图片、组合与共享区域。“保存正文片段”创建组合；每次插入重新生成区块编号，后续编辑不会改写组合或其它文章。原正文仍在历史修订中可恢复。新建模板同时保存摘要来源、评论开关、推荐和文档导航选项。
+文章可用“使用区块正文”把当前正文转换成独立区块，再使用既有的页面设计器增加代码、图片、组合与共享区域。“保存正文片段”创建正文组合；也可选中单个区块，用“保存所选片段”仅保存这一部分。每次插入重新生成区块编号，修改组合只影响以后插入的内容，已有文章保持独立。内容类型可配置 `allowedBlocks`，未配置时保留原行为；启用限制后，界面选择器和组合列表只提供允许的区块，候选检查、保存、导入、类型变更和历史修订发布均按同一规则检查嵌套正文。原正文仍在历史修订中可恢复。新建模板同时保存摘要来源、评论开关、推荐和文档导航选项。
 
 批量编辑先选择内容，再选择字段及替换、追加或清空操作。分类、标签和多值字段支持追加；保存前返回预检摘要，确认时重新检查每份内容的修订和规则，整批成功或整批回退。它只保存工作稿，不改变当前公开页面。CLI 的 `content bulk --input 文件.json` 默认预检，`--apply` 使用输入中的 `review` 确认。输入为 `{items:[{id,revision}],changes:[{field,mode,value}]}`，自定义字段名为 `fields.字段名`。
 
 摘要来源有手填、正文 more 标记前、自动提取三种，已填写摘要优先。标记适用于 Markdown/HTML 及区块正文，写法为 `<!-- more -->`，缺少标记时不擅自截断。文章转换为区块后以当前区块正文为准，后续区块改稿会更新发布摘要，转换前的源正文仍留在历史修订；自动模式从实际正文提取最多 180 个 Unicode 字符，并排除复制代码控件文字。公开列表、RSS 和 SEO 使用发布时确定的同一摘要。代码支持 TypeScript、JavaScript、Python、JSON、HTML、CSS、Shell、SQL、YAML 服务端高亮；其它语言显示原代码。Markdown 围栏可写 `ts linenos {2,4-6}`，也可直接使用代码区块配置；复制按钮保留原代码与换行。
 
-推荐字段提供首页推荐、顺序权重和手动相关内容。相关内容优先使用手选结果，再按共同标签和分类计算关联，不以访问量代替关联度。文档导航按分组、上级和顺序生成目录、面包屑及前后篇；发布检查禁止循环、无效上级和不可访问关联。`/rss.xml?type=类型编号` 与 `/rss.xml?category=分类编号` 提供独立订阅源，页面头部声明对应的 RSS 发现链接，仍遵守公开与收录设置。
+推荐字段提供首页推荐、顺序权重和手动相关内容。相关内容优先使用手选结果，再按共同标签和分类计算关联；数量不足时按发布时间与稳定编号补入最新公开、可收录文章，排除当前文章和重复项，不以访问量代替关联度。文档导航按分组、上级和顺序生成目录、面包屑及前后篇；发布检查禁止循环、无效上级和不可访问关联。`/rss.xml?type=类型编号` 与 `/rss.xml?category=分类编号` 提供独立订阅源，页面头部声明对应的 RSS 发现链接，仍遵守公开与收录设置。
 
 主题配置按主题编号保留，切回时恢复各自的颜色、宽度等值。扩展设置面板可用 `themes` 声明所属主题，只在这些主题下显示。扩展还可用 `fieldWidgets` 声明颜色、滑杆、网址或长文本输入器，字段通过 `widget` 引用。输入器必须映射 text/number 基础类型，规则与字段约束取交集；内容保存、发布、交换及 schema 导出沿用同一基础类型和校验。内容类型仍在使用输入器时禁止停用扩展。
 
@@ -81,7 +117,7 @@ pnpm weava --site D:\Sites\example media move --input move.json
 
 新增后台 API 包括 `entry/structure`、`entries/bulk/preview`、`entries/bulk/apply`、`media/presets`、`media/variants?id=…`、`media/variant`、`redirects`、`redirects/preview`、`redirects/save`、`plans`、`plans/entry?id=…`、`plans/preview`、`plans/run`、`plans/cancel`。图片生成及计划执行返回任务，使用已有 job 接口等候结果。
 
-`schema --format json|openapi|types --output 文件路径` 或 `GET schema?format=…` 导出当前实例合同。JSON 包含基础记录、各类型字段约束和需进一步执行的条件/引用规则；TypeScript 提供按类型区分的条目联合。OpenAPI 覆盖内容、内容类型、筛选、新建模板和媒体分组的写入及候选检查接口，其余接口参照 interfaces.md。修改内容模型后重新生成，无需重新编译框架。
+`schema --format json|openapi|types --output 文件路径` 或 `GET schema?format=…` 导出当前实例合同。JSON 包含基础记录、各类型字段约束和需进一步执行的条件/引用规则；TypeScript 提供按类型区分的条目联合。OpenAPI 从共用定义导出全部 95 个后台操作的参数、请求体、成功/错误响应与登录方式；后台和 CLI 使用同源客户端，服务端也校验相同的输入与成功返回结构。`api-reference.md` 自动生成并由测试检查同步。站点 TypeScript 导出同时提供客户端和操作类型入口。扩展自行新增接口仍由扩展维护。修改内容模型后重新生成，无需重新编译框架。
 
 ## 本轮验证记录
 
@@ -91,43 +127,44 @@ pnpm weava --site D:\Sites\example media move --input move.json
 | --- | --- | --- |
 | 01～04 | content-models.test.ts | check-content-models.ts：字段表单、关联选择器、候选检查、重复项与布局 |
 | 05～06 | authoring-tools.test.ts | check-authoring-tools.ts：命名筛选、模板新建和 CLI |
-| 07 | editorial-tools.test.ts | check-cms-finish.ts：正文转换、片段保存/插入；check-authoring.ts：组合/共享区域 |
+| 07 | editorial-tools.test.ts、content-models.test.ts | check-cms-finish.ts：正文转换、片段保存/插入；check-authoring.ts：组合/共享区域；check-cms-contracts.ts：所选片段、独立副本及区块限制 |
 | 08 | local-drafts.test.ts | check-writing-recovery.ts：离线副本、重新登录、配额失败 |
 | 09 | media-groups.test.ts | check-media-groups.ts：分组维护、移动、两个筛选入口、CLI |
 | 10 | editorial-tools.test.ts | check-cms-finish.ts：多选、预检、保存、公开版本隔离 |
 | 11 | editorial-tools.test.ts | check-cms-finish.ts：切换主题恢复设置、专属面板 |
 | 12 | engagement.test.ts、editorial-tools.test.ts | check-cms-finish.ts：待审核提交、审核通过、关闭评论后旧评论和点赞 |
-| 13 | routes-schema.test.ts、field-widgets.test.ts | check-cms-finish.ts：CLI 导出 JSON、OpenAPI 与 TypeScript 文件 |
-| 14～15 | editorial-tools.test.ts | check-cms-finish.ts：桌面侧栏、面包屑、前后篇、手选相关内容与首页推荐 |
+| 13 | api-contracts.test.ts、routes-schema.test.ts、field-widgets.test.ts | check-cms-finish.ts：CLI 导出；check-cms-contracts.ts：95 个操作、共用客户端、输入/响应、分析与 CSV；生成文档漂移检查 |
+| 14～15 | editorial-tools.test.ts：文档发布/撤下/回退，推荐手选/相关/最新、去重与稳定排序 | check-cms-finish.ts：侧栏、面包屑、前后篇与首页推荐；check-cms-contracts.ts：真实页面最新回退及私密/不收录排除 |
 | 16 | image-plans.test.ts：真实双色图检查焦点裁切像素 | check-cms-finish.ts：规格保存/生成、选择器、CLI、原图和复用 |
 | 17～19 | editorial-tools.test.ts | check-cms-finish.ts：类型/分类 RSS、摘要、代码重点行与真实剪贴板复制 |
 | 20 | routes-schema.test.ts | check-cms-finish.ts：别名预检、保存、单独发布及 301 |
 | 21 | image-plans.test.ts；publication-plan-interruption-check.ts：真实事务中断/恢复 | check-cms-finish.ts：命名计划、组合发布/撤下、固定修订与后续工作稿 |
 | 22 | field-widgets.test.ts：校验、规则交集、交换、停用保护 | check-cms-finish.ts：颜色与滑杆编辑、schema 导出 |
 
-- TypeScript `tsc --noEmit` 通过；`git diff --check` 通过。
-- 本轮完整单元测试：29 个文件、172 项全部通过，报告 `D:\Tools\cache\weava\unit-final-17933608.json`。覆盖字段、候选预检、交换、模板、恢复副本、媒体、批量编辑、旧评论升级、阅读规则、别名、发布计划和扩展输入器。
-- 本轮完整正式构建与浏览器记录：`D:\Tools\cache\weava\foundation-1793360682763\results.json`。该次实际使用编译后的前台、后台、CLI 和 worker；原写作/导入/扩展/分类/维护流程与全部新增功能通过，受监测浏览器脚本错误为零。
+- TypeScript `tsc --noEmit`、接口文档生成器 `--check` 与 `git diff --check` 通过。
+- 最终完整单元测试：30 个文件、180 项全部通过，报告 `D:\Tools\cache\weava\unit-cms-complete-17933832.json`。除原有功能外，新增共用接口/文档/客户端、错误返回与不重放写入、最新推荐回退、嵌套区块限制、保存/导入/历史发布以及文档撤下/回退检查。
+- 本轮完整正式构建与浏览器记录：`D:\Tools\cache\weava\foundation-1793383013330\results.json`。该次实际使用编译后的前台、后台、CLI 和 worker；原写作/导入/扩展/分类/维护流程、全部新增功能和补齐项通过，受监测浏览器脚本错误为零。
 - 同一正式构建的博客、企业站、作品集、文档站、资源站五类实例全部通过真实后台新建、保存、预览、发布和访客验收，包含手机布局。升级程序校验、实际启动、数据备份回退、真实进程中断及恢复也通过。主验证服务及五个临时站点均已停止。
-- 摘要与区块改稿衔接的最新正式构建复验：`D:\Tools\cache\weava\foundation-1793360758612\results.json`。编译后的后台、CLI、worker 和访客页面再次通过全部新增功能专项检查，确认区块改稿摘要在公开 API、RSS 和 SEO 中一致，验证服务已停止。
+- 最后补齐项及接口说明的最新正式构建复验：`D:\Tools\cache\weava\foundation-1793390932958\results.json`。95 个操作的文档、真实客户端请求/返回、CLI 类型导出、CSV、最新推荐回退、所选片段独立插入、类型区块限制均通过，浏览器脚本错误为零，验证服务已停止。完整回归同时覆盖区块改稿摘要在公开 API、RSS 和 SEO 中一致。
 - 新发布计划真实中断记录：`D:\Tools\cache\weava\plan-interruption-1793360147524\results.json`。在数据库事务内、公开指针已经写入而计划尚未完成时终止进程，重新打开保留旧公开版本与待执行计划；恢复后组合发布/撤下一起完成，第二次运行不重复提交。
 - 原单篇定时恢复记录：`D:\Tools\cache\weava\schedule-interruption-1793359524889\results.json`，真实事务中断与一次恢复通过。
 - 存储增长记录：`D:\Tools\cache\weava\growth-1793359476077\results.json`。200 篇内容连续 30 次设置发布未增加文章对象或搜索文档；历史归档与恢复不切换当前公开版本。
-- 最终截图位于正式构建记录目录的 `cms-finish-article.png`、`cms-finish-article-mobile.png`、`cms-finish-images.png`、`cms-finish-mobile.png`，已人工查看桌面侧栏及手机阅读/后台布局。
+- 已人工查看正式构建目录中的桌面侧栏和手机阅读/后台布局；最新复验目录另有 `contract-selected-snippet.png`、`contract-selected-snippet-mobile.png`、`contract-latest-fallback.png`，画布正文和所选片段实际显示，手机无横向溢出。
 
 正式验收命令：
 
 ```powershell
 node node_modules/typescript/bin/tsc --noEmit
 node node_modules/vitest/vitest.mjs run
-node --import tsx scripts/foundation-check.ts --production --authoring --extensions --organization --maintenance --five-sites --upgrade --cms-models --authoring-tools --writing-recovery --media-groups --cms-finish
-node --import tsx scripts/foundation-check.ts --production --cms-finish
+node --import tsx scripts/generate-api-docs.ts --check
+node --import tsx scripts/foundation-check.ts --production --authoring --extensions --organization --maintenance --five-sites --upgrade --cms-models --authoring-tools --writing-recovery --media-groups --cms-finish --cms-contracts
+node --import tsx scripts/foundation-check.ts --production --cms-contracts
 node --import tsx scripts/publication-plan-interruption-check.ts
 node --import tsx scripts/schedule-interruption-check.ts
 node --import tsx scripts/storage-growth-check.ts
 git diff --check
 ```
 
-2026-10-31 按聊天中六份原建议重新复核，发现上一轮把实施清单的完成当作原建议全部落实，结论过满。已确认两处缺口：Halo 第 5 条要求让接口定义、文档与调用端同步，当前仅导出了六个写入/检查端点的 OpenAPI，响应未提供完整数据结构，后台仍使用通用 any 请求；Hugo 第 2 条写明匹配不足时回退最新，当前推荐只返回手选和匹配项，没有这一回退。上述测试真实通过，但未覆盖这两个未实现的要求，不能据此宣称全部完成。13、15 已改回部分完成；其余项的原建议细节仍须以逐项证据为准。
+2026-10-31 重新复核时发现，上一次把后整理的实施清单当作原建议全部落实，漏了 Halo 5 的完整接口同步与 Hugo 2 的最新回退。此前测试真实通过，但未覆盖这两处要求。续做还补足 Ghost 2 的所选正文片段与 Strapi 合并项的正文区块选择限制，加入相应测试，再按上表逐条复核原建议。现在 22 项及原文对应细节均有实现和通过证据；研究中明确带条件的后续功能仍按前述范围处理。
 
-验证使用 D 盘隔离实例，没有更新真实站点，也没有制作发行包。研究中明确带条件的后续功能仍按前述范围处理。2026-10-31 复核前的 78 个改动文件与最终验收 source-state.json 全部散列一致，复核只修正文档结论。随后按用户要求提交并推送 Weava 框架到 GitHub main；第 13、15 项仍按部分完成记录，GitHub 推送不代表真实站点部署。
+验证使用 D 盘隔离实例，没有更新真实站点，也没有制作发行包。上一轮框架提交 `b9355fbc` 保留了当时的未完成说明；本轮补齐代码、逐条对照和最终验收记录一起提交到同一 Weava 仓库。GitHub 推送与真实站点部署分别处理。

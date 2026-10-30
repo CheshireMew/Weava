@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import {
   entrySchema,
+  blockDefinitions,
   schemaTypes,
   defaultSettings,
   type Entry,
@@ -182,7 +183,7 @@ function App() {
     setLibraryLoading(true);
     const params = new URLSearchParams({ kind: tab === 'pages' ? 'page' : 'content', q: searchTerm, status, visibility,
       type: tab === 'content' ? libraryType : '', page: String(libraryPage), pageSize: '25', sort: librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || 'title', ...Object.fromEntries(Object.entries(fieldFilters).filter(([,value]) => value !== '').map(([key,value]) => ['field.' + key,value])) });
-    api('entries/query?' + params).then((result) => { if (active) setLibrary(result); }).catch((error) => { if (active) setError(error.message); }).finally(() => { if (active) setLibraryLoading(false); });
+    api(`entries/query?${params}`).then((result) => { if (active) setLibrary(result); }).catch((error) => { if (active) setError(error.message); }).finally(() => { if (active) setLibraryLoading(false); });
     return () => { active = false; };
   }, [state, tab, searchTerm, status, visibility, libraryType, libraryPage, fieldFilters, librarySort]);
   async function persist(): Promise<any> {
@@ -279,7 +280,7 @@ function App() {
   async function select(id: string) {
     try {
       await persist();
-      const row = await api('entry/' + encodeURIComponent(id));
+      const row = await api(`entry/${encodeURIComponent(id)}`);
       setRecord(row);
       setEditorEpoch((v) => v + 1);
       current.current = row;
@@ -322,7 +323,7 @@ function App() {
       await createNew(kind, type);
     } catch (error: any) { setError(error.message); }
   }
-  async function task(operation: string, payload: any = {}, reviewed = false) {
+  async function task(operation: 'publish' | 'backup' | 'verify', payload: any = {}, reviewed = false) {
     setBusy(true);
     setError('');
     try {
@@ -497,7 +498,7 @@ function App() {
             <span>{job.message}</span>
             <button
               onClick={async () => {
-                const logs = await api('logs?id=' + job.id);
+                const logs = await api(`logs?id=${job.id}`);
                 setError(logs.text || '任务暂无日志');
               }}
             >
@@ -550,7 +551,7 @@ function App() {
                   {tab === 'content' && <select aria-label="筛选内容类型" value={libraryType} onChange={(event) => { setLibraryType(event.target.value); setFieldFilters({}); setLibrarySort(''); }}><option value="">全部类型</option>{state.types.map((type: any) => <option key={type.id} value={type.id}>{type.value.label}</option>)}</select>}
                   {tab === 'content' && state.types.find((row: any) => row.id === libraryType)?.value.fields.filter((field: FieldDefinition) => field.filterable).map((field: FieldDefinition) => <label className="library-field-filter" key={field.key}>{field.label}{field.type === 'select' || field.type === 'boolean' ? <select aria-label={'筛选' + field.label} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })}><option value="">全部</option>{(field.type === 'boolean' ? ['true','false'] : field.options ?? []).map((option) => <option key={option} value={option}>{field.type === 'boolean' ? option === 'true' ? '是' : '否' : option}</option>)}</select> : <input aria-label={'筛选' + field.label} type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={fieldFilters[field.key] ?? ''} onChange={(event) => setFieldFilters({ ...fieldFilters, [field.key]: event.target.value })} />}</label>)}
                   <select aria-label="内容排序" value={librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || 'title'} onChange={(event) => { setLibrarySort(event.target.value); setLibraryPage(1); }}>{Object.entries({ title: '标题升序', '-title': '标题降序', '-updatedAt': '最近修改', '-publishedAt': '最近发布', oldest: '最早发布' }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-                  <SavedViewControls key={tab} views={state.contentViews ?? []} query={{ kind: tab === 'pages' ? 'page' : 'content', type: libraryType || undefined, query: filter || undefined, status: status as any, visibility: visibility as any, fields: fieldFilters, sort: (librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || 'title') as any }} apply={(query) => { setFilter(query.query ?? ''); setStatus(query.status ?? 'all'); setVisibility(query.visibility ?? 'all'); setLibraryType(query.type ?? ''); setFieldFilters(Object.fromEntries(Object.entries(query.fields ?? {}).map(([key, value]) => [key, String(value)]))); setLibrarySort(query.sort ?? ''); setLibraryPage(1); }} refresh={refresh} onError={setError} />
+                  <SavedViewControls key={tab} views={state.contentViews ?? []} query={{ kind: tab === 'pages' ? 'page' : 'content', type: libraryType || undefined, query: filter || undefined, status: status as any, visibility: visibility as any, fields: fieldFilters, sort: (librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || 'title') as any }} apply={(query) => { setFilter(query.query ?? ''); setStatus(query.status ?? 'all'); setVisibility(query.visibility ?? 'all'); setLibraryType(query.type ?? ''); setFieldFilters(Object.fromEntries(Object.entries(query.fields ?? {}).map(([key, value]) => [key, String(value)]))); setLibrarySort(query.sort ?? ''); setLibraryPage(1); }} refresh={async () => { await refresh(); }} onError={setError} />
                   {bulkIds.length > 0 && <button onClick={async () => { try { await persist(); setBulkOpen(true); } catch (error: any) { setError(error.message); } }}>批量编辑（{bulkIds.length}）</button>}
                   <div className="entry-list" aria-busy={libraryLoading}>
                     {libraryLoading && <p className="library-status" role="status">正在查找内容…</p>}
@@ -622,7 +623,7 @@ function App() {
                             title="历史版本"
                             aria-label="历史版本"
                             onClick={async () => {
-                              try{await persist();setHistory(await api('history?id=' + record.id));}catch(error:any){setError(error.message);}
+                              try{await persist();setHistory(await api(`history?id=${record.id}`));}catch(error:any){setError(error.message);}
                             }}
                           >
                             <History size={16} />
@@ -664,7 +665,7 @@ function App() {
                           </button>
                           <button
                             onClick={async () => {
-                              try { const server = await api('entry/' + encodeURIComponent(record.id)); adopt(server); setRecoveryCopies([]); }
+                              try { const server = await api(`entry/${encodeURIComponent(record.id)}`); adopt(server); setRecoveryCopies([]); }
                               catch (error: any) { setError(error.message); }
                             }}
                           >
@@ -695,7 +696,8 @@ function App() {
                               previewKey={JSON.stringify([record.value.template, record.value.title, record.value.description, record.value.fields])}
                               value={record.value.blocks}
                               onChange={(blocks) => update({ blocks, ...(!blocks.length ? { document: { version: 1, format: 'markdown', source: '' } as const } : {}) })}
-                              save={persist} onError={setError} catalog={state}
+                              save={persist} onError={setError} catalog={{ ...state, allowedBlocks: record.value.kind==='content'?state.types.find((row:any)=>row.id===record.value.type)?.value.allowedBlocks:undefined }}
+                              saveSnippet={record.value.kind==='content'?async(blocks)=>{ const label=window.prompt('组合名称');if(!label?.trim())return;await api('layouts',{value:{id:'snippet-'+crypto.randomUUID(),label,kind:'pattern',appliesTo:'content',blocks},revision:null});await refresh();notify('所选片段已保存为组合'); }:undefined}
                             /></Suspense>
                           ) : (
                             <Suspense fallback={<p>正在载入编辑器…</p>}>
@@ -725,8 +727,8 @@ function App() {
                         <aside className="entry-settings">
                           <h2>发布设置</h2>
                           <label className="checkbox"><input type="checkbox" checked={record.value.allowComments !== false} onChange={(event) => update({ allowComments: event.target.checked })} />允许新评论</label>
-                          <SaveCreationTemplate entry={record.value} onSaved={refresh} onError={setError} />
-                          {record.value.kind === 'content' && !record.value.blocks.length && <button onClick={async () => { try { update({ blocks: await api('entry/structure', { value: current.current!.value }) }); } catch (error: any) { setError(error.message); } }}>使用区块正文</button>}
+                          <SaveCreationTemplate entry={record.value} onSaved={async () => { await refresh(); }} onError={setError} />
+                          {record.value.kind === 'content' && !record.value.blocks.length && (!state.types.find((row:any)=>row.id===record.value.type)?.value.allowedBlocks || state.types.find((row:any)=>row.id===record.value.type).value.allowedBlocks.includes('richtext')) && <button onClick={async () => { try { update({ blocks: await api('entry/structure', { value: current.current!.value }) }); } catch (error: any) { setError(error.message); } }}>使用区块正文</button>}
                           {record.value.blocks.length > 0 && <button onClick={async () => { const label = window.prompt('组合名称'); if (!label?.trim()) return; try { await api('layouts', { value: { id: 'snippet-' + crypto.randomUUID(), label, kind: 'pattern', appliesTo: 'any', blocks: record.value.blocks }, revision: null }); await refresh(); notify('正文片段已保存为组合'); } catch (error: any) { setError(error.message); } }}>保存正文片段</button>}
                           <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} />
                           {record.value.compatibility?.wordpress?.unresolved?.length > 0 && <section className="import-review"><h3>来源功能检查</h3><ul>{record.value.compatibility!.wordpress.unresolved.map((reason: string) => <li key={reason}>{reason}</li>)}</ul><label className="checkbox"><input type="checkbox" checked={!!record.value.compatibility!.wordpress.reviewed} onChange={(event) => update({ compatibility: { ...record.value.compatibility, wordpress: { ...record.value.compatibility!.wordpress, reviewed: event.target.checked } } })} />我已检查并处理这些内容</label></section>}
@@ -879,6 +881,7 @@ function App() {
             {tab === 'types' && (
               <TypeManager
                 types={state.types}
+                extensionBlocks={state.extensionBlocks??[]}
                 templates={state.layouts ?? []}
                 onSave={async (value, revision) => {
                   await api('types', { value, revision });
@@ -888,7 +891,7 @@ function App() {
                 onError={setError}
               />
             )}
-            {tab === 'media' && <Suspense fallback={<p>正在载入媒体…</p>}><MediaManager onError={setError} onOpen={(id) => { api('entry/' + encodeURIComponent(id)).then((row) => { setTab(row.value.kind === 'page' ? 'pages' : 'content'); void select(id); }).catch((error) => setError(error.message)); }} /></Suspense>}
+            {tab === 'media' && <Suspense fallback={<p>正在载入媒体…</p>}><MediaManager onError={setError} onOpen={(id) => { api(`entry/${encodeURIComponent(id)}`).then((row) => { setTab(row.value.kind === 'page' ? 'pages' : 'content'); void select(id); }).catch((error) => setError(error.message)); }} /></Suspense>}
             {tab === 'appearance' && (
               <SettingsPanel
                 row={state.settings}
@@ -910,7 +913,7 @@ function App() {
             {tab === 'redirects' && <Suspense fallback={<p>加载中…</p>}><RedirectManager onError={setError} publish={() => task('publish', { scope: 'routes' })} /></Suspense>}
             {tab === 'publication-plans' && <Suspense fallback={<p>加载中…</p>}><PublicationPlans onError={setError} /></Suspense>}
             {tab === 'operations' && (
-              <Operations state={state} task={task} refresh={refresh} onError={setError} />
+              <Operations state={state} task={task} refresh={async () => { await refresh(); }} onError={setError} />
             )}
           </>
         )}
@@ -939,8 +942,8 @@ function App() {
         </Dialog>
       )}
       {reauth && <Dialog label="重新登录" onClose={() => { reauthLater.current = true; setReauth(false); }} dismissible={!loginPending}><h2>登录已过期</h2><p>编辑内容仍保留在当前页面。</p><form onSubmit={async (event) => { event.preventDefault(); if (loginPending) return; setLoginPending(true); setReauthError(''); try { await api('login', { password: reauthPassword }); setReauth(false); setSessionExpired(false); reauthLater.current = false; setReauthPassword(''); setError(''); errorRef.current = ''; setPublication(null); if (dirty && current.current) await persist(); } catch (error: any) { setReauthError(error.message); } finally { setLoginPending(false); } }}><label>站主密码<input data-autofocus type="password" autoComplete="current-password" required value={reauthPassword} onChange={(event) => setReauthPassword(event.target.value)} /></label>{reauthError && <p role="alert" className="error">{reauthError}</p>}<button type="submit" disabled={loginPending}>{dirty && record ? '登录并保存草稿' : '重新登录'}</button><button type="button" disabled={loginPending} onClick={() => { reauthLater.current = true; setReauth(false); }}>稍后登录</button></form></Dialog>}
-      {bulkOpen && <Suspense fallback={null}><BulkEditor rows={items.filter((row: any) => bulkIds.includes(row.id))} types={state.types} terms={state.terms ?? []} close={() => setBulkOpen(false)} done={async () => { await refresh(); if (record && bulkIds.includes(record.id)) adopt(await api('entry/' + record.id)); setBulkIds([]); }} /></Suspense>}
-      {creating && <ChooseCreationTemplate templates={state.creationTemplates ?? []} kind={creating.kind} type={creating.type} create={(templateId) => createNew(creating.kind, creating.type, templateId)} close={() => setCreating(null)} refresh={refresh} onError={setError} />}
+      {bulkOpen && <Suspense fallback={null}><BulkEditor rows={items.filter((row: any) => bulkIds.includes(row.id))} types={state.types} terms={state.terms ?? []} close={() => setBulkOpen(false)} done={async () => { await refresh(); if (record && bulkIds.includes(record.id)) adopt(await api(`entry/${record.id}`)); setBulkIds([]); }} /></Suspense>}
+      {creating && <ChooseCreationTemplate templates={state.creationTemplates ?? []} kind={creating.kind} type={creating.type} create={(templateId) => createNew(creating.kind, creating.type, templateId)} close={() => setCreating(null)} refresh={async () => { await refresh(); }} onError={setError} />}
       {history && record && <Suspense fallback={null}><RevisionDialog id={record.id} history={history} onClose={() => setHistory(null)} onError={setError} onRestore={async (version) => {
         const row = await api('restore', { id: record.id, version, revision: record.revision });
         adopt(row); setHistory(null); await refresh(); notify('历史版本已恢复为工作稿，公开页面保持原版本。');
@@ -970,11 +973,13 @@ function App() {
 }
 function TypeManager({
   types,
+  extensionBlocks,
   templates,
   onSave,
   onError,
 }: {
   types: any[];
+  extensionBlocks:string[];
   templates: any[];
   onSave: (value: ContentType, revision: number | null) => Promise<void>;
   onError: (s: string) => void;
@@ -1055,6 +1060,7 @@ function TypeManager({
                 setSelected({ ...selected, value: { ...selected.value, fields } })
               }
             />
+            <details><summary>正文区块</summary><label className="checkbox"><input type="checkbox" checked={selected.value.allowedBlocks!==undefined} onChange={(event)=>setSelected({...selected,value:{...selected.value,allowedBlocks:event.target.checked?Object.keys(blockDefinitions).filter((key)=>!key.startsWith('entry-')&&key!=='compatibility'):undefined}})} />限制可用区块</label>{selected.value.allowedBlocks!==undefined&&<fieldset><legend>允许的正文区块</legend>{[...Object.entries(blockDefinitions).filter(([key])=>!key.startsWith('entry-')&&key!=='compatibility').map(([key,value])=>({key,label:value.label})),...extensionBlocks.map((key:string)=>({key,label:key}))].map(({key,label})=><label className="checkbox" key={key}><input type="checkbox" aria-label={'允许区块 '+label} checked={selected.value.allowedBlocks.includes(key)} onChange={(event)=>setSelected({...selected,value:{...selected.value,allowedBlocks:event.target.checked?[...selected.value.allowedBlocks,key]:selected.value.allowedBlocks.filter((value:string)=>value!==key)}})} />{label}</label>)}</fieldset>}</details>
             <TypeAdminLayout type={selected.value} onChange={(admin) => setSelected({ ...selected, value: { ...selected.value, admin } })} />
             <label>默认模板<select value={selected.value.template} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, template: event.target.value } })}>{templates.filter((row) => row.value.kind === 'template' && row.value.appliesTo !== 'page').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select></label>
             <label>页面语义<select value={selected.value.schemaType ?? ''} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, schemaType: event.target.value || undefined } })}><option value="">自动</option>{schemaTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
@@ -1300,7 +1306,7 @@ function Operations({
   onError,
 }: {
   state: any;
-  task: (op: string, p?: any) => any;
+  task: (op: 'publish' | 'backup' | 'verify', p?: any) => any;
   refresh: () => any;
   onError: (s: string) => void;
 }) {
@@ -1408,7 +1414,7 @@ function Operations({
               {j.operation} · {j.status}
               <small>{j.message}</small>
             </span>
-            <button onClick={async () => setLogs(await api('logs?id=' + j.id))}>日志</button>
+            <button onClick={async () => setLogs(await api(`logs?id=${j.id}`))}>日志</button>
           </div>
         ))}
       </div>

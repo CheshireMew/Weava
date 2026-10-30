@@ -36,6 +36,7 @@ it('exports machine schemas and site-specific types from current definitions', (
   const site = create(); site.saveType({ id: 'resource', label: '资源', pathPrefix: '/resources/', template: 'resource', fields: [{ key: 'rating', label: '评分', type: 'number', required: true, min: 0, max: 10 }, { key: 'platform', label: '平台', type: 'select', options: ['Windows', 'Linux'] }] }, null);
   const schema = siteSchema(site), dynamic = schema.types[0].schema as any;
   expect(dynamic.properties.fields.properties.rating.maximum).toBe(10); expect(dynamic.properties.fields.required).toContain('rating');
-  expect(siteOpenApi(site).paths['/api/admin/v1/entry'].post.requestBody.content['application/json'].schema.properties.value.$ref).toContain('Entry');
+  const operation = siteOpenApi(site).paths['/api/admin/v1/entry'].post as { requestBody: { content: { 'application/json': { schema: { properties: { value: { properties: Record<string, unknown> } } } } } } };
+  expect(operation.requestBody.content['application/json'].schema.properties.value.properties).toHaveProperty('document');
   expect(siteTypes(site)).toContain('"rating": number'); expect(siteTypes(site)).toContain('"Windows" | "Linux"');
 });

@@ -1,3 +1,4 @@
+import { adminApi, matchAdminApi, validateApiInput } from '@weava/contracts/api';
 import type { APIRoute } from 'astro';
 import { site, analytics, engagement, siteExtension } from '../../runtime.ts';
 import { stageMedia, csv, storageUsage, queryPublished, queryDrafts, contentQuery, exportSite, importSite, schedules, schedulePublication, cancelSchedule, retrySchedule, projectTerms, layouts, saveLayout, queryMedia, saveMediaMetadata, mediaReferences, archiveMedia, entryRevision, entryChanges, mergeEntry, saveMergedEntry, importWordPressWxr, digest } from '@weava/core';
@@ -77,7 +78,7 @@ async function execute(operation: string, payload: any, key?: string) {
   });
   return site.job(job.id);
 }
-export const ALL: APIRoute = async (context) => {
+const handle: APIRoute = async (context) => {
   const { request, params, cookies, url } = context;
   try {
     const custom = await (await siteExtension)?.route?.(request, site.visibleRelease());
@@ -159,7 +160,7 @@ export const ALL: APIRoute = async (context) => {
         version: frameworkVersion,
       });
     if (action === 'login' && method === 'POST') {
-      const data = await request.json();
+      const data = adminApi.login.body.parse(await request.json());
       const token = site.login(String(data.password ?? ''));
       cookies.set('weava-session', token, {
         path: '/',
@@ -171,12 +172,15 @@ export const ALL: APIRoute = async (context) => {
       return json({ authenticated: true });
     }
     if (!authorized(request, cookies)) throw new DomainError('请先登录。', 401);
-    if (action === 'logout') {
+    if (action === 'logout' && method === 'POST') {
       site.logout(cookies.get('weava-session')?.value ?? '');
       cookies.set('weava-session', '', { path: '/', maxAge: 0 });
       return json({ ok: true });
     }
-    const data = isWrite ? await request.json() : null;
+    const contract = matchAdminApi(method, action);
+    if (!contract) return json({ error: '接口或请求方法不存在。' }, 404);
+    const data = isWrite ? await request.json() : undefined;
+    validateApiInput(contract, url.searchParams, data);
     if (action === 'schema' && method === 'GET') return url.searchParams.get('format') === 'types' ? new Response(siteTypes(site), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } }) : json(url.searchParams.get('format') === 'openapi' ? siteOpenApi(site) : siteSchema(site));
     if (action === 'seo/audit' && method === 'POST') {
       const target = data?.target === 'draft' ? 'draft' : 'published';
@@ -386,4 +390,23 @@ export const ALL: APIRoute = async (context) => {
     const status = error instanceof DomainError ? error.status : 400;
     return json({ error: error.message ?? '操作失败。', details: error.details }, status);
   }
+};
+
+// Successful built-in responses are checked against the same definitions used
+// by the client and OpenAPI. A mismatched server response is a server error.
+export const ALL: APIRoute = async (context) => {
+  const response = await handle(context);
+  const route = context.params.route ?? '';
+  const contract = route.startsWith('admin/v1/') ? matchAdminApi(context.request.method, route.slice(9)) : undefined;
+  if (contract && response.ok) {
+    try {
+      const value = response.headers.get('Content-Type')?.includes('application/json') ? await response.clone().json() : await response.clone().text();
+      const checked = contract.definition.response.safeParse(value);
+      if (!checked.success) {
+        console.error('API response contract mismatch', contract.operation, checked.error.issues.map(({path,message}) => ({path,message})));
+        return json({error:'网站返回数据与接口定义不一致。',details:checked.error.issues.map(({path,message})=>({path,message}))},500);
+      }
+    } catch { return json({error:'接口响应无法校验。'},500); }
+  }
+  return response;
 };

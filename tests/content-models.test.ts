@@ -9,6 +9,19 @@ const type = (fields: FieldDefinition[], extra: Partial<ContentType> = {}): Cont
 const entry = (id: string, fields: Record<string, any> = {}, contentType = 'project') => entrySchema.parse({ id, kind: 'content', type: contentType, title: id, path: '/' + id + '/', fields });
 
 describe('content model rules across all entry points', () => {
+  it('enforces per-type body blocks in checks, save, import, type changes and frozen publication', () => {
+    const site=create();const model=site.saveType(type([],{allowedBlocks:['container','text','richtext']}),null);
+    const input={...entry('blocks'),blocks:[{id:'group',type:'container',props:{},children:[{id:'body',type:'text',props:{text:'正文'}}]}]};
+    const row=site.saveEntry(input,null);site.publish({ids:[row.id]});const release=site.release()!.id;
+    const bad={...row.value,id:'invalid',path:'/invalid/',blocks:[{id:'group',type:'container',props:{},children:[{id:'bad',type:'code',props:{source:'code'}}]}]};
+    expect(checkEntry(site,bad).errors).toContainEqual(expect.objectContaining({path:'blocks.0.children.0.type',code:'blockType'}));
+    expect(()=>site.saveEntry(bad,null)).toThrow(/不允许/);
+    expect(()=>importSite(site,{version:1,entries:[bad]})).toThrow(/不允许/);expect(site.store.get('entry',bad.id)).toBeNull();
+    expect(()=>site.saveType({...model.value,allowedBlocks:['richtext']},model.revision)).toThrow(/不兼容/);
+    const working=site.saveEntry({...row.value,blocks:[]},row.revision);site.saveType({...model.value,allowedBlocks:[]},model.revision);
+    expect(()=>site.publish({ids:[row.id],versions:{[row.id]:row.revision}})).toThrow(/不允许/);expect(site.release()!.id).toBe(release);
+    expect(site.store.get('entry',row.id)!.revision).toBe(working.revision);
+  });
   it('shares numeric, Unicode length, array and nested field errors with exact paths', () => {
     const fields: FieldDefinition[] = [{ key: 'rating', label: '评分', type: 'number', min: 0, max: 10 },
       { key: 'name', label: '名称', type: 'text', minLength: 2, maxLength: 3 },

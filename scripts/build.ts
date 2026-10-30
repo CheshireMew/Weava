@@ -36,6 +36,8 @@ const shared = {
   packages: 'external' as const,
   target: 'node24',
   alias: {
+    '@weava/contracts/api-client': join(root, 'packages/contracts/src/api-client.ts'),
+    '@weava/contracts/api': join(root, 'packages/contracts/src/admin-api.ts'),
     '@weava/core': join(root, 'packages/core/src/index.ts'),
     '@weava/contracts': join(root, 'packages/contracts/src/index.ts'),
   },

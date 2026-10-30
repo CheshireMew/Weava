@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createAdminClient } from '@weava/contracts/api-client';
 import { Command } from 'commander';
 import { resolve, join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -54,14 +55,12 @@ async function request(action: string, data?: any, format: 'json' | 'text' = 'js
     : {};
   const url = program.opts().url ?? `http://127.0.0.1:${config.port ?? 4322}`;
   const token = readFileSync(join(root(), 'cli-token'), 'utf8');
-  const response = await fetch(url + '/api/admin/v1/' + action, {
-    method: data === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  const result = format === 'text' ? await response.text() : await response.json() as any;
-  if (!response.ok) throw new Error(JSON.stringify(result));
-  return result;
+  const client = createAdminClient({ baseUrl: url + '/api/admin/v1/', headers: { Authorization: 'Bearer ' + token }, timeoutMs:1800000 });
+  // CLI command inputs are external JSON; runtime contracts validate them before
+  // sending and check the response. Browser callers use the typed operation API.
+  const result = await client.request(action, data);
+  return result as any;
+
 }
 async function wait(job: any, enabled: boolean) {
   if (!enabled) return job;

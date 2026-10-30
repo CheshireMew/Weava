@@ -10,6 +10,8 @@ export default defineConfig({
   vite: {
     resolve: {
       alias: {
+        '@weava/contracts/api-client': fileURLToPath(new URL('../../packages/contracts/src/api-client.ts', import.meta.url)),
+        '@weava/contracts/api': fileURLToPath(new URL('../../packages/contracts/src/admin-api.ts', import.meta.url)),
         '@weava/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
         '@weava/contracts': fileURLToPath(
           new URL('../../packages/contracts/src/index.ts', import.meta.url),

@@ -87,8 +87,22 @@ JSON import 默认新增或跳过完全相同的对象。空的已初始化站�
 
 离线标准迁移使用 `migrate wxr --input 文件.xml --dry-run`，预检通过后去掉 --dry-run 导入。可选 --download-media、--media-dir 离线目录、--settings、--no-comments，以及 --merge-revisions 当前修订号文件。离线目录按来源 URL 的完整路径存放附件；该命令要求目标实例停止。后台 import/wxr 可在服务运行时通过任务完成，同样不会自动发布。
 
-新增内容管理入口与数据格式见[六个 CMS 项目的借鉴与实施](cms-improvements.md)。其中 `schema --format json|openapi|types` 从当前实例定义生成资料；OpenAPI 当前覆盖内容、类型、常用筛选、新建模板与媒体分组的写入及候选检查接口，其余接口仍以本页为准。
+新增内容管理入口与数据格式见[六个 CMS 项目的借鉴与实施](cms-improvements.md)。`schema --format json|openapi|types` 从当前实例定义生成资料；OpenAPI 现在包含全部 95 个内置后台操作的参数、请求体、成功/错误响应和登录方式。服务端、后台、CLI 与[自动生成的接口参考](api-reference.md)共用 `packages/contracts/src/admin-api.ts`，不再分别维护接口清单。扩展自行增加的接口仍由扩展声明和维护。
 
 新评论默认保存为 `pending`，不计入访客评论数或列表；后台审核通过才显示。设置 `commentModeration:false` 并发布设置后，新评论直接显示。内容的 `allowComments:false` 发布后拒绝验证码及新评论，旧评论和点赞仍可使用。
 
 内容记录的 `visibility` 为 `public` 或 `private`，缺省为 `public`；它与 `status` 独立。后台与 CLI 均可保存该字段，再通过 publish 发布可见性变更。公开 API 永远不返回私密文章，站主可通过带认证的 `entry/id` 获取完整工作稿。
+
+外部 TypeScript 调用端可直接使用共用客户端：
+
+```ts
+import { createAdminClient } from '@weava/contracts/api-client';
+const client = createAdminClient({
+  baseUrl: 'https://example.com/api/admin/v1/',
+  headers: { Authorization: 'Bearer ' + token },
+});
+const row = await client.call('getEntry', { params: { id: 'article-id' } });
+const checked = await client.call('checkEntry', { body: { value: row.value } });
+```
+
+操作名、参数和结果类型从同一份 Zod 定义推导；不存在的操作、缺少的参数和不允许的枚举会在 TypeScript 检查时出错。外部 JSON 或动态 CLI 输入还会在运行时校验，成功响应结构不匹配会明确报错。`schema --format types` 导出的站点类型文件也带有客户端与操作类型的导出。修改接口后运行 `node --import tsx scripts/generate-api-docs.ts` 更新参考表；`--check` 与测试检查文档是否过期。JSON 维度行、扩展字段、任务操作各异的结果保留在已说明的开放字段中，领域规则继续由对应服务检查。

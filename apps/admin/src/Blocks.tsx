@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { blockDefinitions, type Block, type BlockControl } from '@weava/contracts';
+import { blockDefinitions, contentBlockIssues, type Block, type BlockControl } from '@weava/contracts';
 import { useSelectors } from './Selectors.tsx';
 import { findBlock, patchBlock, removeBlock, moveBlock, cloneBlocks, insertAfter } from './block-tree.ts';
 
-export interface BlockCatalog { layouts?: any[]; types?: any[]; terms?: any[]; extensionBlocks?: string[]; extensionBlockDefinitions?: Record<string, { label: string; fields: BlockControl[] }> }
+export interface BlockCatalog { allowedBlocks?:string[]; layouts?: any[]; types?: any[]; terms?: any[]; extensionBlocks?: string[]; extensionBlockDefinitions?: Record<string, { label: string; fields: BlockControl[] }> }
 export function BlockProperties({ value: block, onChange, catalog = {} }: { value: Block; onChange: (value: Block) => void; catalog?: BlockCatalog }) {
   const selectors = useSelectors();
   const change = (key: string, value: any) => onChange({ ...block, props: { ...block.props, [key]: value, ...(key === 'contentType' ? { fields: {} } : {}) } });
@@ -60,13 +60,16 @@ export function Blocks({ value, onChange, catalog = {}, selectedId, onSelect, ou
   const [local, setLocal] = useState(''), [newType,setNewType] = useState('text');
   const selected = selectedId ?? local, choose = (id: string) => { setLocal(id); onSelect?.(id); };
   const active = findBlock(value,selected);
+  const choices = [...Object.keys(blockDefinitions).filter((key)=>key!=='compatibility'&&(allowBody||key!=='entry-body')), ...(catalog.extensionBlocks??[])].filter((key)=>!catalog.allowedBlocks||catalog.allowedBlocks.includes(key));
+  const selectedType=choices.includes(newType)?newType:choices[0]??'';
+  const patterns=(catalog.layouts??[]).filter((row)=>row.value.kind==='pattern'&&!contentBlockIssues(row.value.blocks,{allowedBlocks:catalog.allowedBlocks}).length);
   const outline = (items: Block[]) => <ol className="block-outline">{items.map((block) => <li key={block.id}><button className={selected === block.id ? 'selected' : ''} onClick={() => choose(block.id)}>{blockDefinitions[block.type]?.label ?? catalog.extensionBlockDefinitions?.[block.type]?.label ?? block.type}{block.props.title && <span>{String(block.props.title).slice(0,25)}</span>}</button>{block.children?.length ? outline(block.children) : null}</li>)}</ol>;
   return <div className="block-builder">{outline(value)}
     {active && <div className="block-tools"><button aria-label="上移区块" onClick={() => onChange(moveBlock(value,active.id,-1))}>上移</button><button aria-label="下移区块" onClick={() => onChange(moveBlock(value,active.id,1))}>下移</button><button aria-label="复制区块" onClick={() => {const [clone]=cloneBlocks([active]);onChange(insertAfter(value,active.id,clone));choose(clone.id);}}>复制</button><button aria-label="移除区块" onClick={() => {onChange(removeBlock(value,active.id));choose('');}}>移除</button></div>}
     {!outlineOnly && active && <BlockProperties value={active} catalog={catalog} onChange={(block) => onChange(patchBlock(value,block.id,block))} />}
-    <div className="block-add"><select aria-label="区块类型" value={newType} onChange={(event) => setNewType(event.target.value)}>{Object.entries(blockDefinitions).filter(([key]) => key !== 'compatibility' && (allowBody || key !== 'entry-body')).map(([key,definition]) => <option key={key} value={key}>{definition.label}</option>)}{(catalog.extensionBlocks ?? []).map((type) => <option key={type} value={type}>{catalog.extensionBlockDefinitions?.[type]?.label ?? type}</option>)}</select>
-      <button onClick={() => {const block: Block={id:crypto.randomUUID(),type:newType,props:{}};onChange(active && ['container','columns'].includes(active.type) ? patchBlock(value,active.id,{children:[...(active.children ?? []),block]}) : [...value,block]);choose(block.id);}}>添加区块</button>
+    <div className="block-add"><select aria-label="区块类型" value={selectedType} disabled={!choices.length} onChange={(event) => setNewType(event.target.value)}>{choices.map((key)=><option key={key} value={key}>{blockDefinitions[key]?.label??catalog.extensionBlockDefinitions?.[key]?.label??key}</option>)}</select>
+      <button disabled={!selectedType} onClick={() => {const block: Block={id:crypto.randomUUID(),type:selectedType,props:{}};onChange(active && ['container','columns'].includes(active.type) ? patchBlock(value,active.id,{children:[...(active.children ?? []),block]}) : [...value,block]);choose(block.id);}}>添加区块</button>
     </div>
-    {(catalog.layouts ?? []).some((row) => row.value.kind === 'pattern') && <select aria-label="插入组合" value="" onChange={(event) => {const pattern=catalog.layouts?.find((row) => row.id === event.target.value);if(pattern) onChange([...value,...cloneBlocks(pattern.value.blocks)]);}}><option value="">插入组合</option>{catalog.layouts?.filter((row) => row.value.kind === 'pattern').map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
+    {patterns.length>0 && <select aria-label="插入组合" value="" onChange={(event) => {const pattern=patterns.find((row) => row.id === event.target.value);if(pattern) onChange([...value,...cloneBlocks(pattern.value.blocks)]);}}><option value="">插入组合</option>{patterns.map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
   </div>;
 }

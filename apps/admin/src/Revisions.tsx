@@ -24,7 +24,7 @@ export function RevisionDialog({ id, history, onClose, onRestore, onError }: { i
   const [comparison, setComparison] = useState<any>(null), [preview, setPreview] = useState(false), [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true; setComparison(null); setFailure('');
-    api('revision/compare?' + new URLSearchParams({ id, from: String(before), to: String(after) })).then((data) => { if (active) setComparison(data); }).catch((error) => { if (active) setFailure(error.message); });
+    api(`revision/compare?${new URLSearchParams({ id, from: String(before), to: String(after) })}`).then((data) => { if (active) setComparison(data); }).catch((error) => { if (active) setFailure(error.message); });
     return () => { active = false; };
   }, [id, before, after, reload]);
   const picker = (title: string, value: number, change: (version: number) => void) => <label>{title}<select aria-label={title} value={value} onChange={(event) => change(Number(event.target.value))}>{history.map((row) => <option key={row.revision} value={row.revision}>#{row.revision} · {new Date(row.createdAt).toLocaleString()} · {row.label}</option>)}</select></label>;

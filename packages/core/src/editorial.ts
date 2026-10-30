@@ -36,7 +36,7 @@ export function entrySummary(entry: Entry, html?: string, renderPrefix?: (blocks
 }
 export function recommendedEntries(entry: Entry, release: Release, limit = 6) {
   const candidates = release.entries.filter((item) => item.id !== entry.id && item.kind === 'content' && item.visibility !== 'private' && item.indexable);
-  const manual = (entry.editorial?.relatedIds ?? []).map((id) => candidates.find((item) => item.id === id)).filter((item): item is PublishedEntry => !!item);
+  const manual = [...new Set(entry.editorial?.relatedIds ?? [])].map((id) => candidates.find((item) => item.id === id)).filter((item): item is PublishedEntry => !!item);
   const labels = (item: Entry) => [...(item.termIds?.tags ?? item.tags).map((id) => 'tag:' + id), ...(item.termIds?.categories ?? item.categories).map((id) => 'category:' + id)];
   const own = new Set(labels(entry));
   const frequency = new Map<string, number>();
@@ -44,7 +44,9 @@ export function recommendedEntries(entry: Entry, release: Release, limit = 6) {
   const score = (item: Entry) => labels(item).reduce((total, label) => total + (own.has(label) ? (label.startsWith('tag:') ? 3 : 1.5) * Math.log(1 + candidates.length / (frequency.get(label) ?? 1)) : 0), 0);
   const ranked = candidates.filter((item) => score(item) > 0 && !manual.some((chosen) => chosen.id === item.id))
     .sort((a, b) => score(b) - score(a) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
-  return [...manual, ...ranked].slice(0, Math.max(0, limit));
+  const selected = [...manual, ...ranked], chosen = new Set(selected.map((item) => item.id));
+  const latest = candidates.filter((item) => !chosen.has(item.id)).sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
+  return [...selected, ...latest].slice(0, Math.max(0, limit));
 }
 export function featuredEntries(entries: PublishedEntry[]) {
   return [...entries].sort((a, b) => Number(!!b.editorial?.featured) - Number(!!a.editorial?.featured) || (b.editorial?.weight ?? 0) - (a.editorial?.weight ?? 0) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));

@@ -3,10 +3,11 @@ import type { Block } from '@weava/contracts';
 import { Blocks, BlockProperties, type BlockCatalog } from './Blocks.tsx';
 import { findBlock, patchBlock } from './block-tree.ts';
 
-export function PageDesigner({ entryId, value, onChange, save, onError, catalog, layoutId, initialRevision, previewKey }: {
+export function PageDesigner({ entryId, value, onChange, save, onError, catalog, layoutId, initialRevision, previewKey, saveSnippet }: {
   entryId: string; value: Block[]; onChange: (blocks: Block[]) => void;
   save: () => Promise<any>; onError: (message: string) => void; catalog: BlockCatalog;
   layoutId?: string; initialRevision?: number; previewKey?: string;
+  saveSnippet?: (blocks:Block[])=>Promise<void>;
 }) {
   const [selected, setSelected] = useState(''), [width, setWidth] = useState(1100), [src, setSrc] = useState(''), [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false), [scale, setScale] = useState(1);
@@ -68,7 +69,7 @@ export function PageDesigner({ entryId, value, onChange, save, onError, catalog,
     <div className="designer-workspace">
       <aside className="designer-outline"><Blocks value={value} onChange={onChange} catalog={catalog} selectedId={selected} onSelect={setSelected} outlineOnly allowBody={!!layoutId} /></aside>
       <div className="designer-canvas" ref={canvas}><div style={{ width: width * scale, height: 900 * scale, marginInline: 'auto' }}>{src ? <iframe style={{ width, height: 900, transform: `scale(${scale})`, transformOrigin: 'top left' }} ref={iframe} title="页面画布" src={src} sandbox="allow-same-origin" onLoad={loaded} /> : <p>正在准备画布…</p>}</div></div>
-      <aside className="designer-inspector">{active ? <><h3>{catalog.layouts?.find((row) => row.id === active.props.layoutId)?.value.label ?? '区块设置'}</h3><BlockProperties value={active} catalog={catalog} onChange={(block) => onChange(patchBlock(value, block.id, block))} /></> : <p>选择页面中的区块</p>}</aside>
+      <aside className="designer-inspector">{active ? <><h3>{catalog.layouts?.find((row) => row.id === active.props.layoutId)?.value.label ?? '区块设置'}</h3>{saveSnippet&&<button onClick={()=>saveSnippet([active]).catch((error)=>onError(error.message))}>保存所选片段</button>}<BlockProperties value={active} catalog={catalog} onChange={(block) => onChange(patchBlock(value, block.id, block))} /></> : <p>选择页面中的区块</p>}</aside>
     </div>
   </div>;
 }

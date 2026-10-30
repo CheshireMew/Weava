@@ -25,7 +25,7 @@ import {
   type PublishOptions,
   validateBlockProps,
   blockDefinitions,
-  siteSeoSchema, fieldDefinitionIssues, fieldIssues, effectiveFields, type FieldWidget,
+  siteSeoSchema, fieldDefinitionIssues, fieldIssues, effectiveFields, contentBlockIssues, type FieldWidget,
   type BlockDefinition,
 } from '@weava/contracts';
 export class Site {
@@ -113,6 +113,7 @@ export class Site {
   }
   saveType(value: ContentType, revision: number | null) {
     const type = typeSchema.parse(value);
+    for(const name of type.allowedBlocks??[])if(!blockDefinitions[name]&&!this.extensionBlockDefinitions[name])throw new WeavaError('允许的正文区块未注册：'+name);
     const definitions = effectiveFields(type.fields, this.fieldWidgets);
     const definitionErrors = fieldDefinitionIssues(definitions);
     const fieldKeys = new Set(type.fields.map((field) => field.key));
@@ -128,6 +129,7 @@ export class Site {
     const affected = [];
     for (const row of this.store.list('entry').filter((r) => r.value.type === type.id)) {
       try {
+        if(row.value.kind==='content') { const blocked=contentBlockIssues(row.value.blocks,type); if(blocked.length)throw new WeavaError(blocked.map((issue)=>issue.message).join('；'),400,blocked); }
         const issues = fieldIssues(definitions, row.value.fields, { reference: (id) => this.store.get('entry', id)?.value });
         if (issues.length) throw new WeavaError(issues.map((issue) => issue.message).join('；'), 400, issues);
       } catch (e) {

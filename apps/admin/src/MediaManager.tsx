@@ -20,19 +20,19 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
   useEffect(() => { setFeedback(''); }, [searchTerm, kind, page, archived]);
   useEffect(() => {
     let active = true; setLoading(true);
-    api('media/query?' + new URLSearchParams({ q: searchTerm, kind, page: String(page), pageSize: '24', archived: String(archived), group })).then((data) => { if (active) { setResult(data); setChecked([]); } }).catch((error) => { if (active) onError(error.message); }).finally(() => { if (active) setLoading(false); });
+    api(`media/query?${new URLSearchParams({ q: searchTerm, kind, page: String(page), pageSize: '24', archived: String(archived), group })}`).then((data) => { if (active) { setResult(data); setChecked([]); } }).catch((error) => { if (active) onError(error.message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [searchTerm, kind, page, archived, group, epoch]);
   useEffect(() => {
     setReferences(null); setCrop({ left: 0, top: 0, width: 100, height: 100 });
     if (!selected) return;
     if (window.matchMedia('(max-width: 900px)').matches) details.current?.scrollIntoView({ block: 'start' });
-    let active = true; api('media/references?id=' + encodeURIComponent(selected.id)).then((value) => { if (active) setReferences(value); }).catch((error) => onError(error.message));
+    let active = true; api(`media/references?id=${encodeURIComponent(selected.id)}`).then((value) => { if (active) setReferences(value); }).catch((error) => onError(error.message));
     return () => { active = false; };
   }, [selected?.id]);
   const isImage = selected && /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(selected.value.url);
   const save = async () => {
-    if (!selected) return;
+    if (!selected) throw new Error('请先选择媒体。');
     const row = await api('media/info', { id: selected.id, revision: selected.revision, value: { name: selected.value.name, alt: selected.value.alt, caption: selected.value.caption, focalPoint: selected.value.focalPoint, groupId: selected.value.groupId ?? null } });
     setSelected(row); refresh(); return row;
   };

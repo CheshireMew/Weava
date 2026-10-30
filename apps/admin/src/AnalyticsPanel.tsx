@@ -556,7 +556,7 @@ export default function AnalyticsPanel({ onError }: { onError: (s: string) => vo
     setLoading(true);
     setError('');
     try {
-      const result = await api('analytics?' + q);
+      const result = await api(`analytics?${q}`);
       if (!mounted.current || g !== generation.current) return;
       setData(result);
       setLoadedQuery(q);
@@ -582,8 +582,7 @@ export default function AnalyticsPanel({ onError }: { onError: (s: string) => vo
     const watch = watchVisible<AnalyticsRealtime>(
       () =>
         api(
-          'analytics/realtime?' +
-            (p.get('path') ? 'path=' + encodeURIComponent(p.get('path')!) : ''),
+          `analytics/realtime?${p.get('path') ? 'path=' + encodeURIComponent(p.get('path')!) : ''}`,
         ),
       (next) => {
         setLive(next);
@@ -663,13 +662,12 @@ export default function AnalyticsPanel({ onError }: { onError: (s: string) => vo
     setDetail(null);
     setDetailError('');
     void api(
-      'analytics/visitor?' +
-        new URLSearchParams({
+      `analytics/visitor?${new URLSearchParams({
           id: visitor,
           start: data?.range.start || '',
           end: data?.range.end || '',
           page: String(detailPage),
-        }),
+        })}`,
     )
       .then((v) => {
         if (!stopped) setDetail(v);

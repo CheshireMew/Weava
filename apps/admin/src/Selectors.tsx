@@ -1,3 +1,4 @@
+import { adminApi } from '@weava/contracts/api';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, waitJob } from './api.ts';
 import { Dialog } from './Dialog.tsx';
@@ -39,7 +40,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
     if (!picker) return;
     let active = true;
     setLoading(true); setError('');
-    api((picker.type === 'media' ? 'media/query?' : picker.reference ? 'references/query?' : 'entries/query?') + params())
+    api(`${picker.type === 'media' ? 'media/query?' : picker.reference ? 'references/query?' : 'entries/query?'}${params()}`)
       .then((data) => { if (active) setResult(data); })
       .catch((error) => { if (active) { setError(error.message); setResult({ items: [], total: 0, pages: 0 }); } })
       .finally(() => { if (active) setLoading(false); });
@@ -62,10 +63,10 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
         request.onerror = () => reject(new Error('上传连接中断，请检查网络后重试。'));
         request.ontimeout = () => reject(new Error('上传超时，请检查网络后重试。'));
         request.onload = () => {
-          try { const data = JSON.parse(request.responseText); if (request.status >= 400) reject(new Error(data.error ?? '上传失败，请重试。')); else resolve(data); }
+          try { const data = JSON.parse(request.responseText); if (request.status >= 400) reject(new Error(data.error ?? '上传失败，请重试。')); else resolve(adminApi.uploadMedia.response.parse(data)); }
           catch { reject(new Error('网站未返回有效的上传结果，请稍后重试。')); }
         };
-        request.send(JSON.stringify({ name: file.name, base64 }));
+        request.send(JSON.stringify(adminApi.uploadMedia.body.parse({ name: file.name, base64 })));
       });
       const complete = await waitJob(response, (job) => setProgress(job.message));
       if (group && group !== '__ungrouped__') await api('media/info', { id: complete.result.id, revision: complete.result.revision, value: { ...complete.result.value, groupId: group } });

@@ -1,162 +1,23 @@
-export interface AnalyticsTotals {
-  views: number;
-  visitors: number;
-  sessions: number;
-  clicks: number;
-}
-export interface AnalyticsDimension {
-  name: string;
-  visitors: number;
-  share: number;
-}
-export interface AnalyticsVisitor {
-  id: string;
-  views: number;
-  sessions: number;
-  firstSeen: string;
-  lastSeen: string;
-  entryPath: string;
-  exitPath: string;
-  country: string;
-  browser: string;
-  os: string;
-  device: string;
-  model: string;
-  channel: string;
-  source: string;
-  activeMs: number;
-}
-export interface GeoStatus {
-  available: boolean;
-  updating: boolean;
-  provider: string;
-  license: string;
-  attributionUrl: string;
-  updatedAt: string | null;
-  builtAt: string | null;
-  checkedAt: string | null;
-  error: string | null;
-}
-export interface AnalyticsRealtime {
-  count: number;
-  windowMinutes: number;
-  at: string;
-  visitors: {
-    id: string;
-    session: string;
-    path: string;
-    lastSeen: string;
-    country: string;
-    browser: string;
-    os: string;
-    device: string;
-  }[];
-}
-export interface AnalyticsReport extends AnalyticsTotals {
-  pageTitles?: Record<string, string>;
-  range: {
-    start: string;
-    end: string;
-    previousStart: string;
-    previousEnd: string;
-    days: number;
-    timezone: string;
-  };
-  previous: AnalyticsTotals;
-  overview: (AnalyticsTotals & {
-    name: string;
-    start: string;
-    end: string;
-    previous: AnalyticsTotals;
-  })[];
-  lifetime: AnalyticsTotals;
-  averageActiveMs: number;
-  daily: {
-    date: string;
-    views: number;
-    visitors: number;
-    sessions: number;
-    clicks: number;
-    previousViews: number;
-    previousVisitors: number;
-  }[];
-  pages: {
-    path: string;
-    views: number;
-    visitors: number;
-    clicks: number;
-    entries: number;
-    exits: number;
-    activeMs: number;
-    averageActiveMs: number;
-  }[];
-  links: { path: string; url: string; zone: string; label: string; clicks: number }[];
-  sources: {
-    channel: string;
-    host: string | null;
-    name: string;
-    views: number;
-    sessions: number;
-    visitors: number;
-  }[];
-  engines: {
-    name: string;
-    channel: string;
-    sessions: number;
-    views: number;
-    daily: { date: string; sessions: number }[];
-    previousSessions: number;
-    previousDaily: { date: string; sessions: number }[];
-  }[];
-  campaigns: {
-    source: string;
-    medium: string;
-    campaign: string;
-    sessions: number;
-    views: number;
-  }[];
-  countries: AnalyticsDimension[];
-  browsers: AnalyticsDimension[];
-  operatingSystems: AnalyticsDimension[];
-  devices: AnalyticsDimension[];
-  models: AnalyticsDimension[];
-  recentVisitors: AnalyticsVisitor[];
-  activeVisitors: AnalyticsVisitor[];
-  actions: { name: string; count: number }[];
-  crawlers: { agent: string; path: string; status: number; requests: number; identity: string }[];
-  legacySources: { id: string; path: string }[];
-  realtime: AnalyticsRealtime;
-  geo: GeoStatus;
-  lifetimeViews: number;
-  historicalViews: number;
-  lifetimePages: { path: string; views: number; historicalViews: number; recordedViews: number }[];
-}
-export interface AnalyticsVisitorDetail {
-  id: string;
-  start: string;
-  end: string;
-  timezone: string;
-  page: number;
-  pageSize: number;
-  total: number;
-  pages: number;
-  events: {
-    id: string;
-    kind: string;
-    ts: string;
-    path: string;
-    session: string;
-    url: string;
-    label: string;
-    zone: string;
-    referrer: string;
-    country: string;
-    browser: string;
-    os: string;
-    device: string;
-    model: string;
-    activeMs: number;
-    scroll: number;
-    channel: string;
-  }[];
-}
+import { z } from 'zod';
+
+// Runtime contracts and TypeScript types share these declarations.
+export const analyticsTotalsSchema = z.object({ "views": z.number(), "visitors": z.number(), "sessions": z.number(), "clicks": z.number() });
+export type AnalyticsTotals = z.infer<typeof analyticsTotalsSchema>;
+
+export const analyticsDimensionSchema = z.object({ "name": z.string(), "visitors": z.number(), "share": z.number() });
+export type AnalyticsDimension = z.infer<typeof analyticsDimensionSchema>;
+
+export const analyticsVisitorSchema = z.object({ "id": z.string(), "views": z.number(), "sessions": z.number(), "firstSeen": z.string(), "lastSeen": z.string(), "entryPath": z.string(), "exitPath": z.string(), "country": z.string(), "browser": z.string(), "os": z.string(), "device": z.string(), "model": z.string(), "channel": z.string(), "source": z.string(), "activeMs": z.number() });
+export type AnalyticsVisitor = z.infer<typeof analyticsVisitorSchema>;
+
+export const geoStatusSchema = z.object({ "available": z.boolean(), "updating": z.boolean(), "provider": z.string(), "license": z.string(), "attributionUrl": z.string(), "updatedAt": z.union([z.string(), z.null()]), "builtAt": z.union([z.string(), z.null()]), "checkedAt": z.union([z.string(), z.null()]), "error": z.union([z.string(), z.null()]) });
+export type GeoStatus = z.infer<typeof geoStatusSchema>;
+
+export const analyticsRealtimeSchema = z.object({ "count": z.number(), "windowMinutes": z.number(), "at": z.string(), "visitors": z.array(z.object({ "id": z.string(), "session": z.string(), "path": z.string(), "lastSeen": z.string(), "country": z.string(), "browser": z.string(), "os": z.string(), "device": z.string() })) });
+export type AnalyticsRealtime = z.infer<typeof analyticsRealtimeSchema>;
+
+export const analyticsReportSchema = analyticsTotalsSchema.extend({ "pageTitles": z.record(z.string(), z.string()).optional(), "range": z.object({ "start": z.string(), "end": z.string(), "previousStart": z.string(), "previousEnd": z.string(), "days": z.number(), "timezone": z.string() }), "previous": analyticsTotalsSchema, "overview": z.array(z.intersection(analyticsTotalsSchema, z.object({ "name": z.string(), "start": z.string(), "end": z.string(), "previous": analyticsTotalsSchema }))), "lifetime": analyticsTotalsSchema, "averageActiveMs": z.number(), "daily": z.array(z.object({ "date": z.string(), "views": z.number(), "visitors": z.number(), "sessions": z.number(), "clicks": z.number(), "previousViews": z.number(), "previousVisitors": z.number() })), "pages": z.array(z.object({ "path": z.string(), "views": z.number(), "visitors": z.number(), "clicks": z.number(), "entries": z.number(), "exits": z.number(), "activeMs": z.number(), "averageActiveMs": z.number() })), "links": z.array(z.object({ "path": z.string(), "url": z.string(), "zone": z.string(), "label": z.string(), "clicks": z.number() })), "sources": z.array(z.object({ "channel": z.string(), "host": z.union([z.string(), z.null()]), "name": z.string(), "views": z.number(), "sessions": z.number(), "visitors": z.number() })), "engines": z.array(z.object({ "name": z.string(), "channel": z.string(), "sessions": z.number(), "views": z.number(), "daily": z.array(z.object({ "date": z.string(), "sessions": z.number() })), "previousSessions": z.number(), "previousDaily": z.array(z.object({ "date": z.string(), "sessions": z.number() })) })), "campaigns": z.array(z.object({ "source": z.string(), "medium": z.string(), "campaign": z.string(), "sessions": z.number(), "views": z.number() })), "countries": z.array(analyticsDimensionSchema), "browsers": z.array(analyticsDimensionSchema), "operatingSystems": z.array(analyticsDimensionSchema), "devices": z.array(analyticsDimensionSchema), "models": z.array(analyticsDimensionSchema), "recentVisitors": z.array(analyticsVisitorSchema), "activeVisitors": z.array(analyticsVisitorSchema), "actions": z.array(z.object({ "name": z.string(), "count": z.number() })), "crawlers": z.array(z.object({ "agent": z.string(), "path": z.string(), "status": z.number(), "requests": z.number(), "identity": z.string() })), "legacySources": z.array(z.object({ "id": z.string(), "path": z.string() })), "realtime": analyticsRealtimeSchema, "geo": geoStatusSchema, "lifetimeViews": z.number(), "historicalViews": z.number(), "lifetimePages": z.array(z.object({ "path": z.string(), "views": z.number(), "historicalViews": z.number(), "recordedViews": z.number() })) });
+export type AnalyticsReport = z.infer<typeof analyticsReportSchema>;
+
+export const analyticsVisitorDetailSchema = z.object({ "id": z.string(), "start": z.string(), "end": z.string(), "timezone": z.string(), "page": z.number(), "pageSize": z.number(), "total": z.number(), "pages": z.number(), "events": z.array(z.object({ "id": z.string(), "kind": z.string(), "ts": z.string(), "path": z.string(), "session": z.string(), "url": z.string(), "label": z.string(), "zone": z.string(), "referrer": z.string(), "country": z.string(), "browser": z.string(), "os": z.string(), "device": z.string(), "model": z.string(), "activeMs": z.number(), "scroll": z.number(), "channel": z.string() })) });
+export type AnalyticsVisitorDetail = z.infer<typeof analyticsVisitorDetailSchema>;

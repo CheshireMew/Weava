@@ -3,6 +3,7 @@ export { z } from 'zod';
 export * from './blocks.ts';
 export * from './analytics.ts';
 export * from './fields.ts';
+export * from './content-blocks.ts';
 export const VERSION = '0.1.0';
 export const API_VERSION = 1;
 export const schemaTypes = ['Article', 'TechArticle', 'WebPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'Product', 'SoftwareApplication', 'CreativeWork'] as const;
@@ -86,6 +87,7 @@ export const typeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string().min(1),
   fields: z.array(fieldSchema),
+  allowedBlocks: z.array(z.string().min(1)).optional(),
   pathPrefix: z.string().default('/posts/'),
   template: z.string().default('article'),
   schemaType: z.enum(schemaTypes).optional(),

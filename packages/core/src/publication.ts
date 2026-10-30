@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'cheerio';
-import { effectiveFields, fieldIssues, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
+import { effectiveFields, fieldIssues, contentBlockIssues, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { normalizePath } from './site.ts';
 import { now, uuid, digest } from './storage.ts';
@@ -107,6 +107,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     const definition = types.find((type) => type.id === entry.type);
     if (entry.kind === 'content' && !definition) throw new WeavaError('内容类型不存在：' + entry.type);
     if (definition) validateFields(effectiveFields(definition.fields, site.fieldWidgets), entry.fields);
+    if(entry.kind==='content'&&definition) { const blocked=contentBlockIssues(entry.blocks,definition); if(blocked.length)throw new WeavaError(blocked.map((issue)=>issue.message).join('；'),400,blocked); }
   }
   for (const old of previous?.entries ?? []) {
     const changed = entries.get(old.id);

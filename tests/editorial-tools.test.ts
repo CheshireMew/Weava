@@ -60,6 +60,24 @@ describe('editorial behavior', () => {
     expect(recommendedEntries(release.entries[0], release).map((item) => item.id)).toEqual(['c', 'b']);
     expect(featuredEntries(release.entries)[0].id).toBe('c'); expect(scopedFeed(release, new URLSearchParams('type=post')).some((item) => item.id === 'private')).toBe(false);
   });
+  it('updates document navigation on withdrawal and restores it with the public snapshot', () => {
+    const site=create();const root=site.saveEntry(entry('nav-root',{documentation:{group:'回退文档',order:1}}),null);
+    const child=site.saveEntry(entry('nav-child',{documentation:{group:'回退文档',order:2,parentId:root.id}}),null);
+    const release=site.publish({ids:[root.id,child.id]});expect(documentNavigation(release.entries.find((entry)=>entry.id===root.id)!,release)!.next!.id).toBe(child.id);
+    site.withdraw(child.id,child.revision);const withdrawn=site.release()!;expect(documentNavigation(withdrawn.entries.find((entry)=>entry.id===root.id)!,withdrawn)!.next).toBeNull();
+    site.rollback(release.id);const restored=site.release()!;expect(documentNavigation(restored.entries.find((entry)=>entry.id===root.id)!,restored)!.next!.id).toBe(child.id);
+    expect(site.store.get('entry',child.id)!.revision).not.toBe(child.revision);
+  });
+  it('fills recommendations with latest eligible articles after manual and related results', () => {
+    const site = create();
+    for (const value of [entry('current', { publishedAt: '2026-01-03T00:00:00Z', tags: ['topic'], editorial: { relatedIds: ['manual', 'manual'] } }), entry('manual', { publishedAt: '2026-01-01T00:00:00Z' }), entry('related', { tags: ['topic'], publishedAt: '2026-01-02T00:00:00Z' }), entry('latest', { publishedAt: '2026-05-01T00:00:00Z' }), entry('tie-a', { publishedAt: '2026-04-01T00:00:00Z' }), entry('tie-b', { publishedAt: '2026-04-01T00:00:00Z' }), entry('private', { visibility: 'private', publishedAt: '2026-12-01T00:00:00Z' }), entry('unlisted', { indexable: false, publishedAt: '2026-12-02T00:00:00Z' })]) site.saveEntry(value, null);
+    const release = site.publish({ ids: ['current','manual','related','latest','tie-a','tie-b','private','unlisted'] }), current = release.entries.find((item) => item.id === 'current')!;
+    expect(recommendedEntries(current,release,5).map((item)=>item.id)).toEqual(['manual','related','latest','tie-a','tie-b']);
+    expect(recommendedEntries(current,release,2).map((item)=>item.id)).toEqual(['manual','related']);
+    expect(recommendedEntries(current,release,0)).toEqual([]);
+    const noTopics = release.entries.find((item)=>item.id==='manual')!;
+    expect(recommendedEntries(noTopics,release,2).map((item)=>item.id)).toEqual(['latest','tie-a']);
+  });
   it('keeps code literal, language, line numbers and highlight lines in Markdown, Lexical and block rendering', () => {
     const source = 'const text = "<script>{{ value }}</script>";\nreturn text;\n';
     const html = renderDocument({ version: 1, format: 'markdown', source: '```ts linenos {2}\n' + source + '```' });
