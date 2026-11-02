@@ -9,10 +9,13 @@ import { Site,saveLayout,uploadMedia } from '@weava/core';
 import { entrySchema,type ContentType } from '@weava/contracts';
 import sharp from 'sharp';
 
-export async function checkFiveSites(output:string,framework:string){
+type SiteKind='blog'|'company'|'portfolio'|'documentation'|'resource';
+export async function checkFiveSites(output:string,framework:string,options:{kinds?:SiteKind[];programRoot?:string}={}){
+  const kinds=options.kinds??['blog','company','portfolio','documentation','resource'];
+  const program=options.programRoot??output;
   const browser=await chromium.launch({channel:'chrome',headless:true}),results:any[]=[];
   const image=await sharp({create:{width:960,height:600,channels:3,background:'#799a88'}}).png().toBuffer();
-  try{for(const kind of ['blog','company','portfolio','documentation','resource']){
+  try{for(const kind of kinds){
     const root=join(output,'five-sites',kind);mkdirSync(root,{recursive:true});const site=new Site(root),password=randomBytes(20).toString('hex');site.setOwner(password);
     const type:ContentType={id:kind==='portfolio'?'project':kind==='documentation'?'doc':kind==='resource'?'resource':'post',label:kind==='portfolio'?'作品':kind==='documentation'?'文档':kind==='resource'?'资源':'文章',pathPrefix:'/entries/',template:kind==='portfolio'?'portfolio':kind==='documentation'?'documentation':kind==='resource'?'resource':'article',fields:kind==='portfolio'?[{key:'year',label:'年份',type:'number',required:true},{key:'client',label:'客户',type:'text'}]:kind==='resource'?[{key:'platform',label:'平台',type:'select',options:['Windows','Linux'],filterable:true},{key:'free',label:'免费',type:'boolean',filterable:true},{key:'url',label:'来源网址',type:'text'}]:[]};site.saveType(type,null);
     const media=await uploadMedia(site,image,kind+'-cover.png');
@@ -21,7 +24,7 @@ export async function checkFiveSites(output:string,framework:string){
     site.saveEntry(entrySchema.parse({id:'home',kind:'page',title:kind+' 首页',path:'/',status:'published',blocks:[{id:'hero',type:'hero',props:{title:kind==='company'?'清楚介绍我们的服务':kind==='portfolio'?'作品与项目':kind==='documentation'?'使用文档':kind==='resource'?'资源目录':'记录与思考',description:'由内容、模板和共享区域组成'}},...(kind==='company'?[{id:'services',type:'columns',props:{columns:2},children:[{id:'design',type:'callout',props:{title:'设计服务',text:'产品与视觉设计'}},{id:'development',type:'callout',props:{title:'开发服务',text:'网站与工具开发'}}]},{id:'faq',type:'faq',props:{items:[{question:'如何开始合作？',answer:'通过页脚邮箱联系我们。'}]}}]:[]),{id:'list',type:'content-list',props:{contentType:type.id,limit:2,...(kind==='resource'?{filters:'show'}:{})}}]}),null);
     const settings=site.settings();site.saveSettings({...settings.value,name:'独立 '+kind+' 站点',regions:{footer:'shared-footer'},navigation:[{label:'首页',url:'/'},{label:'内容',url:'entry:entry-0',children:[{label:'第二篇',url:'entry:entry-1'}]}]},settings.revision);site.publish();const token=site.cliToken();site.close();
     const portServer=createServer();await new Promise<void>((resolve)=>portServer.listen(0,'127.0.0.1',resolve));const port=(portServer.address() as any).port;await new Promise<void>((resolve)=>portServer.close(()=>resolve()));const origin='http://127.0.0.1:'+port;writeFileSync(join(root,'site.json'),JSON.stringify({version:1,port}));
-    const log=openSync(join(root,'server.log'),'a'),server=spawn(process.execPath,[join(output,'web/server/entry.mjs')],{cwd:framework,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,WEAVA_FRAMEWORK:framework,WEAVA_SITE:root,WEAVA_ADMIN_DIST:join(output,'admin'),WEAVA_WORKER:join(output,'runtime/worker.mjs'),PORT:String(port),HOST:'127.0.0.1',NODE_ENV:'production'}});closeSync(log);
+    const log=openSync(join(root,'server.log'),'a'),server=spawn(process.execPath,[join(program,'web/server/entry.mjs')],{cwd:framework,windowsHide:true,stdio:['ignore',log,log],env:{...process.env,WEAVA_FRAMEWORK:framework,WEAVA_SITE:root,WEAVA_ADMIN_DIST:join(program,'admin'),WEAVA_WORKER:join(program,'runtime/worker.mjs'),PORT:String(port),HOST:'127.0.0.1',NODE_ENV:'production',TEMP:output,TMP:output}});closeSync(log);
     const context=await browser.newContext({viewport:{width:1440,height:1000}}),errors:string[]=[];let evidence:any={kind,root};
     try{
       let ready=false;for(let index=0;index<50;index++){if(server.exitCode!==null)throw new Error('five-site server exited: '+kind);try{if((await fetch(origin+'/__health',{signal:AbortSignal.timeout(1000)})).ok){ready=true;break;}}catch{}await new Promise((resolve)=>setTimeout(resolve,200));}assert(ready);
@@ -44,5 +47,5 @@ export async function checkFiveSites(output:string,framework:string){
       assert.deepEqual(errors,[]);evidence={...evidence,adminCreateSavePreviewPublish:true,template:type.template,fields:true,draftIsolation:true,navigationAndPagination:true,mobileNoOverflow:true,seoAndFeed:true,publicResources:resources,publicScripts:scriptBytes,browserErrors:errors,passed:true};
     }finally{await context.close();if(server.exitCode===null){const stopped=new Promise<void>((resolve)=>server.once('close',()=>resolve()));server.kill();await stopped;}evidence.serviceStopped=true;results.push(evidence);writeFileSync(join(output,'five-sites-results.json'),JSON.stringify(results,null,2));}
   }}finally{await browser.close();}
-  assert.equal(results.length,5);return results;
+  assert.equal(results.length,kinds.length);return results;
 }

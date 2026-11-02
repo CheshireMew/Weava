@@ -1,0 +1,15 @@
+---
+import type { AdvertisementPosition, Settings } from '@weava/contracts';
+
+interface Props {
+  settings: Settings;
+  position: AdvertisementPosition;
+}
+
+const { settings, position } = Astro.props;
+const slot = settings.advertisements?.[position];
+---
+
+{slot?.enabled && slot.html.trim() && (
+  <aside class="weava-advertisement" aria-label="广告" data-ad-slot={position} set:html={slot.html} />
+)}

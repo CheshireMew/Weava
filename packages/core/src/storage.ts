@@ -1,3 +1,4 @@
+import { migrateMediaPolicy } from './media-policy-migration.ts';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
@@ -15,7 +16,10 @@ import { resolve, join, relative, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { WeavaError } from '@weava/contracts';
 import { storeRelease } from './publication-store.ts';
-export const SCHEMA_VERSION = 4;
+import { acquireInstanceWriter, withInstanceMaintenance, type InstanceWriter } from './instance-access.ts';
+import { mediaPolicySchema, indexMediaRecord } from './media-policy.ts';
+import { listIndexSchema, migrateListRecords, indexListRecord } from './list-index.ts';
+export const SCHEMA_VERSION = 7;
 export const records = sqliteTable('records', {
   scope: text().notNull(),
   id: text().notNull(),
@@ -53,13 +57,16 @@ export function walk(root: string): string[] {
   return result;
 }
 export class Storage {
-  raw: Database.Database;
+  raw!: Database.Database;
   db: ReturnType<typeof drizzle>;
   root: string;
+  private writer: InstanceWriter;
   constructor(root: string, create = true) {
     this.root = resolve(root);
     if (!create && !existsSync(join(this.root, 'weava.sqlite')))
       throw new WeavaError('站点未初始化。');
+    this.writer = acquireInstanceWriter(this.root);
+    try {
     mkdirSync(this.root, { recursive: true });
     this.raw = new Database(join(this.root, 'weava.sqlite'));
     this.raw.pragma('journal_mode = WAL');
@@ -68,14 +75,8 @@ export class Storage {
     const initialized = this.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='schema_migrations'").get();
     const previousVersion = initialized ? (this.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get() as any).v : 0;
     if (previousVersion > SCHEMA_VERSION) { this.raw.close(); throw new WeavaError('站点数据库版本比当前程序新，请更新 Weava。'); }
+    const initialize = () => {
     if (previousVersion && previousVersion < SCHEMA_VERSION) {
-      const runtimeFile = join(this.root, 'runtime.json');
-      if (existsSync(runtimeFile)) {
-        const runtime = JSON.parse(readFileSync(runtimeFile, 'utf8'));
-        let alive = false;
-        if (runtime.status !== 'stopped') try { process.kill(runtime.pid, 0); alive = true; } catch {}
-        if (alive) { this.raw.close(); throw new WeavaError('数据库升级前请先停止站点服务。', 409); }
-      }
       const folder = join(this.root, 'archives', 'schema-upgrades');
       mkdirSync(folder, { recursive: true });
       const backup = join(folder, `before-v${previousVersion}-to-v${SCHEMA_VERSION}-${uuid()}.sqlite`);
@@ -95,6 +96,8 @@ export class Storage {
       CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(release_id UNINDEXED,entry_id UNINDEXED,tokens,tokenize='unicode61');
       INSERT OR IGNORE INTO schema_migrations VALUES(1,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     const version = this.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get() as any;
+    mediaPolicySchema(this.raw);
+    listIndexSchema(this.raw);
     if (version.v < 2) this.raw.transaction(() => {
       this.raw.exec(`CREATE TABLE article_likes(entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,created_at TEXT NOT NULL,PRIMARY KEY(entry_id,reader_key));
         CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));
@@ -131,9 +134,31 @@ export class Storage {
         CREATE INDEX comments_network ON article_comments(network_key,created_at);
         INSERT INTO schema_migrations VALUES(4,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     }).immediate();
+    if (version.v < 5) this.raw.transaction(() => {
+      migrateMediaPolicy(this.raw);
+      migrateListRecords(this.raw);
+      this.raw.exec("INSERT INTO schema_migrations VALUES(5,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+    }).immediate();
+    if (version.v < 6) this.raw.transaction(() => {
+      this.raw.exec('CREATE TABLE IF NOT EXISTS owner_sessions(token TEXT PRIMARY KEY,created_at INTEGER NOT NULL,last_seen INTEGER NOT NULL,user_agent TEXT NOT NULL)');
+      this.raw.exec('CREATE TABLE IF NOT EXISTS comment_threads(comment_id TEXT PRIMARY KEY,parent_id TEXT,owner INTEGER NOT NULL DEFAULT 0)');
+      this.raw.exec("INSERT INTO schema_migrations VALUES(6,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+    }).immediate();
+    if (version.v < 7) this.raw.transaction(() => {
+      this.raw.exec(`CREATE TABLE IF NOT EXISTS owner_security_events(id INTEGER PRIMARY KEY AUTOINCREMENT,created_at INTEGER NOT NULL,event TEXT NOT NULL,source TEXT NOT NULL,network_key TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS owner_auth_failures(id TEXT PRIMARY KEY,failures INTEGER NOT NULL,expires INTEGER NOT NULL,blocked_until INTEGER NOT NULL);
+        INSERT INTO schema_migrations VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+    }).immediate();
+    };
+    if (previousVersion && previousVersion < SCHEMA_VERSION) this.maintain(initialize);
+    else initialize();
     this.db = drizzle(this.raw);
     for (const dir of ['media', 'themes', 'extensions', 'logs', 'archives', 'imports'])
       mkdirSync(join(this.root, dir), { recursive: true });
+    } catch (error) {
+      if (this.raw?.open) this.raw.close();
+      this.writer.release(); throw error;
+    }
   }
   get(scope: string, id: string) {
     const row = this.db
@@ -185,6 +210,8 @@ export class Storage {
             'INSERT INTO records VALUES(?,?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET revision=excluded.revision,data=excluded.data,updated_at=excluded.updated_at',
           )
           .run(scope, id, revision, JSON.stringify(value), timestamp);
+        indexMediaRecord(this.raw, scope, id, value);
+        indexListRecord(this.raw, scope, id, value, revision, timestamp);
         return { id, revision, value, updatedAt: timestamp };
       })
       .immediate();
@@ -214,6 +241,8 @@ export class Storage {
       .run(key, value);
   }
   close() {
-    this.raw.close();
+    if (this.raw.open) this.raw.close();
+    this.writer.release();
   }
+  maintain<T>(action: () => T): T { return withInstanceMaintenance(this.root, action, this.writer); }
 }

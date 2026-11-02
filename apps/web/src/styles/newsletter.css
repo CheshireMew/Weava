@@ -29,6 +29,9 @@
 .newsletter .nl-navigation a { position: relative; display: inline-flex; align-items: center; white-space: nowrap; }
 .newsletter .nl-navigation [aria-current='page'] { font-weight: 700; }
 .newsletter .nl-navigation [aria-current='page']::after { content: ''; height: 2px; position: absolute; background: var(--nl-ink); bottom: 0; left: 0; right: 0; }
+.newsletter .nl-site-advertisement { display: flow-root; }
+.newsletter .nl-site-advertisement-top > .weava-advertisement { margin: 16px 0 0; }
+.newsletter .nl-site-advertisement-bottom > .weava-advertisement { margin: 24px 0 0; }
 .newsletter .nl-lead { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 24px; margin-bottom: 24px; }
 .newsletter .nl-feature { padding-right: 27px; border-right: 1px solid var(--nl-line); }
 .newsletter .nl-feature-image { display: block; overflow: hidden; border-radius: 3px; }
@@ -72,11 +75,13 @@
 .newsletter .nl-profile p { font-size: 13px; color: var(--nl-muted); margin-top: 2px; }
 .newsletter .nl-subscribe { display: inline-flex; align-items: center; gap: 9px; margin-top: 18px; padding: 8px 13px; border-radius: 5px; background: color-mix(in srgb, var(--nl-accent) 14%, white); color: var(--nl-accent); font-size: 13px; font-weight: 700; }
 .newsletter .nl-subscribe svg { width: 15px; height: 15px; }
+.newsletter .nl-sidebar-custom { margin-top: 24px; min-width: 0; overflow-wrap: anywhere; }
+.newsletter .nl-sidebar-custom :is(img, video, iframe) { max-width: 100%; }
 .newsletter .nl-categories { margin-top: 35px; }
 .newsletter .nl-categories h2 { padding-bottom: 12px; border-bottom: 1px solid var(--nl-line); font-size: 16px; margin-bottom: 5px; }
 .newsletter .nl-categories a { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; font-size: 14px; font-weight: 550; }
 .newsletter .nl-categories a span:last-child { font-size: 12px; color: var(--nl-muted); font-weight: 400; }
-.newsletter .nl-footer { margin-top: 88px; padding-bottom: 27px; font-size: 12px; color: var(--nl-muted); }
+.newsletter .nl-footer { margin-top: 24px; padding-bottom: 24px; font-size: 12px; color: var(--nl-muted); }
 .newsletter .nl-footer > a { display: block; padding-bottom: 12px; border-bottom: 1px solid var(--nl-line); }
 .newsletter .nl-footer nav { display: grid; gap: 12px; margin-top: 14px; }
 .newsletter .nl-footer > span { display: block; margin-top: 24px; font-size: 12px; color: var(--nl-muted); }
@@ -97,6 +102,7 @@
 .newsletter .nl-related { margin-top: 50px; padding-top: 25px; border-top: 1px solid var(--nl-line); }
 .newsletter .nl-related > h2 { font-size: 19px; margin-bottom: 22px; }
 .newsletter .nl-archive, .newsletter .nl-search, .newsletter .nl-page { padding-top: 40px; }
+.newsletter .nl-home-intro { padding-top: 0; }
 .newsletter .nl-archive-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
 .newsletter .nl-archive-heading h1, .newsletter .nl-search h1 { font-size: 29px; letter-spacing: -.5px; }
 .newsletter .nl-archive-item { display: grid; grid-template-columns: 98px minmax(0, 1fr) 135px; gap: 27px; padding: 24px 0; border-top: 1px solid var(--nl-line); }
@@ -214,7 +220,7 @@
   .newsletter .nl-card h2, .newsletter .nl-card h3 { font-size: 17px; }
   .newsletter .nl-article-heading { padding-top: 34px; }
   .newsletter .nl-prose { font-size: 16px; }
-  .newsletter .nl-footer { margin-top: 55px; }
+  .newsletter .nl-footer { margin-top: 24px; }
   .newsletter .nl-archive-item { grid-template-columns: minmax(0, 1fr) 100px; gap: 14px; }
   .newsletter .nl-archive-item > time { grid-column: 1 / -1; }
   .newsletter .nl-archive-item img { width: 100px; }

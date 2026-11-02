@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { publicationPlanSchema, publicationPlanValueSchema } from './publication-plans.ts';
+import { advertisementsSchema } from './advertisements.ts';
 import { blockSchema, entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, mediaGroupSchema, imagePresetSchema, imageSpecSchema, fieldSchema, fieldWidgetSchema, siteSeoSchema, type Navigation } from './index.ts';
 export { z, blockSchema, entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, mediaGroupSchema, imagePresetSchema, imageSpecSchema, fieldSchema, fieldWidgetSchema };
 export const id = z.string().min(1), revision = z.number().int().positive(), nullableRevision = revision.nullable();
@@ -11,7 +13,7 @@ export const page = <T extends z.ZodType>(items: T) => z.object({ items: z.array
 const navigation: z.ZodType<Navigation> = z.lazy(() => z.object({ label: z.string(), url: z.string(), children: z.array(navigation).optional() }));
 export const themeConfig = z.object({ accent: z.string(), background: z.string(), font: z.string(), width: z.number(), radius: z.number(), spacing: z.number() });
 export const termSchema = z.object({ id, kind: z.enum(['category','tag']), label: z.string(), slug: z.string(), parentId: z.string().optional() });
-export const settingsSchema = z.object({ name: z.string(), domain: z.string(), language: z.string(), timezone: z.string(), description: z.string(), logo: z.string(), theme: z.string(), navigation: z.array(navigation), footer: z.string(), themeConfig,
+export const settingsSchema = z.object({ name: z.string(), domain: z.string(), language: z.string(), timezone: z.string(), description: z.string(), logo: z.string(), theme: z.string(), navigation: z.array(navigation), footer: z.string(), themeConfig, advertisements: advertisementsSchema.optional(),
   taxonomies: z.array(termSchema.partial().extend({ id, label: z.string(), description: z.string().optional() })), extensions: jsonObject, sourceUrl: z.string(), commentModeration: z.boolean().optional(), themeSettings: z.record(z.string(),themeConfig).optional(), seo: siteSeoSchema.optional(), regions: z.object({ header:z.string().optional(), before:z.string().optional(), after:z.string().optional(), footer:z.string().optional() }).optional() });
 export const entryRecord = record(entrySchema);
 export const layoutRecord = record(layoutSchema).extend({ revision:nullableRevision,builtIn:z.boolean().optional() });
@@ -26,14 +28,14 @@ export const jobSchema = z.object({ id, operation:z.string(), status:z.enum(['qu
 export const fieldIssue = z.object({ path:z.string(), message:z.string(), code:z.string() });
 export const entryCheck = z.object({ valid:z.boolean(), errors:z.array(fieldIssue), value:entrySchema.optional() });
 export const actionVersion = z.object({ id, revision });
-export const planDefinition = z.object({ id, name:z.string().trim().min(1).max(120), dueAt:z.string().optional(), actions:z.array(actionVersion.extend({ action:z.enum(['publish','withdraw']), title:z.string().optional() })).min(1).max(200) });
-export const planValue = planDefinition.extend({ status:z.enum(['draft','scheduled','failed','complete','cancelled']), attempts:z.number(), createdAt:z.string(), releaseId:z.string().optional(), completedAt:z.string().optional(), error:z.string().optional() });
+export const planDefinition = publicationPlanSchema;
+export const planValue = publicationPlanValueSchema;
 export const scheduleValue = z.object({ id,entryId:id,entryRevision:revision,dueAt:z.string(),status:z.enum(['scheduled','running','failed','complete','cancelled']),attempts:z.number(),createdAt:z.string(),completedAt:z.string().optional(),releaseId:z.string().optional(),error:z.string().optional() });
 export const focalPoint = z.object({ x:z.number().min(0).max(100),y:z.number().min(0).max(100) });
 export const mediaValue = z.looseObject({ id:z.string().optional(),name:z.string(),url:z.string(),bytes:z.number(),createdAt:z.string(),alt:z.string().optional(),caption:z.string().optional(),archived:z.boolean().optional(),groupId:z.string().nullable().optional(),focalPoint:focalPoint.optional(),width:z.number().optional(),height:z.number().optional(),parentId:z.string().optional(),derivatives:z.array(z.object({ url:z.string(),width:z.number(),height:z.number().optional(),bytes:z.number().optional() })).optional() });
 export const mediaRecord = record(mediaValue);
 export const variantRecord = record(z.object({ id,parentId:id,url:z.string(),width:z.number(),height:z.number(),bytes:z.number(),spec:imageSpecSchema,focalPoint,createdAt:z.string() }));
-export const commentSchema = z.object({ id,entryId:id,author:z.string(),body:z.string(),createdAt:z.string(),status:z.enum(['visible','hidden','pending']).optional() });
+export const commentSchema = z.object({ id,entryId:id,author:z.string(),body:z.string(),createdAt:z.string(),status:z.enum(['visible','hidden','pending']).optional(),parentId:z.string().nullable().optional(),replyTo:z.string().nullable().optional(),isOwner:z.boolean().optional() });
 export const bulkInput = z.object({ items:z.array(actionVersion).min(1).max(200),changes:z.array(z.object({ field:z.string(),mode:z.enum(['replace','append','clear']),value:z.unknown().optional() })).min(1).max(30) });
 export const bulkPreview = z.object({ review:z.string(),items:z.array(z.object({ id,title:z.string(),revision,before:entrySchema,after:entrySchema })) });
 export const redirectEdit = z.object({ source:z.string(),target:z.string(),entryId:z.string().optional(),disabled:z.boolean().optional(),revision:nullableRevision });
@@ -50,7 +52,7 @@ export const archiveInfo = z.looseObject({ id,createdAt:z.string(),releases:z.nu
 export const exchange = z.object({ version:z.literal(1),settings:settingsSchema.optional(),types:z.array(typeSchema).optional(),entries:z.array(entrySchema).optional(),terms:z.array(termSchema).optional(),layouts:z.array(layoutSchema).optional(),contentViews:z.array(contentViewSchema).optional(),creationTemplates:z.array(creationTemplateSchema).optional(),redirects:z.record(z.string(),redirectSchema).optional() });
 export const importOptions = z.object({ mode:z.enum(['create','merge']).optional(),dryRun:z.boolean().optional(),revisions:z.record(z.string(),revision).optional() });
 export const importResult = z.object({ created:z.array(z.string()),updated:z.array(z.string()),unchanged:z.array(z.string()),dryRun:z.boolean().optional() });
-export const wxrOptions = importOptions.extend({ settings:z.boolean().optional(),downloadMedia:z.boolean().optional(),comments:z.boolean().optional(),review:z.object({ fingerprint:z.string(),revision:z.number(),releaseId:z.string().nullable(),options:z.string() }).optional() });
+export const wxrOptions = importOptions.extend({ settings:z.boolean().optional(),downloadMedia:z.boolean().optional(),mediaDirectory:z.string().min(1).max(4096).optional(),comments:z.boolean().optional(),review:z.object({ fingerprint:z.string(),revision:z.number(),releaseId:z.string().nullable(),options:z.string() }).optional() });
 export const wxrReport = z.looseObject({ source:z.string(),fingerprint:z.string(),totalItems:z.number(),entries:z.number(),pages:z.number(),content:z.number(),dryRun:z.boolean(),exchange:importResult,downloaded:z.number(),importedComments:z.number(),sourcePath:z.string().nullable() });
 export const seoAudit = z.object({ id,rulesVersion:z.literal(1),createdAt:z.string(),releaseId:z.string(),basis:z.string(),target:z.enum(['draft','published']),coverage:z.object({ eligible:z.number(),checked:z.number(),unavailable:z.number(),excludedPrivate:z.number(),source:z.string(),paginationChecked:z.number(),linkDiscoveryComplete:z.boolean() }),pages:z.array(z.object({ id,path:z.string(),revision:z.number(),status:z.enum(['checked','unavailable']),indexable:z.boolean().optional(),canonical:z.string().optional() })),findings:z.array(z.object({ id,rule:z.string(),severity:z.enum(['error','warning','info']),entryId:z.string(),path:z.string(),message:z.string(),action:z.string(),evidence:z.string() })),stale:z.boolean() });
 export const metadata = z.object({ title:z.string(),socialTitle:z.string(),description:z.string(),canonical:z.string(),robots:z.string(),image:z.string(),imageAlt:z.string(),ogType:z.string(),language:z.string(),siteName:z.string(),schema:jsonObject,indexable:z.boolean(),pagination:z.record(z.string(),z.number()) });

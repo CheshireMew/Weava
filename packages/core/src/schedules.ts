@@ -18,7 +18,8 @@ export interface PublicationSchedule {
   error?: string;
 }
 const scope = 'publication-schedule';
-export function schedules(site: Site) {
+export function schedules(site: Site, entryId?: string) {
+  if (entryId) return (site.store.raw.prepare("SELECT id,revision,data,updated_at FROM records WHERE scope=? AND json_extract(data,'$.entryId')=? ORDER BY updated_at DESC").all(scope,entryId) as {id:string;revision:number;data:string;updated_at:string}[]).map(row=>({id:row.id,revision:row.revision,value:JSON.parse(row.data),updatedAt:row.updated_at}));
   return site.store.list(scope).sort((a, b) => b.value.createdAt.localeCompare(a.value.createdAt));
 }
 export function schedulePublication(site: Site, entryId: string, revision: number, dueAt: string, clock = Date.now()) {

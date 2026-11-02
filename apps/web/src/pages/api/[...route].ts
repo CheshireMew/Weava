@@ -1,412 +1,65 @@
-import { adminApi, matchAdminApi, validateApiInput } from '@weava/contracts/api';
 import type { APIRoute } from 'astro';
-import { site, analytics, engagement, siteExtension } from '../../runtime.ts';
-import { stageMedia, csv, storageUsage, queryPublished, queryDrafts, contentQuery, exportSite, importSite, schedules, schedulePublication, cancelSchedule, retrySchedule, projectTerms, layouts, saveLayout, queryMedia, saveMediaMetadata, mediaReferences, archiveMedia, entryRevision, entryChanges, mergeEntry, saveMergedEntry, importWordPressWxr, digest } from '@weava/core';
-import { WeavaError as DomainError, VERSION as frameworkVersion } from '@weava/contracts';
-import { checkEntry, queryReferences } from '@weava/core';
-import { contentViews, creationTemplates, saveContentView, saveCreationTemplate, createContent, structuredBody } from '@weava/core';
-import { mediaGroups, saveMediaGroup, moveMedia } from '@weava/core';
-import { previewBulkEdit, applyBulkEdit } from '@weava/core';
-import { siteSchema, siteOpenApi, siteTypes } from '@weava/core';
-import { redirectRecords, previewRedirects, saveRedirects } from '@weava/core';
-import { publicationPlans, savePublicationPlan, reviewPublicationPlan, cancelPublicationPlan } from '@weava/core';
-import { imagePresets, saveImagePreset } from '@weava/core';
-import { planHistoryArchive, historyArchives, historyArchiveContents, programStatus, SCHEMA_VERSION, preparePublication } from '@weava/core';
-import { join } from 'node:path';
-import { existsSync, readFileSync, openSync, closeSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { auditRelease, auditBasis, storeAudit, auditStatus, fetchAuditResponses, renderEntryTemplate, importSearchData, searchDataReport } from '@weava/core';
-function json(value: any, status = 200, headers: Record<string, string> = {}) {
-  return new Response(JSON.stringify(value), {
-    status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers },
-  });
-}
-function authorized(request: Request, cookies: any) {
-  const token = cookies.get('weava-session')?.value ?? '';
-  return (
-    site.authenticate(token) || request.headers.get('Authorization') === 'Bearer ' + site.cliToken()
-  );
-}
-async function execute(operation: string, payload: any, key?: string) {
-  const job = site.createJob(operation, payload, key);
-  if (job.status !== 'queued') return job;
-  const claimed = {
-    ...job,
-    status: 'running',
-    message: '正在启动任务',
-    updatedAt: new Date().toISOString(),
-  };
-  const ownsTask = site.store.raw
-    .prepare('UPDATE jobs SET status=?,data=? WHERE id=? AND status=?')
-    .run('running', JSON.stringify(claimed), job.id, 'queued').changes;
-  if (!ownsTask) return site.job(job.id);
-  const log = join(site.root, 'logs', job.id + '.log');
-  // Worker tasks use their own DB connection. Publication remains a single transaction.
-  const framework = process.env.WEAVA_FRAMEWORK ?? process.cwd();
-    const worker = process.env.WEAVA_WORKER ?? join(framework, 'dist', 'worker.mjs');
-    const compiledWorker = process.env.WEAVA_SOURCE_WORKER !== '1' &&
-      (process.env.WEAVA_WORKER || import.meta.env.MODE !== 'development') && existsSync(worker);
-    const args = compiledWorker
-    ? [worker, site.root, job.id]
-    : [
-        '--import',
-        'tsx',
-        join(framework, 'packages', 'core', 'src', 'worker.ts'),
-        site.root,
-        job.id,
-      ];
-  const descriptor = openSync(log, 'a');
-  let child;
-  try {
-    child = spawn(process.execPath, args, {
-      cwd: framework,
-      windowsHide: true,
-      stdio: ['ignore', descriptor, descriptor],
-      env: { ...process.env, WEAVA_SITE: site.root },
-    });
-  } finally {
-    closeSync(descriptor);
-  }
-  if (child.pid) site.updateJob(job.id, { workerPid: child.pid });
-  child.on('error', (err) => site.updateJob(job.id, { status: 'failed', message: err.message }));
-  child.on('exit', (code) => {
-    const current = site.job(job.id);
-    if (['queued', 'running'].includes(current.status))
-      site.updateJob(job.id, { status: 'failed', message: '任务进程意外退出：' + code });
-  });
-  return site.job(job.id);
-}
-const handle: APIRoute = async (context) => {
-  const { request, params, cookies, url } = context;
-  try {
-    const custom = await (await siteExtension)?.route?.(request, site.visibleRelease());
-    if (custom) return custom;
-    const route = params.route ?? '';
-    const method = request.method;
-    if (['v1/engagement', 'v1/like', 'v1/comment', 'v1/comment-captcha'].includes(route)) {
-      const write = method === 'POST';
-      if ((route === 'v1/engagement' && method !== 'GET') || (route !== 'v1/engagement' && !write))
-        return json({ error: '请求方法无效。' }, 405);
-      if (write && request.headers.get('Origin') && new URL(request.headers.get('Origin')!).host !== (request.headers.get('host') ?? url.host))
-        throw new DomainError('请求来源无效。', 403);
-      const data = write ? await request.json() : null;
-      const id = String(data?.id ?? url.searchParams.get('id') ?? '');
-      const entry = site.visibleRelease()?.entries.find((item) => item.id === id && item.kind === 'content');
-      if (!entry) throw new DomainError('文章不存在。', 404);
-      let reader = cookies.get('weava-reader')?.value ?? '';
-      if (!/^[a-f0-9]{64}$/.test(reader)) {
-        reader = randomBytes(32).toString('hex');
-        cookies.set('weava-reader', reader, { path: '/', httpOnly: true, sameSite: 'lax', secure: url.protocol === 'https:', maxAge: 31536000 });
-      }
-      if (route === 'v1/engagement')
-        return json(engagement.summary(id, reader, Number(url.searchParams.get('page')) || 1, url.searchParams.get('sort') === 'oldest' ? 'oldest' : 'latest'));
-      let network = 'unknown';
-      try { network = context.clientAddress; } catch {}
-      if (['v1/comment-captcha', 'v1/comment'].includes(route) && entry.allowComments === false) throw new DomainError('这篇内容已关闭新评论。', 403);
-      if (route === 'v1/comment-captcha') return json(await engagement.createCaptcha(reader, network));
-      if (route === 'v1/like') {
-        if (typeof data.liked !== 'boolean') throw new DomainError('点赞状态无效。');
-        return json(engagement.setLike(id, reader, data.liked, network));
-      }
-      const comment = engagement.postComment(id, reader, network, data, site.release()?.settings.commentModeration === false ? 'visible' : 'pending');
-      return json({ ...engagement.summary(id, reader), comment });
-    }
-    if (['v1/search', 'v1/content'].includes(route) && method === 'GET') {
-      const query = contentQuery(url.searchParams);
-      const result = queryPublished(site, query, route === 'v1/search');
-      return json(result.items.map(({ document, compatibility, html, source, blocks, ...entry }) => entry), 200,
-        { 'X-Total-Count': String(result.total), 'X-Total-Pages': String(result.pages), 'X-Page': String(result.page), 'X-Page-Size': String(result.pageSize) });
-    }
-    if (route === 'v1/analytics' && method === 'POST') {
-      if (request.headers.get('dnt') === '1') return json({ accepted: 0 });
-      if (
-        request.headers.get('Origin') &&
-        new URL(request.headers.get('Origin')!).host !== (request.headers.get('host') ?? url.host)
-      )
-        throw new DomainError('请求来源无效。', 403);
-      let ip = '';
-      try { ip = context.clientAddress; } catch {}
-      if (process.env.WEAVA_TRUST_PROXY === '1') ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || ip;
-      return json(
-        analytics.collect(
-          await request.json(),
-          request.headers.get('user-agent') ?? '',
-          new Set(
-            site
-              .visibleRelease()
-              ?.entries
-              .filter((e) => e.visibility !== 'private')
-              .map((e) => e.path) ?? [],
-          ),
-          { ip, origin: url.origin, language: request.headers.get('accept-language') || '' },
-        ),
-      );
-    }
-    if (!route.startsWith('admin/v1/')) return json({ error: '接口不存在。' }, 404);
-    const action = route.slice(9);
-    const isWrite = !['GET', 'HEAD'].includes(method);
-    if (
-      isWrite &&
-      request.headers.get('Origin') &&
-      new URL(request.headers.get('Origin')!).host !== (request.headers.get('host') ?? url.host)
-    )
-      throw new DomainError('请求来源无效。', 403);
-    if (action === 'session' && method === 'GET')
-      return json({
-        authenticated: authorized(request, cookies),
-        initialized: site.ownerExists(),
-        version: frameworkVersion,
-      });
-    if (action === 'login' && method === 'POST') {
-      const data = adminApi.login.body.parse(await request.json());
-      const token = site.login(String(data.password ?? ''));
-      cookies.set('weava-session', token, {
-        path: '/',
-        httpOnly: true,
-        sameSite: 'strict',
-        secure: url.protocol === 'https:',
-        maxAge: 604800,
-      });
-      return json({ authenticated: true });
-    }
-    if (!authorized(request, cookies)) throw new DomainError('请先登录。', 401);
-    if (action === 'logout' && method === 'POST') {
-      site.logout(cookies.get('weava-session')?.value ?? '');
-      cookies.set('weava-session', '', { path: '/', maxAge: 0 });
-      return json({ ok: true });
-    }
-    const contract = matchAdminApi(method, action);
-    if (!contract) return json({ error: '接口或请求方法不存在。' }, 404);
-    const data = isWrite ? await request.json() : undefined;
-    validateApiInput(contract, url.searchParams, data);
-    if (action === 'schema' && method === 'GET') return url.searchParams.get('format') === 'types' ? new Response(siteTypes(site), { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } }) : json(url.searchParams.get('format') === 'openapi' ? siteOpenApi(site) : siteSchema(site));
-    if (action === 'seo/audit' && method === 'POST') {
-      const target = data?.target === 'draft' ? 'draft' : 'published';
-      const release = target === 'draft' ? preparePublication(site, data?.options ?? {}).release : site.release();
-      if (!release) throw new DomainError('网站尚未发布，请选择工作稿检查。');
-      const manager = await siteExtension;
-      if (data?.http && target !== 'published') throw new DomainError('HTTP 检查只能读取已发布页面。');
-      const basis = auditBasis(site, target);
-      const responses = data?.http ? await fetchAuditResponses(release, url.origin) : undefined;
-      const report = await auditRelease(release, { target, basis, responses, blocks: manager.blocks, render: (entry, release) => manager.render(entry, release), metadata: (entry, release, url, options) => manager.metadata(entry, release, url, options) });
-      storeAudit(site, report);
-      return json(auditStatus(site, report));
-    }
-    if (action === 'seo/audits' && method === 'GET') return json(site.store.list('seo-audit').map((row) => auditStatus(site, row.value)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-    if (action === 'seo/metadata' && method === 'GET') {
-      const release = site.visibleRelease();
-      if (!release) throw new DomainError('网站尚未发布。');
-      const entry = release.entries.find((entry) => entry.id === url.searchParams.get('id'));
-      if (!entry) throw new DomainError('公开内容不存在。', 404);
-      const manager = await siteExtension;
-      const html = await manager.render(entry, release) || renderEntryTemplate(entry, release, manager.blocks);
-      return json(await manager.metadata(entry, release, new URL(url.searchParams.get('path') || entry.path, release.settings.domain), { html }));
-    }
-    if (action === 'search-data' && method === 'GET') return json(searchDataReport(site));
-    if (action === 'search-data/import' && method === 'POST') return json(importSearchData(site, data));
-    if (action === 'import/revisions' && method === 'GET') return json(Object.fromEntries(['entry', 'type', 'term', 'layout', 'settings', 'redirect', 'content-view', 'creation-template'].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]))));
-    if (action === 'import/wxr' && method === 'POST') {
-      if (typeof data.xml !== 'string') throw new DomainError('请选择 WXR XML 文件。');
-      const options = { ...data.options, mediaDirectory: undefined };
-      const preview = await importWordPressWxr(site, data.xml, { ...options, dryRun: true });
-      if (options.dryRun) return json(preview);
-      const sourcePath = join(site.root, 'imports', 'wxr-' + digest(data.xml) + '.xml');
-      if (!existsSync(sourcePath)) writeFileSync(sourcePath, data.xml);
-      return json(await execute('import-wxr', { sourcePath, options }, request.headers.get('Idempotency-Key') ?? undefined), 202);
-    }
-    if (action === 'state')
-      return json({
-        settings: site.settings(),
-        types: site.store.list('type'),
-        contentViews: contentViews(site),
-        creationTemplates: creationTemplates(site),
-        terms: site.terms(),
-        layouts: layouts(site),
-        schedules: schedules(site),
-        publicationPlans: publicationPlans(site),
-        entries: url.searchParams.get('summary') === '1' ? [] : site.entries(),
-        entryCount: site.store.raw.prepare("SELECT COUNT(*) n FROM records WHERE scope='entry'").get(),
-        media: site.store.list('media'),
-        jobs: site.jobs(),
-        releases: site.releases(),
-        themes: [{ id: 'weava', label: 'Weava' }, { id: 'newsletter', label: 'Newsletter' }, ...((await siteExtension)?.themes ?? [])],
-        extensionPanels: (await siteExtension)?.panels ?? [],
-        fieldWidgets: site.fieldWidgets,
-        extensionBlocks: Object.keys((await siteExtension)?.blocks ?? {}),
-        extensionBlockDefinitions: Object.fromEntries(Object.entries((await siteExtension).blockDefinitions).map(([key, value]) => [key, { label: value.label, fields: value.fields }])),
-        extensions: (await siteExtension).status(),
-        program: {...programStatus(site.root),databaseSchema:SCHEMA_VERSION},
-      });
-    if (action === 'entries') return json(site.entries());
-    if (action === 'redirects' && method === 'GET') return json(redirectRecords(site));
-    if (action === 'redirects/preview' && method === 'POST') return json(previewRedirects(site, data));
-    if (action === 'redirects/save' && method === 'POST') return json(saveRedirects(site, data));
-    if (action === 'entries/bulk/preview' && method === 'POST') { const { values, ...preview } = previewBulkEdit(site, data); return json(preview); }
-    if (action === 'entries/bulk/apply' && method === 'POST') return json(applyBulkEdit(site, data));
-    if (action === 'extensions' && method === 'GET') return json((await siteExtension).status());
-    if (action === 'extensions/usage' && method === 'GET') return json((await siteExtension).usage(url.searchParams.get('id') ?? ''));
-    if (action === 'extensions/toggle' && method === 'POST') {
-      if (typeof data.enabled !== 'boolean') throw new DomainError('扩展启停状态无效。');
-      return json(await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null));
-    }
-    if (action === 'entries/query' && method === 'GET') return json(queryDrafts(site, { ...contentQuery(url.searchParams),
-      status: url.searchParams.get('status') ?? undefined, visibility: url.searchParams.get('visibility') ?? undefined }));
-    if (action === 'publication' && method === 'POST'){const review=site.previewPublication(data??{});await (await siteExtension).validateRelease(preparePublication(site,review.options).release);return json(review);}
-    if (action === 'schedules' && method === 'GET') return json(schedules(site));
-    if (action === 'plans' && method === 'GET') return json(publicationPlans(site));
-    if (action === 'plans' && method === 'POST') return json(savePublicationPlan(site, data.value, data.revision ?? null));
-    if (action === 'plans/entry' && method === 'GET') { const id = url.searchParams.get('id') ?? '', row = site.store.get('entry', id); if (!row) throw new DomainError('内容不存在。', 404); return json({ id, title: row.value.title, revision: row.revision, publishedRevision: site.release()?.entries.find((entry) => entry.id === id)?.revisionId }); }
-    if (action === 'plans/preview' && method === 'POST') { const checked = reviewPublicationPlan(site, data.id, data.revision); await (await siteExtension).validateRelease(preparePublication(site, checked.review.options).release); return json(checked); }
-    if (action === 'plans/run' && method === 'POST') { if (!data.options) throw new DomainError('请先检查发布计划。'); reviewPublicationPlan(site, data.id, data.revision); return json(await execute('publish', { planId: data.id, planRevision: data.revision, options: data.options }, request.headers.get('Idempotency-Key') ?? undefined), 202); }
-    if (action === 'plans/cancel' && method === 'POST') return json(cancelPublicationPlan(site, data.id, data.revision));
-    if (action === 'schedule' && method === 'POST') return json(schedulePublication(site, data.id, data.revision, data.dueAt));
-    if (action === 'schedule/cancel' && method === 'POST') return json(cancelSchedule(site, data.id, data.revision));
-    if (action === 'schedule/retry' && method === 'POST') return json(retrySchedule(site, data.id, data.revision));
-    if (action === 'comments' && method === 'GET') {
-      const result = engagement.comments(url.searchParams.get('status') ?? 'all', Number(url.searchParams.get('page')) || 1);
-      return json({ ...result, items: result.items.map((comment) => {
-        const entry = site.store.get('entry', comment.entryId)?.value;
-        return { ...comment, title: entry?.title ?? comment.entryId, path: entry?.path ?? '' };
-      }) });
-    }
-    if (action === 'comment' && method === 'POST') return json(engagement.moderate(data.id, data.status));
-    if (action === 'maintenance') return json(storageUsage(site));
-    if (action === 'maintenance/preview' && method === 'POST') {
-      const plan = planHistoryArchive(site,data);
-      return json({options:plan.options,releases:plan.releaseIds.length,revisions:plan.revisions.length,protectedReleases:plan.protectedReleases,protectedRevisions:plan.protectedRevisions,review:plan.review});
-    }
-    if (action === 'maintenance/archive' && method === 'POST') return json(await execute('archive-history',data),202);
-    if (action === 'maintenance/restore' && method === 'POST') return json(await execute('restore-history',data),202);
-    if (action === 'maintenance/archives' && method === 'GET') return json(historyArchives(site).map(({privateMedia,...row})=>row));
-    if (action === 'maintenance/archive' && method === 'GET') return json(historyArchiveContents(site,url.searchParams.get('id') ?? ''));
-    if (action === 'authoring/views' && method === 'GET') return json(contentViews(site));
-    if (action === 'authoring/views' && method === 'POST') return json(saveContentView(site, data.value, data.revision ?? null));
-    if (action === 'authoring/templates' && method === 'GET') return json(creationTemplates(site));
-    if (action === 'authoring/templates' && method === 'POST') return json(saveCreationTemplate(site, data.value, data.revision ?? null));
-    if (action === 'entries/create' && method === 'POST') return json(createContent(site, data));
-    if (action === 'entry/structure' && method === 'POST') return json(structuredBody(data.value));
-    if (action === 'entry/check' && method === 'POST') return json(checkEntry(site, data.value, { required: data.required !== false }));
-    if (action === 'references/query' && method === 'GET') return json(queryReferences(site, {
-      referenceTypes: url.searchParams.has('types') ? url.searchParams.get('types')!.split(',').filter(Boolean) : undefined,
-      referenceFilters: url.searchParams.has('filters') ? JSON.parse(url.searchParams.get('filters')!) : undefined,
-      query: url.searchParams.get('q') ?? '', page: Number(url.searchParams.get('page') || 1), pageSize: Number(url.searchParams.get('pageSize') || 18),
-    }));
-    if (action === 'entry' && method === 'POST')
-      return json(site.saveEntry(data.value, data.revision ?? null));
-    if (action.startsWith('entry/') && method === 'GET') {
-      const row = site.store.get('entry', decodeURIComponent(action.slice(6)));
-      if (!row) throw new DomainError('内容不存在。', 404);
-      return json({ ...row, value: projectTerms(row.value, site.terms().map((row) => row.value)) });
-    }
-    if (action === 'settings' && method === 'GET') return json(site.settings());
-    if (action === 'settings' && isWrite) return json(site.saveSettings(data.value, data.revision));
-    if (action === 'types' && method === 'GET') return json(site.store.list('type'));
-    if (action === 'terms' && method === 'GET') return json(site.terms());
-    if (action === 'terms' && method === 'POST') return json(site.saveTerm(data.value, data.revision ?? null));
-    if (action === 'layouts' && method === 'GET') return json(layouts(site));
-    if (action === 'layouts' && method === 'POST') return json(saveLayout(site, data.value, data.revision ?? null));
-    if (action === 'types' && isWrite)
-      return json(site.saveType(data.value, data.revision ?? null));
-    if (action === 'history') return json(site.history(url.searchParams.get('id') ?? ''));
-    if (action === 'revision' && method === 'GET') return json(entryRevision(site, url.searchParams.get('id') ?? '', Number(url.searchParams.get('version'))));
-    if (action === 'revision/compare' && method === 'GET') {
-      const id = url.searchParams.get('id') ?? '';
-      const before = entryRevision(site, id, Number(url.searchParams.get('from'))), after = entryRevision(site, id, Number(url.searchParams.get('to')));
-      return json({ before, after, changes: entryChanges(before.value, after.value) });
-    }
-    if (action === 'entry/merge' && method === 'POST') return json(mergeEntry(site, data.id, data.baseRevision, data.value, data.choices));
-    if (action === 'entry/merge/save' && method === 'POST') return json(saveMergedEntry(site, data));
-    if (action === 'restore') return json(site.restore(data.id, data.version, data.revision));
-    if (action === 'withdraw') return json(site.withdraw(data.id, data.revision, !!data.archive));
-    if (action === 'media' && method === 'GET') return json(site.store.list('media'));
-    if (action === 'media/groups' && method === 'GET') return json(mediaGroups(site));
-    if (action === 'media/presets' && method === 'GET') return json(imagePresets(site));
-    if (action === 'media/presets' && method === 'POST') return json(saveImagePreset(site, data.value, data.revision ?? null));
-    if (action === 'media/variants' && method === 'GET') return json(site.store.list('media-variant').filter((row) => row.value.parentId === url.searchParams.get('id')));
-    if (action === 'media/variant' && method === 'POST') return json(await execute('media-variant', data, request.headers.get('Idempotency-Key') ?? undefined), 202);
-    if (action === 'media/groups' && method === 'POST') return json(saveMediaGroup(site, data.value, data.revision ?? null));
-    if (action === 'media/move' && method === 'POST') return json(moveMedia(site, data.items, data.groupId ?? null));
-    if (action === 'media/query' && method === 'GET') return json(queryMedia(site, url.searchParams));
-    if (action === 'media/info' && method === 'POST') return json(saveMediaMetadata(site, data.id, data.value, data.revision));
-    if (action === 'media/references' && method === 'GET') return json(mediaReferences(site, url.searchParams.get('id') ?? ''));
-    if (action === 'media/archive' && method === 'POST') return json(archiveMedia(site, data.items, !!data.archived));
-    if (action === 'media/crop' && method === 'POST') return json(await execute('media-edit', data, request.headers.get('Idempotency-Key') ?? undefined), 202);
-    if (action === 'media' && isWrite)
-      return json(
-        await execute(
-          'media',
-          stageMedia(site, Buffer.from(data.base64, 'base64'), String(data.name ?? '')),
-          request.headers.get('Idempotency-Key') ?? undefined,
-        ),
-        202,
-      );
-    if (action === 'publish' || action === 'backup' || action === 'verify')
-      return json(
-        await execute(action, data ?? {}, request.headers.get('Idempotency-Key') ?? undefined),
-        202,
-      );
-    if (action === 'rollback') return json(site.rollback(data.id));
-    if (action === 'jobs') return json(site.jobs());
-    if (action.startsWith('job/')) return json(site.job(action.slice(4)));
-    if (action === 'logs') {
-      const id = url.searchParams.get('id') ?? '';
-      site.job(id);
-      const file = join(site.root, 'logs', id + '.log');
-      const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
-      const start = Math.max(0, Number(url.searchParams.get('offset')) || 0),
-        end = Math.min(text.length, start + 20000);
-      return json({
-        text: text.slice(start, end),
-        start,
-        end,
-        total: text.length,
-        truncated: end < text.length,
-      });
-    }
-    if (action === 'analytics')
-      return json({ ...analytics.report(url.searchParams, site.settings().value.timezone), pageTitles: Object.fromEntries(site.visibleRelease()?.entries.map((e) => [e.path, e.title]) || []) });
-    if (action === 'analytics/realtime' && method === 'GET') return json(analytics.realtime(url.searchParams));
-    if (action === 'analytics/visitor' && method === 'GET') return json(analytics.visitor(url.searchParams.get('id') || '', url.searchParams, site.settings().value.timezone));
-    if (action === 'analytics/geo' && method === 'GET') return json(analytics.geo.status());
-    if (action === 'analytics/geo' && method === 'POST') {
-      void analytics.geo.update().catch(() => {});
-      return json(analytics.geo.status(), 202);
-    }
-    if (action === 'analytics/export') {
-      if (!url.searchParams.has('dataset') && url.searchParams.has('group')) url.searchParams.set('dataset', url.searchParams.get('group')!);
-      return new Response(analytics.export(url.searchParams, site.settings().value.timezone), {
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="weava-analytics.csv"',
-        },
-      });
-    }
-    if (action === 'export') return json(exportSite(site));
-    if (action === 'import' && method === 'POST') return json(importSite(site, data.value, data.options));
-    return json({ error: '接口不存在。' }, 404);
-  } catch (error: any) {
-    const status = error instanceof DomainError ? error.status : 400;
-    return json({ error: error.message ?? '操作失败。', details: error.details }, status);
-  }
-};
-
-// Successful built-in responses are checked against the same definitions used
-// by the client and OpenAPI. A mismatched server response is a server error.
+import { matchAdminApi } from '@weava/contracts/api';
+import { WeavaError } from '@weava/contracts';
+import { readJsonBody, requestIdentity } from '@weava/core';
+import * as services from '../../runtime.ts';
+import { createAdminDispatcher } from '../../api/dispatch.ts';
+import { publicApi } from '../../api/public.ts';
+import { authorized, json, validateExtensionResponse } from '../../api/transport.ts';
+import type { AdminContext } from '../../api/types.ts';
+import { assertRequestOrigin,assertJsonRequest } from '../../../../../packages/core/src/request-safety.ts';
+import { ZodError } from 'zod';
+const dispatch = createAdminDispatcher(services);
 export const ALL: APIRoute = async (context) => {
-  const response = await handle(context);
-  const route = context.params.route ?? '';
-  const contract = route.startsWith('admin/v1/') ? matchAdminApi(context.request.method, route.slice(9)) : undefined;
-  if (contract && response.ok) {
+  try {
+    const route = new URL(context.request.url).pathname.slice('/api/'.length);
+    // Decode the wire path exactly once, before extensions or a built-in mutation can execute.
+    let match;
     try {
-      const value = response.headers.get('Content-Type')?.includes('application/json') ? await response.clone().json() : await response.clone().text();
-      const checked = contract.definition.response.safeParse(value);
-      if (!checked.success) {
-        console.error('API response contract mismatch', contract.operation, checked.error.issues.map(({path,message}) => ({path,message})));
-        return json({error:'网站返回数据与接口定义不一致。',details:checked.error.issues.map(({path,message})=>({path,message}))},500);
-      }
-    } catch { return json({error:'接口响应无法校验。'},500); }
+      if (route.startsWith('admin/v1/'))
+        match = matchAdminApi(context.request.method, route.slice(9));
+    } catch {
+      return json({ error: '接口地址编码无效。' }, 400);
+    }
+    let peer = '';
+    try {
+      peer = context.clientAddress;
+    } catch {}
+    const requestContext = Object.assign(Object.create(context), {
+      identity: requestIdentity(context.request, peer),
+    }) as AdminContext;
+    assertRequestOrigin(context.request,requestContext.identity.protocol);
+    const admin=route.startsWith('admin/v1/');
+    const write = !['GET', 'HEAD'].includes(context.request.method);
+    if(admin && (!match || !['session','login'].includes(match.operation)) && !authorized(services,requestContext))
+      throw new WeavaError('请先登录。',401);
+    if(admin && write) assertJsonRequest(context.request);
+    const custom = await (
+      await services.siteExtension
+    ).route?.(context.request, services.site.visibleRelease());
+    if (custom) return validateExtensionResponse(custom, match?.operation);
+    if (!route.startsWith('admin/v1/'))
+      return (
+        (await publicApi(services, requestContext, route)) ?? json({ error: '接口不存在。' }, 404)
+      );
+    if (!match) return json({ error: '接口或请求方法不存在。' }, 404);
+    const limit =
+      match.operation === 'login'
+        ? 4096
+        : match.operation === 'uploadMedia'
+          ? 45 * 1024 * 1024
+          : match.operation === 'importWxr'
+            ? 192 * 1024 * 1024
+            : 16 * 1024 * 1024;
+    const body = write ? await readJsonBody(context.request, limit) : undefined;
+    return await dispatch(match.operation, match.params, body, requestContext);
+  } catch (error: any) {
+    if(error instanceof WeavaError){
+      const retry=(error.details as {retryAfter?:number}|undefined)?.retryAfter;
+      return json({error:error.message,details:error.details},error.status,retry&&error.status===429?{'Retry-After':String(retry)}:{});
+    }
+    if(error instanceof ZodError)return json({error:'请求参数无效。',details:error.issues.map(issue=>({path:issue.path,message:issue.message}))},400);
+    console.error('API request failed',error);
+    return json({error:'网站暂时无法完成操作，请稍后重试。'},500);
   }
-  return response;
 };

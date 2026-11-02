@@ -1,8 +1,8 @@
-import { z, WeavaError, type PublishOptions, type Release } from '@weava/contracts';
+import { z, publicationPlanInputSchema, WeavaError, type PublishOptions, type Release } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { now } from './storage.ts';
 import { preparePublication } from './publication.ts';
-const definition = z.object({ id: z.string().min(1), name: z.string().trim().min(1).max(120), dueAt: z.string().optional(), actions: z.array(z.object({ id: z.string().min(1), action: z.enum(['publish', 'withdraw']), revision: z.number().int().positive() })).min(1).max(200) });
+const definition = publicationPlanInputSchema;
 export const publicationPlans = (site: Site) => site.store.list('publication-plan');
 export function planOptions(site: Site, plan: z.infer<typeof definition>): PublishOptions {
   const ids: string[] = [], versions: Record<string, number> = {}, withdrawIds: string[] = [], withdrawRevisions: Record<string, number> = {};

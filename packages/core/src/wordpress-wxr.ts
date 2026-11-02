@@ -1,10 +1,10 @@
 import sax from 'sax';
 import { load } from 'cheerio';
 import { basename, join } from 'node:path';
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync,statSync } from 'node:fs';
 import { entrySchema, WeavaError, type Entry, type Block, type Term, type ContentType } from '@weava/contracts';
 import type { Site } from './site.ts';
-import { normalizePath } from './site.ts';
+import { normalizePath,pathWithin } from './paths.ts';
 import { digest, inside } from './storage.ts';
 import { plain, sanitize } from './documents.ts';
 import { importSite, type ImportOptions, type SiteExchange } from './exchange.ts';
@@ -231,12 +231,13 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
     notes: ['WXR 包含内容资料，主题、插件程序、菜单位置和服务器配置需要另行设置。', '原始 XML 会保存在站点的 imports 目录。未知来源功能需要检查后才能发布。', ...(options.downloadMedia || options.mediaDirectory ? [] : ['附件保留来源网址；本次不会下载附件。'])] };
   return { value, report, attachments, comments };
 }
-async function attachmentBytes(url: string) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-  if (!response.ok || !response.body) throw new WeavaError('附件下载失败：' + response.status + ' ' + url);
-  const chunks: Uint8Array[] = []; let size = 0;
-  for await (const chunk of response.body) { size += chunk.length; if (size > 32 * 1024 * 1024) throw new WeavaError('附件超过 32 MB：' + url); chunks.push(chunk); }
-  return Buffer.concat(chunks);
+import { downloadPublicAttachment as attachmentBytes } from './attachment-download.ts';
+function localAttachment(directory:string,url:URL) {
+  const path=inside(directory,decodeURIComponent(url.pathname).replace(/^\//,''));
+  if(!pathWithin(directory,path))throw new WeavaError('附件文件超出指定目录，请检查目录链接。');
+  const stat=statSync(path);
+  if(!stat.isFile()||stat.size>32*1024*1024)throw new WeavaError('附件需要是 32 MB 以内的普通文件。');
+  return readFileSync(path);
 }
 export async function importWordPressWxr(site: Site, xml: string, options: WxrOptions = {}, progress: (message: string) => void = () => {}) {
   const initial = convertWordPressWxr(site, xml, options);
@@ -264,7 +265,7 @@ export async function importWordPressWxr(site: Site, xml: string, options: WxrOp
     if (!['http:', 'https:'].includes(url.protocol)) throw new WeavaError('附件网址无效：' + asset.url);
     const existing = initial.report.attachments.find((item) => item.id === asset.id)?.local;
     if (existing && existsSync(inside(site.root, existing.slice(1)))) { mediaMap[asset.url] = existing; mediaMap[url.pathname] = existing; reusedMedia++; continue; }
-    const bytes = options.mediaDirectory ? readFileSync(inside(options.mediaDirectory, decodeURIComponent(url.pathname).replace(/^\//, ''))) : await attachmentBytes(url.href);
+    const bytes = options.mediaDirectory ? localAttachment(options.mediaDirectory,url) : await attachmentBytes(url.href);
     const row = await prepareMedia(site, bytes, asset.name);
     prepared.push({ ...row, value: { ...row.value, alt: row.value.alt ?? asset.alt, caption: row.value.caption ?? asset.caption } });
     mediaMap[asset.url] = row.value.url; mediaMap[url.href] = row.value.url; mediaMap[url.pathname] = row.value.url;

@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+overrides:
+  happy-dom: 21.0.4
 allowBuilds:
   better-sqlite3: false
   esbuild: true

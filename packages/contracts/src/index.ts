@@ -1,5 +1,6 @@
 import { z } from 'zod';
 export { z } from 'zod';
+export * from './urls.ts';
 export * from './blocks.ts';
 export * from './analytics.ts';
 export * from './fields.ts';
@@ -9,6 +10,7 @@ export const API_VERSION = 1;
 export const schemaTypes = ['Article', 'TechArticle', 'WebPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'Product', 'SoftwareApplication', 'CreativeWork'] as const;
 export const seoSchema = z.object({
   title: z.string().max(300).optional(), description: z.string().max(2000).optional(),
+  documentTitle: z.string().max(600).optional(),
   canonical: z.string().optional(), image: z.string().optional(), imageAlt: z.string().optional(),
   schemaType: z.enum(schemaTypes).optional(), authorType: z.enum(['Person', 'Organization']).optional(), authorUrl: z.string().optional(),
 });
@@ -117,6 +119,7 @@ export interface Block {
   style?: {
     width?: 'normal' | 'wide' | 'full'; align?: 'left' | 'center' | 'right';
     padding?: number; gap?: number; background?: string;
+    textColor?: string; fontSize?: number; headingSize?: number;
     columns?: { desktop: number; tablet: number; mobile: number };
   };
 }
@@ -130,6 +133,8 @@ export const blockSchema: z.ZodType<Block> = z.lazy(() =>
     style: z.object({ width: z.enum(['normal', 'wide', 'full']).optional(), align: z.enum(['left', 'center', 'right']).optional(),
       padding: z.number().min(0).max(160).optional(), gap: z.number().min(0).max(120).optional(),
       background: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
+      textColor: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
+      fontSize: z.number().min(14).max(32).optional(), headingSize: z.number().min(20).max(72).optional(),
       columns: z.object({ desktop: z.number().int().min(1).max(6), tablet: z.number().int().min(1).max(4), mobile: z.number().int().min(1).max(2) }).optional() }).optional(),
   }),
 );
@@ -214,7 +219,11 @@ export interface Term {
   slug: string;
   parentId?: string;
 }
+export { advertisementSlots, advertisementsSchema } from './advertisements.ts';
+export type { AdvertisementPosition, Advertisements } from './advertisements.ts';
+
 export interface Settings {
+  advertisements?: import('./advertisements.ts').Advertisements;
   commentModeration?: boolean;
   themeSettings?: Record<string, Settings['themeConfig']>;
   seo?: z.infer<typeof siteSeoSchema>;
@@ -322,7 +331,7 @@ export interface PublishOptions {
   revisions?: Record<string, number>;
   settingsRevision?: number;
   baseReleaseId?: string | null;
-  reviewRevision?: number;
+  reviewRevision?: number | null;
   versions?: Record<string, number>;
   withdrawIds?: string[];
   withdrawRevisions?: Record<string, number>;
@@ -332,6 +341,7 @@ export interface ContentQuery {
   pageSize?: number;
   kind?: 'content' | 'page';
   type?: string;
+  author?: string;
   category?: string;
   tag?: string;
   query?: string;
@@ -345,6 +355,7 @@ export interface PageResult<T> {
   total: number;
   pages: number;
 }
+export { systemRoutes, isReservedContentPath } from './routes.ts';
 export interface Job {
   id: string;
   operation: string;
@@ -355,6 +366,9 @@ export interface Job {
   result?: any;
   payload?: any;
   workerPid?: number;
+  managed?: boolean;
+  errorStatus?: number;
+  errorDetails?: unknown;
 }
 export class WeavaError extends Error {
   constructor(
@@ -366,3 +380,6 @@ export class WeavaError extends Error {
     this.name = 'WeavaError';
   }
 }
+
+export * from './block-tree.ts';
+export * from './publication-plans.ts';

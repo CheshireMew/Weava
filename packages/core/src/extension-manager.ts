@@ -10,6 +10,7 @@ import { renderBlocks } from './render.ts';
 import { inside, uuid } from './storage.ts';
 import { visitBlocks } from './layouts.ts';
 import { pageMetadata, metadataHead, customEvidence, type MetadataContribution } from './seo.ts';
+import { queryEntries } from './query.ts';
 
 const identifier = z.string().regex(/^[a-z][a-z0-9-]*$/);
 export const extensionManifestSchema = z.object({ version: z.literal(1), extensions: z.array(z.object({ id: identifier, file: z.string().endsWith('.mjs'), enabled: z.boolean().default(true) })) });
@@ -52,7 +53,7 @@ export class ExtensionManager {
         const file = inside(folder, descriptor.file);
         const factory = (await import(pathToFileURL(file).href)).default;
         if (typeof factory !== 'function') throw new Error('扩展需要默认导出工厂函数。');
-        const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, pageMetadata, metadataHead, z, ...this.services });
+        const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, pageMetadata, metadataHead, queryEntries, z, ...this.services });
         identifier.parse(ext.id); if (descriptor.id && ext.id !== descriptor.id) throw new Error('扩展编号与清单不一致。'); member.id = ext.id;
         if (ext.apiVersion !== 1) throw new Error('扩展 API 版本不兼容。');
         versionSchema.parse(ext.version ?? '0.0.0');
@@ -194,7 +195,7 @@ export class ExtensionManager {
     if ((row?.revision ?? null) !== expected) throw new WeavaError('扩展设置已变化，请刷新后重试。', 409);
     if (!enabled) { const uses = this.usage(id); if (uses.length) throw new WeavaError('扩展仍被以下内容或依赖使用，请先处理引用。', 409, uses); }
     const before = this.configured(member); this.changing = true;
-    const liveJobs = this.site.jobs().filter((job) => ['publish', 'import-wxr'].includes(job.operation) && ['queued', 'running'].includes(job.status));
+    const liveJobs = this.site.activeJobs().filter((job) => ['publish', 'import-wxr'].includes(job.operation));
     if (liveJobs.length) { this.changing = false; throw new WeavaError('内容任务仍在运行，请等待完成后切换扩展。', 409); }
     this.site.store.setState('extension-transition', JSON.stringify({ pid: process.pid, id }));
     try {

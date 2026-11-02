@@ -1,8 +1,11 @@
-import { layoutSchema, WeavaError, type Layout, type Entry, type Release, type Block } from '@weava/contracts';
+import { cloneBlocks, layoutSchema, WeavaError, type Layout, type Entry, type Release, type Block } from '@weava/contracts';
 import type { Site } from './site.ts';
 
 const block = (id: string, type: string, props: Record<string, any> = {}, children?: Block[]): Block => ({ id, type, props, ...(children ? { children } : {}) });
 export const builtInLayouts: Layout[] = [
+  { id: 'blog-index', label: '博客列表', kind: 'pattern', appliesTo: 'page', blocks: [block('intro', 'hero', { title: '文章', description: '' }), block('posts', 'content-list', { contentType: 'post', limit: 12 })] },
+  { id: 'portfolio-index', label: '作品集', kind: 'pattern', appliesTo: 'page', blocks: [block('intro', 'hero', { title: '作品', description: '' }), block('projects', 'content-list', { contentType: 'project', limit: 12 })] },
+  { id: 'docs-index', label: '文档入口', kind: 'pattern', appliesTo: 'page', blocks: [block('intro', 'hero', { title: '文档', description: '' }), block('guides', 'content-list', { contentType: 'doc', limit: 24, sort: 'title' })] },
   { id: 'page', label: '页面', kind: 'template', appliesTo: 'page', blocks: [block('body', 'entry-body')] },
   { id: 'article', label: '文章', kind: 'template', appliesTo: 'content', blocks: [block('heading', 'entry-heading'), block('body', 'entry-body'), block('fields', 'entry-fields')] },
   { id: 'portfolio', label: '作品', kind: 'template', appliesTo: 'content', blocks: [block('heading', 'entry-heading'), block('columns', 'columns', { columns: 2 }, [block('body', 'entry-body'), block('fields', 'entry-fields')])] },
@@ -14,7 +17,7 @@ export const builtInLayouts: Layout[] = [
   { id: 'landing', label: '服务介绍', kind: 'pattern', appliesTo: 'page', blocks: [block('hero', 'hero', { title: '让想法成为作品', description: '介绍你提供的服务' }), block('services', 'columns', { columns: 3 }, [block('service-a', 'callout', { title: '设计', text: '清楚表达你的想法。' }), block('service-b', 'callout', { title: '开发', text: '将想法做成产品。' }), block('service-c', 'callout', { title: '维护', text: '持续保持内容与服务可用。' })]), block('faq', 'faq', { items: [{ question: '如何开始？', answer: '写下你的需求。' }] })] },
 ];
 
-export function layouts(site: Site) {
+export function layouts(site: Pick<Site, 'store'>) {
   const stored = site.store.list('layout');
   return [...builtInLayouts.filter((layout) => !stored.some((row) => row.id === layout.id)).map((value) => ({ id: value.id, revision: null, value, updatedAt: '', builtIn: true })),
     ...stored.map((row) => ({ ...row, builtIn: false }))];
@@ -72,8 +75,4 @@ export function saveLayout(site: Site, value: Layout, revision: number | null) {
   validateLayouts([...catalog, layout]);
   return site.store.put('layout', layout.id, layout, revision);
 }
-export function copyPattern(layout: Layout): Block[] {
-  const blocks = structuredClone(layout.blocks);
-  visitBlocks(blocks, (block) => { block.id = crypto.randomUUID(); });
-  return blocks;
-}
+export function copyPattern(layout: Layout): Block[] { return cloneBlocks(layout.blocks); }

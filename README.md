@@ -9,7 +9,8 @@
 - 可视化与 Markdown 编辑、媒体和表格编辑、草稿自动保存、历史对比、冲突恢复、预览和定时发布。
 - 实际页面画布、模板、共享区域、区块组合、响应式布局、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
 - 公开与私密文章、媒体访问控制、图片派生尺寸、浏览统计与目录备份恢复。
-- Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、后台评论管理。
+- Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、回复关系、站主回复和后台审核。
+- 单站主账户资料、改密、会话撤销、可选两步验证与一次性恢复码，以及停站后的本机恢复命令。
 - 完整访问统计、来源与设备分析、访客轨迹、实时在线、免费本地地区库及世界地图、同期对比与 CSV 导出。
 - 标准 WordPress WXR 预检与导入、页面和类型转换、附件与评论迁移，以及原有来源目录和历史浏览量迁移。
 
@@ -32,9 +33,11 @@ powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site start
 
 打开 [本地后台](http://127.0.0.1:4322/admin/)，编辑并发布内容后可从 [网站首页](http://127.0.0.1:4322/) 查看。同一个站点只运行一份服务，端口占用时不会替换已有服务。
 
+Windows 下可双击仓库根目录的 `start.bat`，启动已初始化的默认站点 `../WeavaSites/demo`，使用最近成功构建的程序。运行时保持窗口打开，按 Ctrl+C 停止。也可执行 `start.bat --site "E:\WeavaSites\my-site"` 指定其他站点，或加上 `--port 4323` 指定端口；启动失败时窗口会保留错误信息。
+
 ## 开发与验证
 
-工作区使用 pnpm 12。`build` 生成程序运行需要的前后台文件，不制作安装包。旧构建目录保留为 `dist.retained-*`，不进入 Git。内容发布只切换公开版本，不执行这个构建。
+工作区使用 pnpm 12。`build` 生成程序运行需要的前后台文件，不制作安装包。构建写入 D:/Tools/cache/weava/programs 下的独立版本目录，验证成功后更新默认版本；不再生成 `dist.retained-*` 目录或旧入口文件副本。内容发布只切换公开版本，不执行这个构建。
 
 ```powershell
 pnpm check
@@ -56,6 +59,7 @@ pnpm weava --site E:\Code\WeavaSites\demo dev
 - [WP Statistics 迁移工具](docs/wordpress-statistics.md)
 - [主题与扩展](docs/extensions.md)
 - [运行、备份和恢复](docs/operations.md)
+- [账户与网站防护](docs/security.md)
 - [旧站迁移](docs/migration.md)
 - [实施与验收记录](docs/implementation.md)
 - [完善计划与当前验证](docs/completion-plan.md)

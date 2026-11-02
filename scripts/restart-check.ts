@@ -5,7 +5,7 @@ const origin = 'http://127.0.0.1:4323',
   root = 'E:/Code/WeavaSites/crypto-blacknico',
   token = readFileSync(root + '/cli-token', 'utf8'),
   headers = { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token };
-const before = (await (await fetch(origin + '/__health')).json()) as any;
+const before = (await (await fetch(origin + '/__health',{headers})).json()) as any;
 assert.equal(before.site.replaceAll('\\', '/'), root);
 const stamp = statSync('apps/web/dist/server/entry.mjs').mtimeMs;
 const start = await fetch(origin + '/api/admin/v1/backup', {
@@ -36,7 +36,7 @@ closeSync(fd);
 let ready: any;
 for (let i = 0; i < 80; i++) {
   try {
-    const r = await fetch(origin + '/__health');
+    const r = await fetch(origin + '/__health',{headers});
     if (r.ok) {
       ready = await r.json();
       break;

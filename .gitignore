@@ -16,4 +16,5 @@ dist.retained-*/
 *.sqlite-wal
 *.sqlite3
 cli-token
+account.key
 runtime.json

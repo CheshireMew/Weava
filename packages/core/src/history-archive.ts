@@ -1,3 +1,4 @@
+import { entryMediaReferences } from './media-references.ts';
 import { join } from 'node:path';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, openSync, writeSync, closeSync } from 'node:fs';
 import type { Site } from './site.ts';
@@ -8,7 +9,6 @@ import {referencedLayouts} from './layouts.ts';
 
 export interface HistoryRetention { before: string; keepReleases?: number; keepRevisions?: number }
 interface Plan { options: Required<HistoryRetention>; releaseIds: string[]; revisions: number[]; privateMedia: string[]; protectedReleases: number; protectedRevisions: number; review: string }
-function mediaUrls(value: unknown) { return [...new Set([...JSON.stringify(value).matchAll(/\/media\/[\w%./@+~-]+/g)].map((match) => decodeURIComponent(match[0].replace(/[\\]+$/, ''))))]; }
 function objectKeys(data: string): string[] {
   const manifest = JSON.parse(data);
   if (manifest.storageVersion !== 2) return [];
@@ -26,12 +26,12 @@ export function planHistoryArchive(site: Site, input: HistoryRetention): Plan {
   for (const row of site.store.list('publication-schedule')) if (['scheduled','running','failed'].includes(row.value.status)) protectedRevisions.add(row.value.entryRevision);
   for (const row of site.store.list('publication-plan')) if (['draft','scheduled','failed'].includes(row.value.status)) for (const action of row.value.actions) protectedRevisions.add(action.revision);
   const seen = new Map<string,number>(), revisions: number[] = [], privateMedia = new Set<string>();
-  for(const row of releases.filter((row)=>releaseIds.includes(row.id))){const release=loadRelease(site.store.raw,row.data);for(const entry of release.entries)if(entry.visibility==='private')for(const path of mediaUrls([entry.cover,entry.document,entry.blocks,entry.fields,referencedLayouts(entry,release)]))privateMedia.add(path);}
+  for(const row of releases.filter((row)=>releaseIds.includes(row.id))){const release=loadRelease(site.store.raw,row.data);for(const entry of release.entries)if(entry.visibility==='private')for(const path of entryMediaReferences(entry,release))privateMedia.add(path);}
   for (const row of site.store.raw.prepare('SELECT revision,scope,id,data,created_at FROM revisions ORDER BY revision DESC').iterate() as Iterable<{revision:number;scope:string;id:string;data:string;created_at:string}>) {
     const key = row.scope + ':' + row.id, count = (seen.get(key) ?? 0) + 1; seen.set(key,count);
     if (protectedRevisions.has(row.revision) || count <= options.keepRevisions || row.created_at >= options.before) { protectedRevisions.add(row.revision); continue; }
     revisions.push(row.revision);
-    if (row.scope === 'entry') { const entry: Entry = JSON.parse(row.data); if (entry.visibility === 'private') for (const path of mediaUrls([entry.cover,entry.blocks,entry.document,entry.fields])) privateMedia.add(path); }
+    if (row.scope === 'entry') { const entry: Entry = JSON.parse(row.data); if (entry.visibility === 'private') for (const path of entryMediaReferences(entry)) privateMedia.add(path); }
   }
   const state = { options, releaseIds, revisions, current: site.store.state('release'), maxRevision: (site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n, releaseCount: releases.length };
   return { options, releaseIds, revisions, privateMedia: [...privateMedia], protectedReleases: releases.length-releaseIds.length, protectedRevisions: protectedRevisions.size, review: digest(state) };
@@ -72,7 +72,7 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
   site.store.raw.transaction(() => {
     if (planHistoryArchive(site,options).review !== review) throw new WeavaError('历史或工作稿已经变化，已准备的归档继续保留，请重新预检。',409);
     const removeMember = site.store.raw.prepare('DELETE FROM publication_members WHERE release_id=?'), removeRelease = site.store.raw.prepare('DELETE FROM releases WHERE id=?'), removeRevision = site.store.raw.prepare('DELETE FROM revisions WHERE revision=?');
-    for (const id of plan.releaseIds) { removeMember.run(id); removeRelease.run(id); site.store.raw.prepare('DELETE FROM search_documents WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM search_fts WHERE release_id=?').run(id); }
+    for (const id of plan.releaseIds) { removeMember.run(id); removeRelease.run(id); site.store.raw.prepare('DELETE FROM published_entry_revisions WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM public_media_paths WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM search_documents WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM search_fts WHERE release_id=?').run(id); }
     for (const revision of plan.revisions) removeRevision.run(revision);
     const used = new Set<string>(); for (const row of site.store.raw.prepare('SELECT data FROM releases').iterate() as Iterable<{data:string}>) objectKeys(row.data).forEach((key) => used.add(key));
     const removeObject = site.store.raw.prepare('DELETE FROM publication_objects WHERE key=?');
@@ -106,9 +106,11 @@ export function restoreHistoryArchive(site: Site,id: string) {
   }).immediate();
 }
 export async function compactDatabase(site: Site) {
+  return site.store.maintain(async () => {
   const folder = join(site.root,'archives','database-maintenance'); mkdirSync(folder,{recursive:true}); const backup = join(folder,'before-compact-'+uuid()+'.sqlite');
   await site.store.raw.backup(backup);
   site.store.raw.pragma('wal_checkpoint(TRUNCATE)'); site.store.raw.exec('VACUUM');
   const integrity = site.store.raw.pragma('integrity_check',{simple:true}); if (integrity !== 'ok') throw new WeavaError('数据库整理后的完整性检查失败。');
   return {compacted:true,backup,integrity};
+  });
 }

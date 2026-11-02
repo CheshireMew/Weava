@@ -1,7 +1,7 @@
 import { WeavaError } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { digest } from './storage.ts';
-import { normalizePath } from './site.ts';
+import { normalizePath } from './paths.ts';
 export interface RedirectEdit { source: string; target: string; entryId?: string; disabled?: boolean; revision: number | null }
 export function redirectRecords(site: Site) {
   const saved = new Map(site.store.list('redirect').map((row) => [row.id, row]));
@@ -20,6 +20,9 @@ export function previewRedirects(site: Site, input: { items: RedirectEdit[] }) {
   const seen = new Set<string>();
   const items = input.items.map((item) => {
     const source = normalized(item.source, true), target = normalized(item.target);
+    const adminPaths=[site.auth.adminPath(),...site.auth.retiredAdminPaths()];
+    if(adminPaths.some(path=>[source,target].some(value=>value.replace(/\/$/,'')===path||value.startsWith(path+'/'))))
+      throw new WeavaError('网址别名不能使用后台入口。');
     if (seen.has(source)) throw new WeavaError('来源网址重复：' + source); seen.add(source);
     const current = site.store.get('redirect', source);
     if ((current?.revision ?? null) !== item.revision) throw new WeavaError('别名已变化，请重新载入。', 409);

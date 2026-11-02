@@ -4,6 +4,25 @@
 
 接口统一返回 JSON；错误包含 error 和可选 details。409 表示修订冲突或同类任务冲突。耗时任务返回 202 和任务对象，通过 job/id 查询。
 
+## 页面卡顿诊断
+
+`weava diagnose page --url http://127.0.0.1:4324/read/example/` 会用本机已安装的 Edge 打开独立诊断窗口。它不依赖后台登录，不修改文章、站点设置或正常页面，也不下载浏览器。录制默认持续 120 秒，文件默认写入 `D:/Tools/cache/weava/diagnostics`；可以通过 `--output 新目录`、`--duration 秒数`、`--browser chrome` 或 `--executable 浏览器路径` 指定。
+
+出现卡顿后点击页面右下角的“标记卡顿”（Alt+Shift+M），结束时点击“结束诊断”（Alt+Shift+Q）。标记会分析此前 5 秒和之后 1 秒，避免卡顿期间按钮无法立即响应造成遗漏。记录包含加载和请求耗时、真实滚轮事件及接收延迟、实际滚动位置、长任务、长动画帧和脚本位置、布局偏移、页面规模，以及浏览器窗口线程、GPU 和 Windows 消息的原始性能轨迹。不会记录请求头、请求正文或输入框内容。诊断面板只存在于这次窗口。
+
+CLI 启动后立即返回一条 `diagnostic-started` JSON，包含目录和外部控制命令。录制期间可以另开终端或让外部 Agent 执行：
+
+```powershell
+scripts/run.ps1 diagnose status --session D:\Tools\cache\weava\diagnostics\本次目录
+scripts/run.ps1 diagnose mark --session D:\Tools\cache\weava\diagnostics\本次目录 --label "向下滚动停住"
+scripts/run.ps1 diagnose stop --session D:\Tools\cache\weava\diagnostics\本次目录
+scripts/run.ps1 diagnose report --session D:\Tools\cache\weava\diagnostics\本次目录
+```
+
+结束后生成可离线打开的 `report.html`、可供 Agent 读取的 `report.json`、逐条保存的 `events.ndjson`，以及 `trace-index.json` 中列出的分段原生轨迹。HTML 报告按标记显示同一时间窗口的证据，支持拖动时间轴。原生轨迹每 20 秒及手动标记时保存一段，可单独载入浏览器开发工具继续查调用；不会把初次加载的慢任务直接当成后续滚动卡顿的原因。
+
+Ctrl+C 会尽量完成保存。进程异常退出后，`diagnose report` 可以重新分析已保存的记录和轨迹，明确显示缺失部分；不会把证据不足写成已找到根因。`--headless` 可用于自动采集，但不能验证真实鼠标输入和 Windows 屏幕呈现，报告会注明。独立浏览器配置和原始轨迹保留在诊断目录，工具不自动删除文件。
+
 | 接口 | 方法与用途 |
 | --- | --- |
 | session、login、logout | 获取状态、登录和退出 |

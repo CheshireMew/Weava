@@ -18,5 +18,5 @@ export function authoringOpenApi(name:string,domain:string,models:Record<string,
     const operationSchema={ operationId:operation,summary:definition.summary,parameters,security:['session','login'].includes(operation)?[]:[{bearerAuth:[]},{sessionCookie:[]}],...(definition.method==='POST'?{requestBody:{required:true,content:{'application/json':{schema:schema(definition.body)}}}}:{}),responses };
     (paths['/api/admin/v1/'+definition.path]??={})[definition.method.toLowerCase()]=operationSchema;
   }
-  return { openapi:'3.1.0',info:{title:name+' · Weava Authoring',version:'1'},servers:[{url:domain}],security:[{bearerAuth:[]},{sessionCookie:[]}],components:{securitySchemes:{bearerAuth:{type:'http',scheme:'bearer'},sessionCookie:{type:'apiKey',in:'cookie',name:'weava-session'}},schemas:{ApiError:schema(errorSchema),...models}},paths };
+  return { openapi:'3.1.0' as const,info:{title:name+' · Weava Authoring',version:'1'},servers:[{url:domain}],security:[{bearerAuth:[]},{sessionCookie:[]}],components:{securitySchemes:{bearerAuth:{type:'http',scheme:'bearer'},sessionCookie:{type:'apiKey',in:'cookie',name:'weava-session'}},schemas:{ApiError:schema(errorSchema),...models}},paths };
 }

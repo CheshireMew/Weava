@@ -2,9 +2,12 @@ import { load } from 'cheerio';
 import { WeavaError, schemaTypes, type Entry, type Release, type Seo } from '@weava/contracts';
 import { escape as e } from './documents.ts';
 import { layoutFor } from './layouts.ts';
+import { wordpressArchivePage, wordpressPagePath } from './wordpress-archives.ts';
+import { queryEntries } from './query.ts';
 
 export interface PageMetadata {
   title: string; socialTitle: string; description: string; canonical: string; robots: string;
+  canonicalTag?: boolean;
   image: string; imageAlt: string; ogType: string; language: string; siteName: string;
   schema: Record<string, any>; indexable: boolean; pagination: Record<string, number>;
 }
@@ -68,12 +71,23 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
       else if (page !== 1) filtered = true;
     } else if (!/^(utm_|gclid$|fbclid$|msclkid$)/i.test(key)) filtered = true;
   }
+  const wordpressPage = wordpressArchivePage(entry, url);
+  if (wordpressPage !== null) {
+    canonicalUrl.pathname = wordpressPagePath(entry!.path, wordpressPage);
+    canonicalUrl.searchParams.delete('page');
+    if (wordpressPage > 1) pagination.page = wordpressPage;
+  }
   canonicalUrl.hash = '';
   canonicalUrl.searchParams.sort();
   const canonical = canonicalUrl.href;
   const hidden = options.preview || entry?.visibility === 'private';
   const indexable = !hidden && !options.missing && !!entry && entry.indexable !== false && !filtered;
-  const robots = hidden ? 'noindex,nofollow' : indexable ? 'index,follow' : 'noindex,follow';
+  let robots = hidden ? 'noindex,nofollow' : indexable ? 'index,follow' : 'noindex,follow';
+  const sourceRobots = entry?.source?.wordpressSeo?.robots;
+  if (!hidden && typeof sourceRobots === 'string') {
+    const inherited = sourceRobots.split(',').map((value: string) => value.trim()).filter((value: string) => /^(max-(image-preview|snippet|video-preview):|nosnippet$|noimageindex$|notranslate$)/i.test(value));
+    if (inherited.length) robots += ',' + inherited.join(',');
+  }
   const image = seo.image || entry?.cover || settings.seo?.image || '';
   const imageUrl = image ? webUrl(image, base) : '';
   const type = seo.schemaType || release.types.find((type) => type.id === entry?.type)?.schemaType || (entry?.kind === 'content' && entry.type === 'post' ? 'Article' : 'WebPage');
@@ -102,7 +116,14 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     });
     if (questions.length) graph.push({ '@type': 'FAQPage', '@id': canonical + '#faq', mainEntity: questions });
   }
-  return { title: socialTitle === settings.name ? socialTitle : `${socialTitle} · ${settings.name}`, socialTitle, description, canonical, robots,
+  let title = seo.documentTitle || (socialTitle === settings.name ? socialTitle : `${socialTitle} · ${settings.name}`);
+  if (wordpressPage && wordpressPage > 1) {
+    const archive = entry!.source!.wordpressArchive;
+    const result = queryEntries(release.entries.filter(entry => entry.visibility !== 'private'), { kind: 'content', type: archive.contentType,
+      author: archive.author, category: archive.category, tag: archive.tag, pageSize: archive.pageSize }, release.types, release.terms);
+    title = archive.titleTemplate ? archive.titleTemplate.replaceAll('{page}', String(wordpressPage)).replaceAll('{pages}', String(result.pages)) : `${title} - 第${wordpressPage}页`;
+  }
+  return { title, socialTitle, description, canonical, canonicalTag: entry?.source?.wordpressSeo?.canonicalPresent !== false, robots,
     image: imageUrl, imageAlt: seo.imageAlt || '', ogType: article ? 'article' : 'website', language: settings.language, siteName: settings.name,
     schema: { '@context': 'https://schema.org', '@graph': graph }, indexable, pagination };
 }
@@ -135,5 +156,5 @@ export function composeMetadata(html: string, meta: PageMetadata, options: { pre
   return $.html();
 }
 export function metadataHead(meta: PageMetadata) {
-  return `<title>${e(meta.title)}</title><meta name="description" content="${e(meta.description)}"><meta name="robots" content="${meta.robots}"><link rel="canonical" href="${e(meta.canonical)}"><meta property="og:title" content="${e(meta.socialTitle)}"><meta property="og:description" content="${e(meta.description)}"><meta property="og:url" content="${e(meta.canonical)}"><meta property="og:type" content="${meta.ogType}"><meta property="og:site_name" content="${e(meta.siteName)}"><meta property="og:locale" content="${e(meta.language.replace('-', '_'))}"><meta name="twitter:card" content="${meta.image ? 'summary_large_image' : 'summary'}">${meta.image ? `<meta property="og:image" content="${e(meta.image)}"><meta property="og:image:alt" content="${e(meta.imageAlt)}"><meta name="twitter:image" content="${e(meta.image)}">` : ''}<script type="application/ld+json" data-weava-seo>${JSON.stringify(meta.schema).replaceAll('<', '\\u003c')}</script>`;
+  return `<title>${e(meta.title)}</title><meta name="description" content="${e(meta.description)}"><meta name="robots" content="${meta.robots}">${meta.canonicalTag === false ? '' : `<link rel="canonical" href="${e(meta.canonical)}">`}<meta property="og:title" content="${e(meta.socialTitle)}"><meta property="og:description" content="${e(meta.description)}"><meta property="og:url" content="${e(meta.canonical)}"><meta property="og:type" content="${meta.ogType}"><meta property="og:site_name" content="${e(meta.siteName)}"><meta property="og:locale" content="${e(meta.language.replace('-', '_'))}"><meta name="twitter:card" content="${meta.image ? 'summary_large_image' : 'summary'}">${meta.image ? `<meta property="og:image" content="${e(meta.image)}"><meta property="og:image:alt" content="${e(meta.imageAlt)}"><meta name="twitter:image" content="${e(meta.image)}">` : ''}<script type="application/ld+json" data-weava-seo>${JSON.stringify(meta.schema).replaceAll('<', '\\u003c')}</script>`;
 }

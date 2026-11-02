@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync,writeFileSync } from 'node:fs';
 import { strict as assert } from 'node:assert';
-const origin = 'http://127.0.0.1:4322',
-  before = (await (await fetch(origin + '/__health')).json()) as any;
+const origin = 'http://127.0.0.1:4322', headers={Authorization:'Bearer '+readFileSync('E:/Code/WeavaSites/demo/cli-token','utf8')},
+  before = (await (await fetch(origin + '/__health',{headers})).json()) as any;
 async function run(args: string[], env: any) {
   return new Promise<{ code: number | null; text: string }>((resolve, reject) => {
     const child = spawn(process.execPath, args, {
@@ -35,7 +35,7 @@ const port = await run(['apps/web/dist/server/entry.mjs'], {
 });
 assert.notEqual(port.code, 0);
 assert(port.text.includes('EADDRINUSE'));
-const after = (await (await fetch(origin + '/__health')).json()) as any;
+const after = (await (await fetch(origin + '/__health',{headers})).json()) as any;
 assert.equal(after.pid, before.pid);
 const report = {
   passed: true,

@@ -49,6 +49,6 @@ export function searchDataReport(site: Site) {
     }
     return { ...base, data: d.rows.map((row) => ({ ...row, ...('url' in row && row.url ? { entryId: entryFor(row.url) } : {}) })) };
   });
-  return { status: datasets.length ? 'available' : 'not-connected', datasets, capabilities: ['search-performance', 'web-analytics', 'keyword-rank', 'ai-observations'],
+  return { status: datasets.length ? 'available' as const : 'not-connected' as const, datasets, capabilities: ['search-performance', 'web-analytics', 'keyword-rank', 'ai-observations'],
     connections: ['gsc', 'ga4', 'dataforseo'].map((provider) => ({ provider, status: datasets.some((d) => d.provider === provider) ? 'data-imported' : 'not-connected' })) };
 }

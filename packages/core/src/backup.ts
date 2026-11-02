@@ -12,9 +12,11 @@ import Database from 'better-sqlite3';
 import { walk, digest, uuid, now, atomicJson, inside } from './storage.ts';
 import { Site } from './site.ts';
 import { WeavaError, VERSION } from '@weava/contracts';
+import { assertMaintenanceAvailable, withInstanceMaintenance } from './instance-access.ts';
+import { pathWithin } from './paths.ts';
 export async function createBackup(site: Site, base: string, label = '手动备份') {
   const root = resolve(base);
-  if (root === site.root || root.startsWith(site.root + '/') || root.startsWith(site.root + '\\'))
+  if (pathWithin(site.root, root))
     throw new WeavaError('备份目录必须在站点外。');
   const id = now().replace(/[:.]/g, '-') + '-' + uuid().slice(0, 8),
     folder = join(root, id);
@@ -35,7 +37,7 @@ export async function createBackup(site: Site, base: string, label = '手动备�
       mkdirSync(resolve(target, '..'), { recursive: true });
       copyFileSync(file, target);
     }
-  for (const name of ['site.json', 'cli-token', 'program.json'])
+  for (const name of ['site.json', 'cli-token', 'program.json', 'account.key'])
     if (existsSync(join(site.root, name))) copyFileSync(join(site.root, name), join(folder, name));
   const files = walk(folder).map((file) => ({
     path: relative(folder, file).replaceAll('\\', '/'),
@@ -47,9 +49,15 @@ export async function createBackup(site: Site, base: string, label = '手动备�
 }
 export function verifyBackup(folder: string) {
   const manifest = JSON.parse(readFileSync(join(folder, 'manifest.json'), 'utf8'));
-  if (manifest.version !== 1 || !Array.isArray(manifest.files))
+  if (manifest.version !== 1 || !Array.isArray(manifest.files) || !manifest.files.length)
     throw new WeavaError('备份清单格式无效。');
+  const paths = new Set<string>();
   for (const item of manifest.files) {
+    if (!item || typeof item.path !== 'string' || item.path.includes('\\') ||
+      item.path.split('/').some((part: string) => !part || part === '.' || part === '..') ||
+      typeof item.hash !== 'string' || !/^[a-f0-9]{64}$/.test(item.hash) || paths.has(item.path.toLowerCase()))
+      throw new WeavaError('备份清单包含无效或重复文件。');
+    paths.add(item.path.toLowerCase());
     const file = inside(folder, item.path);
     if (
       !existsSync(file) ||
@@ -58,11 +66,33 @@ export function verifyBackup(folder: string) {
     )
       throw new WeavaError('备份校验失败：' + item.path);
   }
+  if (!manifest.files.some((item: { path: string }) => item.path === 'weava.sqlite'))
+    throw new WeavaError('备份清单缺少站点数据库。');
+  verifyDatabase(join(folder, 'weava.sqlite'));
   return manifest;
+}
+function verifyDatabase(file: string) {
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  try {
+    const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[]).map((row) => row.name));
+    if (['records', 'revisions', 'releases', 'state', 'schema_migrations'].some((name) => !tables.has(name)) ||
+      db.pragma('integrity_check', { simple: true }) !== 'ok') throw new WeavaError('备份数据库结构或完整性无效。');
+  } finally { db.close(); }
+}
+export function copyVerifiedBackup(folder: string, target: string) {
+  const manifest = verifyBackup(folder);
+  mkdirSync(target, { recursive: true });
+  for (const item of manifest.files as { path: string; hash: string }[]) {
+    const destination = inside(target, item.path);
+    mkdirSync(resolve(destination, '..'), { recursive: true });
+    copyFileSync(inside(folder, item.path), destination);
+    if (digest(readFileSync(destination)) !== item.hash) throw new WeavaError('复制期间备份文件发生变化：' + item.path);
+  }
+  verifyDatabase(join(target, 'weava.sqlite'));
 }
 export async function restoreBackup(folder: string, target: string, backupRoot: string) {
   verifyBackup(folder);
-  assertOffline(target);
+  return withInstanceMaintenance(target, async () => {
   recoverRestore(target);
   if (existsSync(join(target, 'weava.sqlite'))) {
     const site = new Site(target);
@@ -73,13 +103,7 @@ export async function restoreBackup(folder: string, target: string, backupRoot: 
     }
   }
   const staging = target + '.restore-' + uuid();
-  mkdirSync(staging, { recursive: true });
-  for (const file of walk(folder)) {
-    if (relative(folder, file) === 'manifest.json') continue;
-    const to = join(staging, relative(folder, file));
-    mkdirSync(resolve(to, '..'), { recursive: true });
-    copyFileSync(file, to);
-  }
+  copyVerifiedBackup(folder, staging);
   const check = new Site(staging);
   try {
     if (check.store.raw.pragma('integrity_check', { simple: true }) !== 'ok')
@@ -106,6 +130,7 @@ export async function restoreBackup(folder: string, target: string, backupRoot: 
   }
   atomicJson(journal, { ...state, status: 'complete' });
   return { restored: true, target, retained: state.backup };
+  });
 }
 export function recoverRestore(target: string) {
   const journal = target + '.restore.json';
@@ -118,7 +143,7 @@ export function recoverRestore(target: string) {
     !state.backup?.startsWith(target + '.retained-')
   )
     throw new WeavaError('恢复日志路径无效，请检查：' + journal);
-  assertOffline(target);
+  return withInstanceMaintenance(target, () => {
   if (!existsSync(target) && existsSync(state.backup)) renameSync(state.backup, target);
   else if (!existsSync(target) && existsSync(state.staging)) renameSync(state.staging, target);
   if (!existsSync(join(target, 'weava.sqlite')))
@@ -133,16 +158,8 @@ export function recoverRestore(target: string) {
   }
   atomicJson(journal, { ...state, status: 'recovered' });
   return { recovered: true, target };
+  });
 }
 export function assertOffline(root: string) {
-  const file = join(root, 'runtime.json');
-  if (!existsSync(file)) return;
-  const runtime = JSON.parse(readFileSync(file, 'utf8'));
-  if (runtime.status === 'stopped') return;
-  try {
-    process.kill(runtime.pid, 0);
-  } catch {
-    return;
-  }
-  throw new WeavaError('站点服务仍在运行，请先停止服务。', 409);
+  assertMaintenanceAvailable(root);
 }

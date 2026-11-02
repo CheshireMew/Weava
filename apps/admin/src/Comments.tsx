@@ -7,6 +7,7 @@ export default function Comments({ onError }: { onError: (message: string) => vo
   const [status, setStatus] = useState('all'), [page, setPage] = useState(1);
   const [data, setData] = useState<{ items: Row[]; total: number; hasMore: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reply,setReply]=useState<{parentId:string;body:string;clientId:string}|null>(null);
   const refresh = () => api(`comments?status=${status}&page=${page}`).then(setData);
   useEffect(() => {
     let active = true;
@@ -31,10 +32,13 @@ export default function Comments({ onError }: { onError: (message: string) => vo
     {data ? <>
       {!data.items.length && <p className="muted">暂无评论</p>}
       {data.items.map((row) => <article className="admin-comment form-card" key={row.id}>
-        <header><strong>{row.author}</strong><time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
+        <header><strong>{row.author}</strong>{row.isOwner&&<span className="comment-owner">站主</span>}<time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
         {row.path ? <a href={row.path + '#comments'} target="_blank" rel="noreferrer">{row.title}</a> : <span>{row.title}</span>}
         <p>{row.body}</p>
+        {row.replyTo&&<p>回复 {row.replyTo}</p>}
         <button disabled={busy} onClick={() => moderate(row)}>{row.status === 'pending' ? '通过审核' : row.status === 'visible' ? '隐藏评论' : '恢复显示'}</button>
+        {row.status==='visible'&&<button disabled={busy} onClick={()=>setReply({parentId:row.id,body:'',clientId:crypto.randomUUID()})}>回复</button>}
+        {reply?.parentId===row.id&&<form onSubmit={async event=>{event.preventDefault();if(busy)return;setBusy(true);try{await api('comment/reply',reply);setReply(null);await refresh();}catch(error:any){onError(error.message);}finally{setBusy(false);}}}><label>回复 {row.author}<textarea required maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><button disabled={busy}>发布回复</button><button type="button" disabled={busy} onClick={()=>setReply(null)}>取消</button></form>}
       </article>)}
       <nav className="comment-pagination" aria-label="评论分页">
         <button disabled={page === 1 || busy} onClick={() => setPage(page - 1)}>上一页</button><span>第 {page} 页</span><button disabled={!data.hasMore || busy} onClick={() => setPage(page + 1)}>下一页</button>

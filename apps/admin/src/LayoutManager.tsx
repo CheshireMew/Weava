@@ -3,35 +3,15 @@ import type { Layout } from '@weava/contracts';
 import { api } from './api.ts';
 import { PageDesigner } from './PageDesigner.tsx';
 import { cloneBlocks } from './block-tree.ts';
+import { useManagedRecord } from './EditSessions.tsx';
 
-export default function LayoutManager({ catalog, refresh, publish, onError, registerSave }: { catalog: any; refresh: () => Promise<any>; publish: () => Promise<any>; onError: (message: string) => void; registerSave: (save: (() => Promise<any>) | null) => void }) {
-  const [selected, setSelected] = useState<any>(null), [kind, setKind] = useState<Layout['kind']>('template');
-  const latest = useRef(selected), saved = useRef(''), running = useRef<Promise<any> | null>(null);
-  latest.current = selected;
+export default function LayoutManager({ catalog, refresh, publish, onError }: { catalog: any; refresh: () => Promise<any>; publish: () => Promise<any>; onError: (message: string) => void; }) {
+  const [kind, setKind] = useState<Layout['kind']>('template');
+  const managed = useManagedRecord<any>(null, async row => { const result = await api('layouts',{value:row.value,revision:row.revision}); await refresh(); return result; }, '布局');
+  const selected = managed.record, setSelected = managed.setRecord;
   const update = (patch: Partial<Layout>) => setSelected((row: any) => ({ ...row, value: { ...row.value, ...patch } }));
-  async function save(): Promise<any> {
-    if (running.current) { await running.current; return save(); }
-    const row = latest.current;
-    if (!row || saved.current === JSON.stringify(row.value)) return row;
-    const snapshot = structuredClone(row);
-    const task = api('layouts', { value: snapshot.value, revision: snapshot.revision }).then(async (result) => {
-      saved.current = JSON.stringify(snapshot.value);
-      if (latest.current?.id === snapshot.id) {
-        const next = { ...result, value: latest.current.value };
-        latest.current = next; setSelected(next);
-      }
-      await refresh(); return result;
-    }).finally(() => { running.current = null; });
-    running.current = task; const result = await task;
-    if (latest.current?.id === snapshot.id && JSON.stringify(latest.current.value) !== saved.current) return save();
-    return result;
-  }
-  useEffect(() => { registerSave(save); return () => registerSave(null); }, [registerSave]);
-  useEffect(() => {
-    const leave = (event: BeforeUnloadEvent) => { if (latest.current && JSON.stringify(latest.current.value) !== saved.current) { event.preventDefault(); event.returnValue = ''; } };
-    window.addEventListener('beforeunload', leave); return () => window.removeEventListener('beforeunload', leave);
-  }, []);
-  const select = async (row: any) => { try { await save(); setSelected(row); latest.current = row; saved.current = JSON.stringify(row.value); } catch (error: any) { onError(error.message); } };
+  const save = managed.session.save;
+  const select = async (row: any) => { try { await save(); managed.session.adopt(row); } catch (error: any) { onError(error.message); } };
   const create = async () => {
     try {
       await save(); const id = 'layout-' + crypto.randomUUID();

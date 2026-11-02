@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { WeavaError } from '@weava/contracts';
-import { normalizePath } from './site.ts';
+import { normalizePath } from './paths.ts';
 import { referral } from './analytics-dimensions.ts';
 
 const dayMs = 86400000;

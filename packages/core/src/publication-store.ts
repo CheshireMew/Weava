@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { Block, Release, PublishedEntry, Entry } from '@weava/contracts';
 import { plain, tokens } from './documents.ts';
+import { indexReleaseMedia } from './media-policy.ts';
+import { indexPublishedRevisions } from './list-index.ts';
 
 const keyOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -19,6 +21,10 @@ export function blockText(blocks: Block[],entry?:Entry,release?:Release,seen=new
     if (['button', 'attachment'].includes(block.type)) own = String(p.label ?? '');
     if (block.type === 'compatibility') own = plain(String(p.html ?? ''));
     if(block.type==='shared'&&release&&!seen.has(p.layoutId)){const target=release.layouts?.find((layout)=>layout.id===p.layoutId);if(target)own=blockText(target.blocks,entry,release,new Set(seen).add(p.layoutId));}
+    if (block.type === 'content-detail' && release) {
+      const target = p.entryId ? release.entries.find(item => item.id === p.entryId && item.visibility !== 'private') : entry;
+      if (target && !seen.has('entry:' + target.id)) own = target.blocks.length ? blockText(target.blocks,target,release,new Set(seen).add('entry:' + target.id)) : plain(target === entry ? (target as PublishedEntry).html ?? '' : (target as PublishedEntry).html);
+    }
     return plain(own) + ' ' + blockText(block.children ?? [],entry,release,seen);
   }).join(' ');
 }
@@ -59,20 +65,10 @@ export function storeRelease(db: Database.Database, release: Release, updateExis
   }
   if (updateExisting) db.prepare('UPDATE releases SET data=? WHERE id=?').run(JSON.stringify(manifest), release.id);
   else db.prepare('INSERT INTO releases VALUES(?,?,?)').run(release.id, JSON.stringify(manifest), release.createdAt);
+  indexReleaseMedia(db, release);
+  indexPublishedRevisions(db, release);
 }
-export function loadRelease(db: Database.Database, raw: string): Release {
-  const data = JSON.parse(raw);
-  if (data.storageVersion !== 2) return data as Release;
-  const read = db.prepare('SELECT data FROM publication_objects WHERE key=?');
-  const get = (key: string) => {
-    const row = read.get(key) as { data: string } | undefined;
-    if (!row) throw new Error('公开版本引用的数据不存在：' + key);
-    return JSON.parse(row.data);
-  };
-  return { id: data.id, createdAt: data.createdAt, label: data.label,
-    entries: data.entryKeys.map(get), settings: get(data.settingsKey), types: get(data.typesKey), redirects: get(data.redirectsKey), terms: data.termsKey ? get(data.termsKey) : [],
-    ...(data.layoutsKey ? { layouts: get(data.layoutsKey) } : {}) };
-}
+export { loadRelease } from './release-reader.ts';
 
 export function searchRelease(db: Database.Database, release: Release, query: string) {
   const terms = tokens(query).split(' ').filter(Boolean);

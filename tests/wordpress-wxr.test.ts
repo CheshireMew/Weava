@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync,symlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import sharp from 'sharp';
 import { Site, convertWordPressWxr, importWordPressWxr, renderEntryTemplate, resolveContentLinks } from '@weava/core';
 import { wordpressFixture } from './fixtures/wordpress-wxr.ts';
@@ -35,19 +35,18 @@ describe('standard WordPress WXR import', () => {
     site.saveEntry({ ...plugin.value, compatibility: { wordpress: { ...plugin.value.compatibility.wordpress, reviewed: true } } }, plugin.revision);
     expect(() => site.publish({ ids: [plugin.id] })).not.toThrow();
   });
-  it('downloads attachments into the local library and rewrites full-size, thumbnail, cover and responsive URLs atomically', async () => {
+  it('imports offline attachments and rewrites URLs atomically, rejecting network access to a local address', async () => {
     const image = await sharp({ create: { width: 600, height: 300, channels: 3, background: '#557744' } }).png().toBuffer();
-    const server = createServer((request, response) => { if (request.url?.endsWith('/photo.png')) { response.setHeader('Content-Type', 'image/png'); response.end(image); } else { response.statusCode = 404; response.end(); } });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const url = 'http://127.0.0.1:' + (server.address() as any).port + '/wp-content/uploads/photo.png';
-    try {
-      const site = create(); const report = await importWordPressWxr(site, wordpressFixture({ mediaUrl: url }), { downloadMedia: true });
+    const directory=join(base,'offline-media');mkdirSync(join(directory,'wp-content/uploads'),{recursive:true});writeFileSync(join(directory,'wp-content/uploads/photo.png'),image);
+    const url = 'http://127.0.0.1/wp-content/uploads/photo.png';
+      const blocked=create();await expect(importWordPressWxr(blocked,wordpressFixture({mediaUrl:url}),{downloadMedia:true})).rejects.toThrow(/内网/);
+      expect(blocked.store.list('entry')).toEqual([]);
+      const site = create(); const report = await importWordPressWxr(site, wordpressFixture({ mediaUrl: url }), { mediaDirectory:directory });
       expect(report.downloaded).toBe(1); const media = site.store.list('media')[0]; expect(media.value.alt).toBe('媒体说明'); expect(existsSync(site.root + media.value.url)).toBe(true);
       const post = site.store.list('entry').find((row) => row.value.title === '来源文章')!; expect(post.value.cover).toBe(media.value.url); expect(post.value.blocks[1].props.src).toBe(media.value.url);
-      const repeated = await importWordPressWxr(site, wordpressFixture({ mediaUrl: url }), { downloadMedia: true }); expect(repeated.exchange.updated).toEqual([]); expect(repeated.downloaded).toBe(0);
-      const failure = create(); await expect(importWordPressWxr(failure, wordpressFixture({ mediaUrl: url, missingMediaUrl: url.replace('photo.png', 'missing.png') }), { downloadMedia: true })).rejects.toThrow(/404/);
+      const repeated = await importWordPressWxr(site, wordpressFixture({ mediaUrl: url }), { mediaDirectory:directory }); expect(repeated.exchange.updated).toEqual([]); expect(repeated.downloaded).toBe(0);
+      const failure = create(); await expect(importWordPressWxr(failure, wordpressFixture({ mediaUrl: url, missingMediaUrl: url.replace('photo.png', 'missing.png') }), { mediaDirectory:directory })).rejects.toThrow(/ENOENT/);
       expect(failure.store.list('entry')).toEqual([]); expect(failure.store.list('media')).toEqual([]); expect(failure.store.raw.prepare('SELECT COUNT(*) n FROM article_comments').get()).toEqual({ n: 0 });
-    } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
   });
   it('rejects malformed XML, broken block structure, duplicate URLs and taxonomy cycles before changing the site', async () => {
     const site = create(), xml = wordpressFixture();
@@ -57,6 +56,12 @@ describe('standard WordPress WXR import', () => {
     await expect(importWordPressWxr(site, xml.replace('<wp:cat_name>写作', '<wp:category_parent>guides</wp:category_parent><wp:cat_name>写作'))).rejects.toThrow(/循环/);
     expect(site.store.list('entry')).toEqual([]);
     expect(() => convertWordPressWxr(site, xml.replaceAll('wp:', 'other:').replace('xmlns:wp=', 'xmlns:other='))).not.toThrow();
+  });
+  it('rejects an offline attachment junction escaping the selected directory without importing records',async()=>{
+    const directory=join(base,'linked-media'),outside=join(base,'outside-media');mkdirSync(join(directory,'wp-content'),{recursive:true});mkdirSync(outside,{recursive:true});writeFileSync(join(outside,'photo.png'),Buffer.from('private file'));
+    symlinkSync(outside,join(directory,'wp-content/uploads'),'junction');
+    const site=create();await expect(importWordPressWxr(site,wordpressFixture({mediaUrl:'https://source.example/wp-content/uploads/photo.png'}),{mediaDirectory:directory})).rejects.toThrow('超出指定目录');
+    expect(site.store.list('entry')).toEqual([]);expect(site.store.list('media')).toEqual([]);
   });
   it('ties a reviewed import to its exact source, options and current worktree revisions, with explicit merge revisions', async () => {
     const site = create(), xml = wordpressFixture();

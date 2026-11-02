@@ -4,9 +4,11 @@ import { Command } from 'commander';
 import { resolve, join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { readOwnerPassword } from './owner-input.ts';
 import {
   Site,
-  assertOffline,
+  assertServiceStopped,
+  withInstanceMaintenance,
   restoreBackup,
   verifyBackup,
   recoverRestore,
@@ -27,11 +29,15 @@ import {
 import { seedDemo } from '../../core/src/demo.ts';
 import { migrateCrypto } from '../../core/src/migrate.ts';
 import { migrateWordPress, migrateWordPressViews } from '../../core/src/migrate-wordpress.ts';
+import { migrateWordPressRoutes } from '../../core/src/migrate-wordpress-routes.ts';
 import { importWordPressWxr } from '../../core/src/wordpress-wxr.ts';
 import { compactDatabase } from '../../core/src/history-archive.ts';
-import { selectedProgram,checkProgramUpgrade,applyProgramUpgrade,recoverProgramUpgrade,verifyProgram } from '../../core/src/programs.ts';
+import { registerDiagnostics } from './diagnostics/index.ts';
+import { selectedProgram,defaultProgram,checkProgramUpgrade,applyProgramUpgrade,recoverProgramUpgrade,verifyProgram } from '../../core/src/programs.ts';
+const bundledProgram = import.meta.dirname.endsWith('runtime') && existsSync(join(import.meta.dirname,'..','program.json')) ? resolve(import.meta.dirname,'..') : null;
 const framework =
   process.env.WEAVA_FRAMEWORK ??
+  bundledProgram ??
   (import.meta.dirname.endsWith('dist')
     ? resolve(import.meta.dirname, '..')
     : resolve(import.meta.dirname, '../../..'));
@@ -46,6 +52,7 @@ program.command('schema').option('--format <format>', 'json、openapi 或 types'
 function output(value: any) {
   console.log(JSON.stringify(value, null, program.opts().human ? 2 : 0));
 }
+registerDiagnostics(program, output);
 function root() {
   return resolve(program.opts().site);
 }
@@ -79,10 +86,11 @@ async function wait(job: any, enabled: boolean) {
 program
   .command('init')
   .option('--password-file <file>')
+  .option('--username <name>', '站主账户名', 'owner')
   .option('--demo')
   .option('--port <port>', '端口', '4322')
   .action(async (opts) => {
-    assertOffline(root());
+    return withInstanceMaintenance(root(), async () => {
     const fresh = !existsSync(join(root(), 'weava.sqlite'));
     const site = new Site(root());
     try {
@@ -93,7 +101,10 @@ program
           settings.revision,
         );
       }
-      if (opts.passwordFile) site.setOwner(readFileSync(opts.passwordFile, 'utf8').trim());
+      if (opts.passwordFile) {
+        if(site.ownerExists())throw new Error('账户已经初始化，请使用 owner recover 或 reset-password。');
+        site.auth.recoverAccount(opts.username,await readOwnerPassword(opts.passwordFile));
+      }
       if (opts.demo) {
         mkdirSync(join(root(), 'media'), { recursive: true });
         writeFileSync(
@@ -112,16 +123,17 @@ program
     } finally {
       site.close();
     }
+    });
   });
 for (const mode of ['dev', 'start'])
   program
     .command(mode)
     .option('--port <port>')
     .action((opts) => {
-      assertOffline(root());
+      assertServiceStopped(root());
       const config = JSON.parse(readFileSync(join(root(), 'site.json'), 'utf8'));
       const port = String(opts.port ?? config.port ?? 4322);
-      const selected=mode==='start'?selectedProgram(root()):null;
+      const selected=mode==='start'?(selectedProgram(root())??(bundledProgram?verifyProgram(bundledProgram):defaultProgram(framework))):null;
       const args =
         mode === 'dev'
           ? [join(framework, 'node_modules/astro/bin/astro.mjs'), 'dev', '--port', port]
@@ -314,7 +326,7 @@ program
 program
   .command('logs')
   .requiredOption('--id <id>')
-  .option('--offset <offset>', '字符位置', '0')
+  .option('--offset <offset>', 'UTF-8 字节位置，使用上一响应的 end 继续读取', '0')
   .action(async (opts) =>
     output(await request('logs?id=' + encodeURIComponent(opts.id) + '&offset=' + opts.offset)),
   );
@@ -332,7 +344,7 @@ maintenance.command('archive').requiredOption('--input <file>','预检结果 JSO
 maintenance.command('archives').action(async()=>output(await request('maintenance/archives')));
 maintenance.command('inspect').requiredOption('--id <id>').action(async(opts)=>output(await request('maintenance/archive?id='+encodeURIComponent(opts.id))));
 maintenance.command('restore').requiredOption('--id <id>').option('--wait').action(async(opts)=>output(await wait(await request('maintenance/restore',{id:opts.id}),!!opts.wait)));
-maintenance.command('compact').action(async()=>{assertOffline(root());const site=new Site(root());try{output(await compactDatabase(site));}finally{site.close();}});
+maintenance.command('compact').action(async()=>withInstanceMaintenance(root(),async()=>{const site=new Site(root());try{output(await compactDatabase(site));}finally{site.close();}}));
 backup
   .command('create')
   .option('--path <path>', '备份根目录', 'D:/Tools/weava/backups')
@@ -369,20 +381,50 @@ program
     const data = JSON.parse(readFileSync(resolve(opts.input), 'utf8').replace(/^\ufeff/, ''));
     output(await request('import', { value: data, options: { mode: opts.merge ? 'merge' : 'create', dryRun: !!opts.dryRun, revisions: data.revisions } }));
   });
-program
-  .command('owner')
+const owner = program.command('owner');
+owner
   .command('reset-password')
-  .requiredOption('--password-file <file>')
-  .action((opts) => {
-    assertOffline(root());
+  .option('--password-file <file>', '不提供时在终端隐藏输入并确认密码')
+  .option('--username <name>', '同时恢复账户名')
+  .option('--rotate-cli-token', '同时撤销外部工具的旧令牌')
+  .action(async (opts) => {
+    const password=await readOwnerPassword(opts.passwordFile);
+    return withInstanceMaintenance(root(), () => {
     const site = new Site(root());
     try {
-      site.setOwner(readFileSync(resolve(opts.passwordFile), 'utf8').trim());
-      output({ updated: true });
+      if(opts.username)output(site.auth.recoverAccount(opts.username,password,{rotateCliToken:opts.rotateCliToken}));
+      else {site.setOwner(password);if(opts.rotateCliToken)site.auth.rotateCliToken(true);output({updated:true,loginRequired:true,cliTokenRotated:!!opts.rotateCliToken});}
     } finally {
       site.close();
     }
+    });
   });
+owner.command('recover').description('停站后恢复站主账户，按选项处理两步验证和外部工具令牌')
+  .requiredOption('--username <name>')
+  .option('--password-file <file>')
+  .option('--reset-two-factor', '同时关闭丢失的验证器')
+  .option('--rotate-cli-token', '同时撤销外部工具旧令牌')
+  .action(async opts=>{
+    const password=await readOwnerPassword(opts.passwordFile);
+    return withInstanceMaintenance(root(),()=>{
+      const site=new Site(root());try{output(site.auth.recoverAccount(opts.username,password,{resetTwoFactor:opts.resetTwoFactor,rotateCliToken:opts.rotateCliToken}));}finally{site.close();}
+    });
+  });
+owner.command('status').description('在本机查看站主账户名和后台入口，不输出秘密')
+  .action(()=>{if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');const site=new Site(root());try{const value=site.auth.account('');output({initialized:site.ownerExists(),username:value.username,adminPath:value.adminPath,twoFactorEnabled:value.twoFactorEnabled});}finally{site.close();}});
+owner.command('admin-path').description('停站后更改后台入口；旧地址返回 404')
+  .requiredOption('--path <path>')
+  .action(opts=>withInstanceMaintenance(root(),()=>{if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');const site=new Site(root());try{output(site.auth.setAdminPath(opts.path));}finally{site.close();}}));
+owner.command('rotate-cli-token').description('停站后轮换外部工具令牌，不输出令牌')
+  .option('--revoke-sessions', '同时撤销全部网页登录')
+  .action(opts=>withInstanceMaintenance(root(),()=>{if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');const site=new Site(root());try{output(site.auth.rotateCliToken(!!opts.revokeSessions));}finally{site.close();}}));
+owner.command('reset-two-factor').description('停站后清除站主两步验证并撤销全部登录会话')
+  .requiredOption('--confirm', '确认已持有站点本机控制权，需要恢复两步验证')
+  .action(()=>withInstanceMaintenance(root(),()=>{
+    if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');
+    const site=new Site(root());
+    try { site.auth.resetTwoFactor(); output({updated:true,loginRequired:true}); } finally {site.close();}
+  }));
 const migrate = program.command('migrate');
 migrate.command('wxr')
   .requiredOption('--input <file>', 'WordPress 标准 WXR XML 导出文件')
@@ -393,31 +435,33 @@ migrate.command('wxr')
   .option('--no-comments', '不导入来源评论')
   .option('--merge-revisions <file>', '合并已有内容的当前修订号，格式与 JSON 导入相同')
   .action(async (opts) => {
-    assertOffline(root()); const site = new Site(root());
+    return withInstanceMaintenance(root(), async () => { const site = new Site(root());
     try { output(await importWordPressWxr(site, readFileSync(resolve(opts.input), 'utf8'), { dryRun: !!opts.dryRun, settings: !!opts.settings, downloadMedia: !!opts.downloadMedia,
       mediaDirectory: opts.mediaDir ? resolve(opts.mediaDir) : undefined, comments: opts.comments, ...(opts.mergeRevisions ? { mode: 'merge', revisions: JSON.parse(readFileSync(resolve(opts.mergeRevisions), 'utf8')) } : {}) })); }
     finally { site.close(); }
+    });
   });
 migrate.command('crypto')
   .requiredOption('--source <path>')
   .requiredOption('--capture <path>')
   .option('--dry-run')
   .action(async (opts) => {
-    assertOffline(root());
-    output(await migrateCrypto(resolve(opts.source), root(), resolve(opts.capture), !!opts.dryRun));
+    await withInstanceMaintenance(root(), async () => output(await migrateCrypto(resolve(opts.source), root(), resolve(opts.capture), !!opts.dryRun)));
   });
 migrate.command('wordpress')
   .requiredOption('--source <path>', '已下载的 WordPress 内容目录')
   .option('--dry-run')
   .action(async (opts) => {
-    assertOffline(root());
-    output(await migrateWordPress(resolve(opts.source), root(), !!opts.dryRun));
+    await withInstanceMaintenance(root(), async () => output(await migrateWordPress(resolve(opts.source), root(), !!opts.dryRun)));
   });
+migrate.command('wordpress-routes')
+  .requiredOption('--input <file>', 'wordpress-routes-v1 公开网址与内容快照')
+  .option('--dry-run')
+  .action(async opts => output(await migrateWordPressRoutes(resolve(opts.input), root(), !!opts.dryRun)));
 migrate.command('wordpress-views')
   .requiredOption('--input <file>', 'WordPress 文章累计浏览量快照')
   .action(async (opts) => {
-    assertOffline(root());
-    output(await migrateWordPressViews(resolve(opts.input), root()));
+    await withInstanceMaintenance(root(), async () => output(await migrateWordPressViews(resolve(opts.input), root())));
   });
 migrate.command('wordpress-statistics-script')
   .requiredOption('--wordpress-root <path>','来源服务器上的 WordPress 绝对目录')

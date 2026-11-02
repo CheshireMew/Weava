@@ -10,6 +10,8 @@ export class AnalyticsGeo {
   private pending?: Promise<any>;
   private error = '';
   private checkedAt = '';
+  private stopped = false;
+  private controller?: AbortController;
   readonly file: string;
   constructor(root: string) {
     this.file = join(root, 'analytics', 'geoip-country.mmdb');
@@ -57,16 +59,18 @@ export class AnalyticsGeo {
     }
   }
   async update(force = true) {
+    if (this.stopped) throw new Error('地区库服务已关闭。');
     if (this.pending) return this.pending;
     const state = this.status();
     const month = new Date().toISOString().slice(0, 7);
     if (!force && state.builtAt?.slice(0, 7) === month) return state;
     this.pending = (async () => {
+      const controller = this.controller = new AbortController();
       this.checkedAt = new Date().toISOString();
       try {
         const response = await fetch(
           `https://download.db-ip.com/free/dbip-country-lite-${month}.mmdb.gz`,
-          { signal: AbortSignal.timeout(60000) },
+          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]) },
         );
         if (!response.ok) throw new Error('地区库下载失败：HTTP ' + response.status);
         if (Number(response.headers.get('content-length')) > 30 * 1024 * 1024)
@@ -80,6 +84,7 @@ export class AnalyticsGeo {
         }
         const bytes = gunzipSync(Buffer.concat(chunks), { maxOutputLength: 64 * 1024 * 1024 });
         const candidate = new Reader<CountryResponse>(bytes);
+        if (this.stopped) throw new Error('地区库服务已关闭。');
         if (!candidate.metadata.databaseType.toLowerCase().includes('country'))
           throw new Error('不是有效的国家地区数据库。');
         mkdirSync(join(this.file, '..'), { recursive: true });
@@ -94,10 +99,12 @@ export class AnalyticsGeo {
         this.error = error.message;
         throw error;
       } finally {
+        this.controller = undefined;
         this.pending = undefined;
       }
       return this.status();
     })();
     return this.pending;
   }
+  close() { this.stopped = true; this.controller?.abort(); }
 }

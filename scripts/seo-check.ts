@@ -46,7 +46,7 @@ let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined, page: Page
 const errors: string[] = [];
 try {
   let ready = false;
-  for (let i = 0; i < 60; i++) { if (server.exitCode !== null) throw new Error('server exited; see server.log'); try { const response = await fetch(origin + '/__health', { signal: AbortSignal.timeout(1500) }); if (response.ok) { assert.equal((await response.json() as any).site, root); ready = true; break; } } catch {} await new Promise((done) => setTimeout(done, 500)); }
+  for (let i = 0; i < 60; i++) { if (server.exitCode !== null) throw new Error('server exited; see server.log'); try { const response = await fetch(origin + '/__health', { headers:{Authorization:'Bearer '+token},signal: AbortSignal.timeout(1500) }); if (response.ok) { assert.equal((await response.json() as any).site, root); ready = true; break; } } catch {} await new Promise((done) => setTimeout(done, 500)); }
   assert(ready, 'server failed to start');
   const second = await readPage('/?page=2&utm_source=test'); assert.equal(second('link[rel="canonical"]').attr('href'), origin + '/?page=2'); assert.equal(second('.cards > .card').length, 10); // 33 posts plus one software entry, 24 on page one.
   assert.equal((await readPage('/?page=2&sort=popular'))('meta[name="robots"]').attr('content'), 'noindex,follow');

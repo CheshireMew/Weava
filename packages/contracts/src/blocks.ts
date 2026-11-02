@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { safeContentUrl } from './urls.ts';
 
 export interface BlockControl {
   key: string;
@@ -16,7 +17,7 @@ const string = z.string().optional();
 const number = (min: number, max: number) => z.number().finite().min(min).max(max).optional();
 const props = (shape: Record<string, z.ZodType>) => z.object(shape).passthrough();
 const field = (key: string, label: string, control: BlockControl['control'] = 'text', required = false): BlockControl => ({ key, label, control, required });
-const list = { title: string, contentType: string, category: string, tag: string, query: string,
+const list = { title: string, contentType: string, category: string, tag: string, author: string, query: string,
   filters: z.enum(['show', 'hide']).optional(),
   sort: z.enum(['date', 'title', 'oldest']).optional(), limit: number(1, 500), pageKey: string,
   fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional() };
@@ -56,6 +57,10 @@ export function validateBlockProps(type: string, value: Record<string, any>, pub
   if (!definition) return;
   const parsed = definition.schema.safeParse(value);
   if (!parsed.success) throw new Error(`${definition.label}区块参数无效：${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('；')}`);
+  for (const field of definition.fields) if (['url', 'media'].includes(field.control) && value[field.key] && !safeContentUrl(value[field.key], field.control === 'media'))
+    throw new Error(`${definition.label}区块的${field.label}网址无效。`);
+  if (type === 'gallery') for (const image of value.images ?? []) if (!safeContentUrl(typeof image === 'string' ? image : image.src, true)) throw new Error('相册图片网址无效。');
+  if (type === 'video' && value.poster && !safeContentUrl(value.poster, true)) throw new Error('视频封面网址无效。');
   if (publishing) for (const f of definition.fields)
     if (f.required && !String(value[f.key] ?? '').trim()) throw new Error(`${definition.label}区块需要填写${f.label}。`);
 }

@@ -1,9 +1,10 @@
+import { mediaReferencesIn } from './media-references.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'cheerio';
-import { effectiveFields, fieldIssues, contentBlockIssues, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
+import { effectiveFields, fieldIssues, contentBlockIssues, isReservedContentPath, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
 import type { Site } from './site.ts';
-import { normalizePath } from './site.ts';
+import { normalizePath } from './paths.ts';
 import { now, uuid, digest } from './storage.ts';
 import { renderDocument, validateFields } from './documents.ts';
 import { renderBlocks, renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
@@ -13,8 +14,10 @@ import { projectTerms, bindBlockTerms } from './taxonomy.ts';
 import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
 import type { Layout } from '@weava/contracts';
 import { validateSeo } from './seo.ts';
+import { publicationModifiedAt } from './source-content.ts';
 
-export function preparePublication(site: Site, options: PublishOptions = {}) {
+export type PublicationSite = Pick<Site, 'store' | 'root' | 'settings' | 'release' | 'terms' | 'fieldWidgets' | 'blockRenderers' | 'publicationValidators' | 'validateBlocks' | 'validateReleaseExtensions' | 'updateJob'>;
+export function preparePublication(site: PublicationSite, options: PublishOptions = {}) {
   const transition = site.store.state('extension-transition');
   if (transition) {
     let alive = false; try { process.kill(JSON.parse(transition).pid, 0); alive = true; } catch {}
@@ -66,7 +69,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     const old = entries.get(entry.id);
     if (old?.revisionId === row.revision) continue;
     entries.set(entry.id, { ...entry, status: 'published', publishedAt: entry.publishedAt || old?.publishedAt || time,
-      html: renderDocument(entry.document), modifiedAt: row.updatedAt, revisionId: row.revision });
+      html: renderDocument(entry.document), modifiedAt: publicationModifiedAt(entry, row.updatedAt), revisionId: row.revision });
   }
   for (const id of options.withdrawIds ?? []) {
     if (selected?.has(id)) throw new WeavaError('同一内容不能同时发布和撤下。');
@@ -76,6 +79,7 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
   }
   const terms: Term[] = ['entries', 'layouts', 'routes'].includes(scope) && previous ? [...(previous.terms ?? [])] : site.terms().map((row) => row.value);
   for (const entry of entries.values()) {
+    if (isReservedContentPath(normalizePath(entry.path))) throw new WeavaError('这个网址由系统使用：' + entry.path);
     // Legacy records receive stable references in the candidate, without rewriting author history.
     const normalized = entry.termIds ? entry : { ...entry, termIds: { categories: [] as string[], tags: [] as string[] } };
     if (!entry.termIds) for (const key of ['categories', 'tags'] as const) for (const label of entry[key]) {
@@ -179,9 +183,8 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
         renderSharedRegion('after', release, entry, site.blockRenderers, { strict: true }) + renderSharedRegion('footer', release, entry, site.blockRenderers, { strict: true }), release, true);
     } catch (error: any) { throw new WeavaError(`“${entry.title}”无法渲染：${error.message}`, 400, { id: entry.id }); }
     const source = html + JSON.stringify(entry.blocks) + JSON.stringify(entry.fields) + ' ' + entry.cover;
-    for (const match of source.matchAll(/\/media\/[\w%./@+~-]+/g)) {
-      const path = decodeURIComponent(match[0].replace(/[\\]+$/, ''));
-      if (!existsSync(join(site.root, path.slice(1)))) missing.push({ id: entry.id, path });
+    for (const path of mediaReferencesIn(source)) {
+      if (!existsSync(join(site.root, decodeURIComponent(path.slice(1))))) missing.push({ id: entry.id, path });
     }
     if (!entry.compatibility) {
       const $ = load(html);
@@ -213,13 +216,13 @@ export function preparePublication(site: Site, options: PublishOptions = {}) {
     routesChanged: digest(previous?.redirects ?? {}) !== digest(redirects),
     termsChanged: digest(previous?.terms ?? []) !== digest(terms),
     entries: release.entries.filter((entry) => digest(before.get(entry.id) ?? null) !== digest(entry))
-      .map((entry) => ({ id: entry.id, title: entry.title, path: entry.path, revision: entry.revisionId, action: before.has(entry.id) ? 'update' : 'add' })),
+      .map((entry) => ({ id: entry.id, title: entry.title, path: entry.path, revision: entry.revisionId, action: before.has(entry.id) ? 'update' as const : 'add' as const })),
     removed: [...before.values()].filter((entry) => !entries.has(entry.id)).map(({ id, title, path }) => ({ id, title, path })),
   };
   return { release, changes };
 }
 
-export function publish(site: Site, options: PublishOptions = {}) {
+export function publish(site: PublicationSite, options: PublishOptions = {}) {
   const { release, changes } = preparePublication(site, options);
   site.store.raw.transaction(() => {
     if ((site.store.state('release') ?? null) !== changes.baseReleaseId)

@@ -4,8 +4,8 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'no
 import { join, resolve } from 'node:path';
 import { WeavaError } from '@weava/contracts';
 import { digest } from './storage.ts';
-import { assertOffline } from './backup.ts';
-import { normalizePath } from './site.ts';
+import { withInstanceMaintenance } from './instance-access.ts';
+import { normalizePath } from './paths.ts';
 import { referral } from './analytics-dimensions.ts';
 
 const int = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -410,7 +410,7 @@ export async function importWordpressStatistics(
     verifyWordpressStatistics(plan.target, plan.sourceId);
     return { ...plan, changed: false, backup: null };
   }
-  assertOffline(plan.target);
+  return withInstanceMaintenance(plan.target, async () => {
   const snapshot = readWordpressStatistics(input);
   if (metadata(snapshot).fingerprint !== plan.fingerprint)
     throw new WeavaError('快照文件在预检后发生变化。', 409);
@@ -471,6 +471,7 @@ export async function importWordpressStatistics(
   } finally {
     db.close();
   }
+  });
 }
 export function wordpressStatisticsSources(root: string) {
   const db = database(resolve(root), 'analytics.sqlite');

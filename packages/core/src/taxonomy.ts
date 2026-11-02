@@ -13,7 +13,7 @@ export function bindBlockTerms(blocks: Block[], catalog: Term[]): Block[] {
   });
 }
 
-export function saveTerm(site: Site, input: Term, revision: number | null) {
+export function saveTerm(site: Pick<Site, 'store' | 'terms'>, input: Term, revision: number | null) {
   const term = { ...input, label: input.label.trim(), slug: input.slug.trim() };
   if (!term.id || !['category', 'tag'].includes(term.kind) || !term.label || !term.slug || /[/?#\\]/.test(term.slug))
     throw new WeavaError('分类或标签的名称、标识或网址无效。');
@@ -31,7 +31,7 @@ export function saveTerm(site: Site, input: Term, revision: number | null) {
   }
   return site.store.put('term', term.id, term, revision);
 }
-export function ensureTerm(site: Site, label: string, kind: Term['kind'], preferredId?: string) {
+export function ensureTerm(site: Pick<Site, 'store' | 'terms'>, label: string, kind: Term['kind'], preferredId?: string) {
   const existing = site.store.list('term').find((row) => row.value.kind === kind && row.value.label === label);
   if (existing) return existing.value as Term;
   const id = preferredId && !site.store.get('term', preferredId) ? preferredId : kind + '-' + digest(label).slice(0, 16);
@@ -39,7 +39,7 @@ export function ensureTerm(site: Site, label: string, kind: Term['kind'], prefer
   if (site.store.list('term').some((row) => row.value.kind === kind && row.value.slug === term.slug)) term.slug += '-' + digest(label).slice(0, 6);
   return saveTerm(site, term, null).value as Term;
 }
-export function attachTerms(site: Site, entry: Entry, previous?: Entry): Entry {
+export function attachTerms(site: Pick<Site, 'store' | 'terms'>, entry: Entry, previous?: Entry): Entry {
   const catalog = site.store.list('term').map((row) => row.value as Term);
   const result = { ...entry, termIds: { categories: [] as string[], tags: [] as string[] } };
   for (const key of ['categories', 'tags'] as const) {

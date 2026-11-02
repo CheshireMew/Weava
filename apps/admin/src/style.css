@@ -632,11 +632,24 @@ input[type='checkbox'] {
 .form-card h2 {
   margin-bottom: 20px;
 }
+.account-session { padding-block: 16px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.account-security { display:grid;gap:24px;align-content:start; }
+.comment-owner { padding:1px 6px;border:1px solid var(--accent);border-radius:4px;font-size:11px;color:var(--accent); }
+.account-session p { margin: 4px 0; font-size: 13px; }
+.recovery-codes { user-select: all; line-height: 1.8; overflow-x: auto; }
 .settings-panels {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
 }
+.advertisement-settings { grid-column: 1 / -1; }
+.advertisement-settings > p { margin: -8px 0 24px; color: var(--ink-muted); }
+.advertisement-editors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.advertisement-editors fieldset { min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 8px; }
+.advertisement-editors legend { padding-inline: 6px; font-weight: 600; }
+.advertisement-code { font: 13px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+@media (max-width: 700px) { .advertisement-editors { grid-template-columns: minmax(0, 1fr); } }
 .navigation-row {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
@@ -1197,8 +1210,8 @@ fieldset {
 .term-selection { display: flex; flex-wrap: wrap; gap: 5px; }
 .term-selection button { padding: 3px 7px; font-size: 0.929rem; }
 .term-options { display: grid; gap: 5px; max-height: 160px; overflow-y: auto; }
-.term-options label { display: flex; align-items: center; gap: 6px; }
-.term-options input { width: auto; }
+.term-options label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; min-height: 36px; padding: 4px; cursor: pointer; }
+.term-options input[type='checkbox'] { width: 16px; height: 16px; min-height: 0; padding: 0; flex: 0 0 16px; }
 .asset-dialog { width: min(900px, calc(100vw - 32px)); max-height: calc(100vh - 48px); border: 1px solid var(--line); border-radius: 16px; padding: 24px; color: #20382f; }
 .asset-dialog::backdrop { background: #132b2380; }
 .selector-toolbar, .selector-field, .block-tools, .designer-top { display: flex; align-items: center; gap: 8px; }
@@ -1396,3 +1409,14 @@ button.primary:active:not(:disabled), .icon-primary:active:not(:disabled) { back
 .saved-view-controls button { padding: 6px 9px; }
 .writing > .custom-fields-grid { margin-top: 24px; }
 @media (max-width: 640px) { .custom-field.half { grid-column: 1 / -1; } .repeat-actions { flex-wrap: wrap; } }
+
+.job-logs { width: min(960px, calc(100vw - 32px)); }
+.job-logs pre { max-height: 55dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.job-log-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.account-qr { display: block; max-width: 100%; height: auto; background: white; margin-block: 12px; }
+.account-events { padding-inline-start: 20px; max-height: 420px; overflow: auto; }
+.account-events li { padding-block: 10px; border-bottom: 1px solid var(--line); }
+.account-events span { display: block; color: var(--muted); font-size: 12px; margin-block-start: 4px; }
+.account-panel label:has(> input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; margin-block: 12px; }
+.account-panel input[type="checkbox"] { width: auto; }

@@ -22,7 +22,7 @@ async function task(action: string, body: any) {
   assert.equal(value.status, 'complete', JSON.stringify(value));
   return value;
 }
-const before = (await (await fetch('http://127.0.0.1:4322/__health')).json()) as any;
+const before = (await (await fetch('http://127.0.0.1:4322/__health',{headers})).json()) as any;
 const buildStamp = statSync('apps/web/dist/server/entry.mjs').mtimeMs;
 const checks: string[] = [];
 const id = 'api-check-' + Date.now(),
@@ -76,7 +76,7 @@ checks.push('real-worker-backup-and-verify');
 await request('withdraw', { id, revision: created.revision, archive: true });
 assert.equal((await fetch('http://127.0.0.1:4322' + value.path)).status, 404);
 checks.push('withdraw-updates-routing');
-const after = (await (await fetch('http://127.0.0.1:4322/__health')).json()) as any;
+const after = (await (await fetch('http://127.0.0.1:4322/__health',{headers})).json()) as any;
 assert.equal(before.pid, after.pid);
 assert.equal(buildStamp, statSync('apps/web/dist/server/entry.mjs').mtimeMs);
 checks.push('no-process-restart-or-program-rebuild');

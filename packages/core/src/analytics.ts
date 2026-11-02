@@ -1,19 +1,23 @@
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
 import { WeavaError } from '@weava/contracts';
-import { normalizePath } from './site.ts';
+import { normalizePath } from './paths.ts';
 import { AnalyticsGeo } from './analytics-geo.ts';
 import { deviceInfo, referral, type AnalyticsContext } from './analytics-dimensions.ts';
 import { analyticsReport, realtimeReport, visitorReport } from './analytics-reports.ts';
+import { acquireInstanceWriter, type InstanceWriter } from './instance-access.ts';
 export interface HistoricalViewImport {
   sourceId: string;
   capturedAt: string;
   entries: { entryId: string; path: string; views: number }[];
 }
 export class Analytics {
-  raw: Database.Database;
+  raw!: Database.Database;
   geo: AnalyticsGeo;
+  private writer: InstanceWriter;
   constructor(root: string) {
+    this.writer = acquireInstanceWriter(root);
+    try {
     this.geo = new AnalyticsGeo(root);
     this.raw = new Database(join(root, 'analytics.sqlite'));
     this.raw.pragma('journal_mode=WAL');
@@ -31,6 +35,20 @@ export class Analytics {
     this.raw.exec(
       'CREATE TABLE IF NOT EXISTS crawler_requests(id TEXT PRIMARY KEY,ts TEXT NOT NULL,path TEXT NOT NULL,agent TEXT NOT NULL,status INTEGER NOT NULL);CREATE INDEX IF NOT EXISTS crawler_date ON crawler_requests(ts,path);',
     );
+    this.raw.transaction(() => {
+      if (!this.raw.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='view_counts'").get()) {
+        this.raw.exec(`CREATE TABLE view_counts(path TEXT PRIMARY KEY,views INTEGER NOT NULL);
+          INSERT INTO view_counts SELECT path,COUNT(*) FROM events WHERE kind='view' GROUP BY path;`);
+      }
+      this.raw.exec(`CREATE TRIGGER IF NOT EXISTS count_view_insert AFTER INSERT ON events WHEN NEW.kind='view' BEGIN
+          INSERT INTO view_counts VALUES(NEW.path,1) ON CONFLICT(path) DO UPDATE SET views=views+1; END;
+        CREATE TRIGGER IF NOT EXISTS count_view_delete AFTER DELETE ON events WHEN OLD.kind='view' BEGIN
+          UPDATE view_counts SET views=views-1 WHERE path=OLD.path; END;
+        CREATE TRIGGER IF NOT EXISTS count_view_update AFTER UPDATE OF kind,path ON events BEGIN
+          UPDATE view_counts SET views=views-1 WHERE OLD.kind='view' AND path=OLD.path;
+          INSERT INTO view_counts SELECT NEW.path,1 WHERE NEW.kind='view' ON CONFLICT(path) DO UPDATE SET views=views+1; END;`);
+    }).immediate();
+    } catch (error) { if (this.raw?.open) this.raw.close(); this.writer.release(); throw error; }
   }
   collect(value: any, agent: string, allowed: Set<string>, context: AnalyticsContext = {}) {
     if (/bot|crawler|spider|headless|playwright|preview|slurp/i.test(agent)) return { accepted: 0 };
@@ -199,18 +217,12 @@ export class Analytics {
       .immediate();
   }
   viewTotals(entries: { id: string; path: string }[]) {
-    const historical = new Map(
-      (this.raw.prepare('SELECT entry_id,views FROM historical_views').all() as any[]).map(
-        (row) => [row.entry_id, row.views],
-      ),
-    );
-    const recorded = new Map(
-      (
-        this.raw
-          .prepare("SELECT path,COUNT(*) views FROM events WHERE kind='view' GROUP BY path")
-          .all() as any[]
-      ).map((row) => [row.path, row.views]),
-    );
+    const historical = new Map<string,number>(), recorded = new Map<string,number>();
+    for(let offset=0;offset<entries.length;offset+=200){
+      const batch=entries.slice(offset,offset+200),marks=batch.map(()=>'?').join(',');
+      for(const row of this.raw.prepare(`SELECT entry_id,views FROM historical_views WHERE entry_id IN (${marks})`).all(...batch.map(entry=>entry.id)) as {entry_id:string;views:number}[]) historical.set(row.entry_id,row.views);
+      for(const row of this.raw.prepare(`SELECT path,views FROM view_counts WHERE path IN (${marks})`).all(...batch.map(entry=>normalizePath(entry.path))) as {path:string;views:number}[]) recorded.set(row.path,row.views);
+    }
     return new Map(
       entries.map((entry) => [
         entry.id,
@@ -343,7 +355,9 @@ export class Analytics {
     return csv(datasets[dataset], columns[dataset]);
   }
   close() {
-    this.raw.close();
+    this.geo.close();
+    if (this.raw.open) this.raw.close();
+    this.writer.release();
   }
 }
 export function csv(rows: any[], columns?: string[]) {

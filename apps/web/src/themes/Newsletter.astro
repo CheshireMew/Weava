@@ -1,9 +1,10 @@
 ---
 import SeoHead from '../components/SeoHead.astro';
+import Advertisement from '../components/Advertisement.astro';
 import type { PageMetadata } from '@weava/core';
 import type { Release, PublishedEntry } from '@weava/contracts';
 import { site, analytics, engagement } from '../runtime.ts';
-import { imageAttributes, renderFields, articleOutline, renderNavigation, selectEntries, paginate, pageLinks, layoutFor } from '@weava/core';
+import { imageAttributes, renderFields, articleOutline, renderNavigation, selectEntries, paginate, pageLinks, layoutFor, wordpressArchivePage } from '@weava/core';
 import ArticleActions from './ArticleActions.astro';
 import { featuredEntries, recommendedEntries, feedLinks } from '@weava/core';
 import ArticleComments from './ArticleComments.astro';
@@ -30,6 +31,8 @@ interface Props {
 }
 const { release, entry, title, description, canonical, schema, metadata, content, headerRegion, footerRegion, beforeRegion, afterRegion, results, searchPagination, preview, missing, owner } = Astro.props;
 const settings = release.settings;
+const sidebarHtml = typeof settings.extensions.newsletter?.sidebarHtml === 'string'
+  ? settings.extensions.newsletter.sidebarHtml : '';
 const privateArticle = entry?.visibility === 'private';
 const posts = release.entries.filter((item) => item.kind === 'content' && item.visibility !== 'private')
   .map((item) => ({ ...item, cover: item.cover || item.html.match(/<img\b[^>]*\bsrc=["']([^"']+)/i)?.[1] || '' }))
@@ -49,13 +52,13 @@ const isListing = template === 'newsletter-archive';
 const sort = Astro.url.searchParams.get('sort') === 'popular' ? 'popular' : 'latest';
 const ordered = sort === 'popular' ? popular : posts;
 const grid = sort === 'popular' ? popular.slice(0, 9) : posts.slice(5, 14);
-const matching = selectEntries(ordered, { kind: 'content', type: listBlock?.props.contentType,
+const matching = selectEntries(ordered, { kind: 'content', type: listBlock?.props.contentType, author: listBlock?.props.author,
   category: listBlock?.props.category, tag: listBlock?.props.tag, query: listBlock?.props.query,
   fields: listBlock?.props.fields }, release.types, release.terms);
 const listingPage = paginate(matching,
-  isListing ? Number(Astro.url.searchParams.get('page') ?? 1) : 1, Math.min(100, Number(listBlock?.props.limit) || 24));
+  isListing ? wordpressArchivePage(entry, Astro.url) ?? Number(Astro.url.searchParams.get('page') ?? 1) : 1, Math.min(100, Number(listBlock?.props.limit) || 24));
 const listing = listingPage.items;
-const listingLinks = pageLinks(listingPage, Astro.url);
+const listingLinks = pageLinks(listingPage, Astro.url, 'page', entry);
 const date = (item: PublishedEntry, year = false) => item.publishedAt
   ? new Intl.DateTimeFormat(settings.language, { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: settings.timezone }).format(new Date(item.publishedAt))
   : '';
@@ -102,10 +105,11 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
     <nav class="nl-navigation" aria-label="主导航">
       <Fragment set:html={renderNavigation(settings.navigation, activePath, release)} />
     </nav></>}
+    <div class="nl-wrap weava-advertisement-region nl-site-advertisement nl-site-advertisement-top"><Advertisement settings={settings} position="siteTop" /></div>
     {beforeRegion && <div class="nl-wrap shared-region" set:html={beforeRegion} />}
     <main id="main" tabindex="-1" class:list={['nl-wrap', { 'nl-reading': entry?.kind === 'content' }]}>
       {isHome && feature ? <>
-        <div class="nl-page" set:html={content} />
+        <div class="nl-page nl-home-intro" set:html={content} />
         <section class="nl-lead" aria-label="头条文章">
           <article class="nl-feature">
             {feature.cover && <a class="nl-feature-image" href={feature.path} tabindex="-1" aria-hidden="true"><img {...image(feature, '(max-width: 700px) 100vw, 530px')} alt="" loading="eager" fetchpriority="high" /></a>}
@@ -145,6 +149,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
             <div class="nl-profile">
               {settings.logo ? <img class="nl-profile-logo" src={settings.logo} alt="" width="38" height="38" /> : <span class="nl-monogram">{settings.name.slice(0, 1)}</span>}
               <h2>{settings.name}</h2><p>{settings.description}</p><a class="nl-subscribe" href="/rss.xml"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="4" cy="16" r="1" fill="currentColor" /><path d="M3 9a8 8 0 0 1 8 8M3 3a14 14 0 0 1 14 14" /></svg>订阅 RSS</a>
+              {sidebarHtml.trim() && <div class="nl-sidebar-custom" set:html={sidebarHtml} />}
             </div>
             <section class="nl-categories"><h2>分类</h2>{categories.map((category) => <a href={category.path}><span>{category.label}</span><span>{category.count}</span></a>)}</section>
           </aside>
@@ -156,7 +161,9 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
           <div class="nl-toc-backdrop" data-toc-close hidden={!tocOpen}></div>
           <div class="nl-toc-panel" id="article-toc" hidden={!tocOpen}><div class="nl-toc-heading"><span>目录</span><button type="button" data-toc-close aria-label="收起文章目录">×</button></div><nav aria-label="文章目录">{outline.items.map((item) => <a href={`#${encodeURIComponent(item.id)}`} data-heading-id={item.id} style={`--toc-depth:${item.level - 2}`}>{item.title}</a>)}</nav></div>
         </aside>}
+        <Advertisement settings={settings} position="articleTop" />
         <article class="prose nl-prose" data-article-body set:html={outline.html} />
+        <Advertisement settings={settings} position="articleBottom" />
 
         {interactive && <><ArticleActions position="bottom" counts={discussion} /><ArticleComments allowComments={entry?.allowComments !== false} items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} /></>}
         {posts.length > 1 && <section class="nl-article-recommendations" id="more-articles"><div class="nl-feed-heading"><nav class="nl-tabs" aria-label="推荐文章排序"><button type="button" data-recommend-sort="related" aria-pressed="true">相关</button><button type="button" data-recommend-sort="popular" aria-pressed="false">热门</button><button type="button" data-recommend-sort="latest" aria-pressed="false">最新</button></nav><a class="nl-icon" href="/search/" aria-label="搜索文章"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a></div>
@@ -174,6 +181,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
         : <section class="nl-page"><div class="prose nl-prose" set:html={content} /></section>}
     </main>
     {afterRegion && <div class="nl-wrap shared-region" set:html={afterRegion} />}
+    <div class="nl-wrap weava-advertisement-region nl-site-advertisement nl-site-advertisement-bottom"><Advertisement settings={settings} position="siteBottom" /></div>
     {footerRegion ? <footer class="nl-wrap" set:html={footerRegion} /> : <footer class="nl-footer nl-wrap"><a href="/">{settings.name}</a><nav aria-label="页脚"><a href="/">首页</a><a href={archiveUrl}>归档</a><a href="/rss.xml">RSS</a>{feedLinks(entry, release).slice(1).map((link) => <a href={link.url}>{link.title} RSS</a>)}<a href="/sitemap.xml">站点地图</a></nav><span>{settings.footer}</span></footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && isArticle && <script src="/weava-article.js" defer is:inline />}

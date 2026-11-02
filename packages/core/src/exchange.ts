@@ -1,6 +1,7 @@
 import { entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, WeavaError, type Settings, type Term, type Layout } from '@weava/contracts';
 import { saveContentView, saveCreationTemplate } from './authoring.ts';
 import { saveLayout } from './layouts.ts';
+import { saveTerm as saveTermRecord } from './taxonomy.ts';
 import type { Site } from './site.ts';
 import { digest } from './storage.ts';
 
@@ -20,8 +21,8 @@ export interface ImportOptions {
   dryRun?: boolean;
   revisions?: Record<string, number>;
 }
-export function exportSite(site: Site): SiteExchange {
-  return { version: 1, settings: site.settings().value, types: site.store.list('type').map((row) => row.value),
+export function exportSite(site: Site) {
+  return { version: 1 as const, settings: site.settings().value, types: site.store.list('type').map((row) => row.value),
     entries: site.store.list('entry').map((row) => row.value), terms: site.terms().map((row) => row.value), layouts: site.store.list('layout').map((row) => row.value),
     redirects: Object.fromEntries(site.store.list('redirect').map((row) => [row.id, row.value])),
     contentViews: site.store.list('content-view').map((row) => row.value), creationTemplates: site.store.list('creation-template').map((row) => row.value) };
@@ -91,10 +92,12 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
         const index = pending.findIndex((term) => !term.parentId || site.store.get('term', term.parentId));
         if (index < 0) throw new WeavaError('导入分类的上级不存在或存在循环。');
         const [term] = pending.splice(index, 1);
-        save('term', term.id, term, (revision) => site.saveTerm(term, revision));
+        // Full settings import owns its projection in this transaction. Do not
+        // advance that revision while saving the preceding term records.
+        save('term', term.id, term, (revision) => source.settings ? saveTermRecord(site, term, revision) : site.saveTerm(term, revision));
       }
       if (source.settings) save('settings', 'site', source.settings, (revision) => site.saveSettings(source.settings!, revision!));
-      for (const type of types) save('type', type.id, type, (revision) => site.saveType(type, revision));
+      for (const type of types) save('type', type.id, type, (revision) => site.saveType(type, revision, entries));
       const layoutQueue = [...layouts];
       while (layoutQueue.length) {
         const available = layoutQueue.findIndex((layout) => {

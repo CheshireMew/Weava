@@ -1,10 +1,14 @@
 import { defineMiddleware } from 'astro:middleware';
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { site, siteExtension, analytics } from './runtime.ts';
-import { inside, normalizePath } from '@weava/core';
+import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile } from '@weava/core';
+import { WeavaError } from '@weava/contracts';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
+import { assertRequestOrigin } from '../../../packages/core/src/request-safety.ts';
+import { requestIdentity } from '@weava/core';
+import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
 const compress = promisify(gzip);
 const mime: Record<string, string> = {
   '.css': 'text/css',
@@ -28,15 +32,20 @@ const mime: Record<string, string> = {
   '.txt': 'text/plain',
 };
 const serve = defineMiddleware(async (context, next) => {
+  let peer='';try{peer=context.clientAddress;}catch{}
+  assertRequestOrigin(context.request,requestIdentity(context.request,peer).protocol);
   const path = context.url.pathname;
   if (path === '/__health')
     return Response.json({
       status: 'ready',
-      site: site.root,
       releaseId: site.store.state('release'),
-      pid: process.pid,
-    });
-  if (path === '/admin' || path.startsWith('/admin/') || path.startsWith('/_admin/')) {
+      ...(site.authenticate(context.cookies.get('weava-session')?.value??'') || context.request.headers.get('authorization')==='Bearer '+site.cliToken()?{site:site.root,pid:process.pid}:{}),
+    },{headers:{'Cache-Control':'no-store','Vary':'Cookie, Authorization'}});
+  const adminPath=site.auth.adminPath();
+  if ((path==='/admin'||path.startsWith('/admin/')||site.auth.retiredAdminPaths().some(old=>path===old||path.startsWith(old+'/'))) && !isAdminPage(path,adminPath))
+    return new Response('Not found',{status:404,headers:{'Cache-Control':'no-store'}});
+  if(path.startsWith('/_admin/')&&!path.startsWith('/_admin/assets/'))return new Response('Not found',{status:404});
+  if (isAdminPage(path,adminPath) || path.startsWith('/_admin/assets/')) {
     const framework = process.env.WEAVA_FRAMEWORK ?? resolve(process.cwd(), '../..');
     const base = process.env.WEAVA_ADMIN_DIST ?? join(framework, 'apps/admin/dist');
     const file = path.startsWith('/_admin/')
@@ -52,15 +61,14 @@ const serve = defineMiddleware(async (context, next) => {
     });
   }
   if (path.startsWith('/media/')) {
-    const privateMedia = site.isPrivateMedia(path);
+    let identity: string, file: string;
+    try { identity = mediaIdentity(path); file = mediaFile(site.root, identity); }
+    catch { return new Response('Not found', { status: 404 }); }
+    const privateMedia = site.isPrivateMedia(identity);
     if (privateMedia && !site.authenticate(context.cookies.get('weava-session')?.value ?? '') &&
       context.request.headers.get('authorization') !== 'Bearer ' + site.cliToken())
       return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'private, no-store', 'Vary': 'Cookie, Authorization' } });
-    const file = inside(join(site.root, 'media'), decodeURIComponent(path.slice(7)));
-    if (!existsSync(file) || !statSync(file).isFile())
-      return new Response('Not found', { status: 404 });
-    const bytes = readFileSync(file),
-      type = mime[extname(file)] ?? 'application/octet-stream';
+    const type = mime[extname(file)] ?? 'application/octet-stream';
     const headers: Record<string, string> = {
       'Content-Type': type,
       'Cache-Control': privateMedia ? 'private, no-store' : 'public, max-age=0, must-revalidate',
@@ -70,38 +78,37 @@ const serve = defineMiddleware(async (context, next) => {
     if (type === 'text/html')
       headers['Content-Security-Policy'] =
         "sandbox allow-scripts; default-src 'self' data: https:; script-src 'unsafe-inline' https:; connect-src https:";
-    const range = context.request.headers.get('range');
-    if (range) {
-      const m = /^bytes=(\d*)-(\d*)$/.exec(range);
-      if (!m) return new Response(null, { status: 416 });
-      const start = m[1] ? Number(m[1]) : Math.max(0, bytes.length - Number(m[2])),
-        end = m[1]
-          ? Math.min(bytes.length - 1, m[2] ? Number(m[2]) : bytes.length - 1)
-          : bytes.length - 1;
-      if (start > end || start >= bytes.length)
-        return new Response(null, {
-          status: 416,
-          headers: { 'Content-Range': `bytes */${bytes.length}` },
-        });
-      return new Response(bytes.subarray(start, end + 1), {
-        status: 206,
-        headers: { ...headers, 'Content-Range': `bytes ${start}-${end}/${bytes.length}` },
-      });
-    }
-    return new Response(bytes, { headers });
+    else if(type==='image/svg+xml')headers['Content-Security-Policy']="sandbox; default-src 'none'; style-src 'unsafe-inline'";
+    else if(!/^(image|audio|video)\//.test(type) && type!=='text/vtt') headers['Content-Disposition']='attachment';
+    return mediaResponse(file, context.request, headers);
   }
   if (!path.startsWith('/api/')) {
     const redirect = site.redirect(context.url, site.authenticate(context.cookies.get('weava-session')?.value ?? ''));
     if (redirect) return new Response(null, { status: 301, headers: { Location: redirect } });
+    // An unavailable WordPress ID is a missing page, rather than a copy of the homepage.
+    if (path === '/' && (context.url.searchParams.has('p') || context.url.searchParams.has('page_id')))
+      return new Response('页面未找到', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Robots-Tag': 'noindex,nofollow' } });
     const custom = await (await siteExtension)?.route?.(context.request, site.visibleRelease());
     if (custom) return custom;
   }
   const response = await next();
-  if (!path.startsWith('/_astro/')) response.headers.set('Cache-Control', 'no-cache');
+  if (!path.startsWith('/_astro/') && !path.startsWith('/api/')) response.headers.set('Cache-Control', 'no-cache');
   return response;
 });
 export const onRequest = defineMiddleware(async (context, next) => {
-  const response = (await serve(context, next)) ?? new Response(null, { status: 500 });
+  let response: Response;
+  try { response = (await serve(context, next)) ?? new Response(null, { status: 500 }); }
+  catch (error) {
+    if (!(error instanceof WeavaError)) console.error('Request failed',error);
+    response = new Response(error instanceof WeavaError?error.message:'网站暂时无法完成请求。', { status: error instanceof WeavaError?error.status:500, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
+  }
+  response.headers.set('X-Content-Type-Options','nosniff');
+  response.headers.set('Referrer-Policy','strict-origin-when-cross-origin');
+  response.headers.set('X-Frame-Options','SAMEORIGIN');
+  const admin=isAdminPage(context.url.pathname,site.auth.adminPath())||context.url.pathname.startsWith('/_admin/');
+  if(admin)response.headers.set('Referrer-Policy','no-referrer');
+  if(admin)response.headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'");
+  else if(!context.url.pathname.startsWith('/media/'))response.headers.set('Content-Security-Policy',(response.headers.get('Content-Security-Policy')??'')+"; frame-ancestors 'self'; base-uri 'self'");
   if (context.request.method === 'GET' && site.visibleRelease()?.entries.some((entry) => entry.path === context.url.pathname)) {
     try { analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status); } catch {}
   }
@@ -114,7 +121,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
   const type = response.headers.get('content-type') ?? '';
   if (
-    context.request.method === 'HEAD' ||
+    context.request.method === 'HEAD' || context.url.pathname.startsWith('/media/') ||
     response.status !== 200 ||
     response.headers.has('content-encoding') ||
     !/(^text\/|application\/(json|javascript|xml)|image\/svg\+xml)/i.test(type)

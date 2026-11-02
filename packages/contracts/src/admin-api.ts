@@ -21,6 +21,8 @@ const redirectRecords=z.array(z.object({ id,revision:nullableRevision,updatedAt:
 const exportSchema=z.object({ version:z.number(),schemas:jsonObject,types:z.array(z.object({ id,revision,definition:typeSchema,schema:jsonObject })),rules:z.record(z.string(),z.string()) });
 const schemaResult=z.union([exportSchema,z.looseObject({ openapi:z.literal('3.1.0'),info:jsonObject,servers:z.array(jsonObject),security:z.array(jsonObject),components:jsonObject,paths:jsonObject }),z.string()]);
 const archiveContents=z.object({ id,releases:z.array(z.object({ id,createdAt:z.string() })),revisions:z.array(z.object({ revision,id,scope:z.string(),createdAt:z.string(),label:z.string() })) });
+const accountProof=z.object({ password:z.string().min(1).max(1024),code:z.string().max(100).optional() });
+const account=z.object({ username:z.string(),displayName:z.string(),adminPath:z.string(),twoFactorEnabled:z.boolean(),recoveryCodesRemaining:z.number(),events:z.array(z.object({id:z.number(),createdAt:z.string(),event:z.string(),source:z.string()})),sessions:z.array(z.object({ id:z.string(),createdAt:z.string().nullable(),lastSeen:z.string().nullable(),expiresAt:z.string(),browser:z.string(),os:z.string(),userAgent:z.string(),current:z.boolean() })) });
 
 /** This registry is consumed by HTTP validation, the typed client, and OpenAPI.
  * Open-ended JSON is limited to extension-defined data, operation-specific job
@@ -29,10 +31,19 @@ const archiveContents=z.object({ id,releases:z.array(z.object({ id,createdAt:z.s
  */
 export const adminApi = {
   session:get('session','读取登录状态',z.object({ authenticated:z.boolean(),initialized:z.boolean(),version:z.string() })),
-  login:post('login','登录',z.object({ password:z.string() }),z.object({ authenticated:z.literal(true) })),
+  login:post('login','登录',accountProof.extend({username:z.string().max(64).optional()}),z.object({ authenticated:z.literal(true) })),
   logout:post('logout','退出登录',empty,z.object({ ok:z.literal(true) })),
+  account:get('account','读取站主资料和登录会话',account),
+  saveAccount:post('account','更新站主资料或密码',accountProof.extend({username:z.string().min(3).max(64),displayName:z.string().min(1).max(80),newPassword:z.string().max(1024).optional()}),z.object({ok:z.literal(true),loginRequired:z.boolean()})),
+  revokeSession:post('account/sessions/revoke','撤销登录会话',accountProof.extend({id:z.string().regex(/^(others|[a-f0-9]{64})$/)}),z.object({ok:z.literal(true)})),
+  beginTwoFactor:post('account/two-factor/begin','准备两步验证',accountProof,z.object({secret:z.string(),uri:z.string()})),
+  confirmTwoFactor:post('account/two-factor/confirm','确认两步验证并取得一次性恢复码',accountProof.extend({code:z.string().regex(/^\d{6}$/)}),z.object({recoveryCodes:z.array(z.string())})),
+  disableTwoFactor:post('account/two-factor/disable','关闭两步验证',accountProof.extend({code:z.string().min(1).max(100)}),z.object({ok:z.literal(true)})),
+  renewRecoveryCodes:post('account/two-factor/recovery-codes','重新生成恢复码并撤销全部网页登录',accountProof.extend({code:z.string().min(1).max(100)}),z.object({recoveryCodes:z.array(z.string())})),
+  changeAdminPath:post('account/admin-path','更改私有后台入口',accountProof.extend({path:z.string().max(81)}),z.object({adminPath:z.string()})),
+  rotateCliToken:post('account/cli-token','轮换 CLI 令牌，可同时撤销全部网页登录',accountProof.extend({revokeSessions:z.boolean()}),z.object({updated:z.literal(true),loginRequired:z.boolean()})),
   schema:{ ...get('schema','导出实例模型、API 或类型',schemaResult,z.object({ format:z.enum(['json','openapi','types']).optional() })),format:'schema' as const },
-  state:get('state','读取后台状态',m.stateSchema,z.object({ summary:z.enum(['0','1']).optional() })),
+  state:get('state','读取后台状态',m.stateSchema,z.object({ summary:z.enum(['0','1']).optional(),panel:z.string().optional(),entryId:z.string().optional() })),
   entries:get('entries','列出工作稿摘要',z.array(entrySummaryRecord)),
   queryEntries:get('entries/query','查询工作稿摘要',page(entrySummaryRecord),contentQuery),
   createEntry:post('entries/create','新建内容',z.object({ kind:z.enum(['content','page']),type:optional,templateId:optional,title:optional,path:optional }),entryRecord),
@@ -58,8 +69,8 @@ export const adminApi = {
   publication:post('publication','预检冻结的发布内容',m.publishOptions,m.publicationReview),
   publish:post('publish','执行发布任务',m.publishOptions,jobSchema,202),
   withdraw:post('withdraw','撤下内容或归档',byVersion.extend({ archive:z.boolean().optional() }),entryRecord),
-  rollback:post('rollback','切换至历史公开版本',byId,m.releaseSchema),
-  schedules:get('schedules','列出单篇定时发布',z.array(scheduleRecord)),
+  rollback:post('rollback','切换至历史公开版本',byId,z.object({ releaseId:id })),
+  schedules:get('schedules','列出单篇定时发布',z.array(scheduleRecord),z.object({entryId:z.string().optional()})),
   schedule:post('schedule','安排固定修订的定时发布',byVersion.extend({ dueAt:z.string() }),scheduleRecord),
   cancelSchedule:post('schedule/cancel','取消定时发布',byVersion,scheduleRecord),
   retrySchedule:post('schedule/retry','重试定时发布',byVersion,scheduleRecord),
@@ -94,6 +105,7 @@ export const adminApi = {
   imageVariant:post('media/variant','生成或复用图片规格',imageVariant,jobSchema,202),
   comments:get('comments','查询评论',z.object({ items:z.array(m.commentSchema.extend({ title:z.string(),path:z.string() })),total:z.number(),hasMore:z.boolean() }),z.object({ status:z.enum(['all','visible','hidden','pending']).optional(),page:z.coerce.number<string|number>().int().min(1).optional() })),
   moderateComment:post('comment','审核或隐藏评论',z.object({ id,status:z.enum(['visible','hidden']) }),z.object({ id,status:z.enum(['visible','hidden']) })),
+  replyComment:post('comment/reply','以站主身份回复公开评论',z.object({parentId:id,body:z.string().min(1).max(4000),clientId:z.string().min(10).max(100)}),m.commentSchema),
   extensions:get('extensions','列出扩展诊断',z.array(m.extensionDiagnostic)),
   extensionUsage:get('extensions/usage','查询扩展引用',z.array(m.usage),byId),
   toggleExtension:post('extensions/toggle','切换扩展状态',z.object({ id,enabled:z.boolean(),revision:nullableRevision.optional() }),z.array(m.extensionDiagnostic)),
@@ -105,7 +117,7 @@ export const adminApi = {
   archiveContents:get('maintenance/archive','读取归档清单',archiveContents,byId),
   jobs:get('jobs','列出后台任务',z.array(jobSchema)),
   job:get('job/{id}','读取任务进度',jobSchema,empty,pathId),
-  logs:get('logs','分段读取任务日志',z.object({ text:z.string(),start:z.number(),end:z.number(),total:z.number(),truncated:z.boolean() }),byId.extend({ offset:z.coerce.number<string|number>().nonnegative().optional() })),
+  logs:get('logs','按 UTF-8 字节页读取任务日志',z.object({ text:z.string(),start:z.number(),end:z.number(),total:z.number(),truncated:z.boolean(),unit:z.literal('bytes') }),byId.extend({ offset:z.coerce.number<string|number>().int().nonnegative().optional() })),
   backup:post('backup','创建完整站点备份',z.object({ path:z.string() }),jobSchema,202),
   verify:post('verify','校验站点备份',z.object({ path:z.string() }),jobSchema,202),
   export:get('export','导出内容交换文件',m.exchange),

@@ -1,4 +1,4 @@
-import { Site, Analytics, Engagement, atomicJson, now, extension, runSchedulesAsync } from '@weava/core';
+import { Site, Analytics, Engagement, atomicJson, now, extension, runSchedulesAsync, JobRunner, TaskResults } from '@weava/core';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 const root = resolve(
@@ -22,9 +22,12 @@ export const analytics = new Analytics(root);
 void analytics.geo.update(false).catch(() => {});
 const geoWatch = setInterval(() => { void analytics.geo.update(false).catch(() => {}); }, 24 * 60 * 60 * 1000);
 geoWatch.unref();
-export const engagement = new Engagement(site.store.raw, site.cliToken());
+export const engagement = new Engagement(site.store.raw, site.engagementSecret());
 site.recoverJobs();
-const jobWatch = setInterval(() => site.recoverJobs(), 5000);
+export const jobs = new JobRunner(site,{framework:process.env.WEAVA_FRAMEWORK??process.cwd(),worker:process.env.WEAVA_WORKER,source:process.env.WEAVA_SOURCE_WORKER==='1'||import.meta.env.MODE==='development'});
+jobs.pump();
+export const reports = new TaskResults(jobs);
+const jobWatch = setInterval(() => {site.recoverJobs();jobs.pump();}, 5000);
 jobWatch.unref();
 const state = {
   pid: process.pid,
@@ -41,6 +44,7 @@ export const siteExtension = extension(site, { analytics });
 let stopping = false;
 const shutdown = async () => {
   if (stopping) return; stopping = true; clearInterval(jobWatch); clearInterval(geoWatch);
+  jobs.stop();
   try { await (await siteExtension).stop(); analytics.close(); site.close(); }
   catch (error) { console.error('Extension shutdown failed:', error); }
   finally { stop(); process.exit(0); }

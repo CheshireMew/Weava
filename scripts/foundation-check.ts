@@ -1,10 +1,13 @@
+import { seedAuditRepairs, checkAuditRepairs } from './check-audit-repairs.ts';
+import { pathToFileURL } from 'node:url';
+import { checkMediaTransport } from './check-media-transport.ts';
 import { chromium } from 'playwright';
 import { build } from 'vite';
 import { createServer } from 'node:net';
-import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, openSync, closeSync, symlinkSync, existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, readFileSync, openSync, closeSync, symlinkSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { strict as assert } from 'node:assert';
 import { Site } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
@@ -22,12 +25,21 @@ import { checkWritingRecovery } from './check-writing-recovery.ts';
 import { checkMediaGroups } from './check-media-groups.ts';
 import { seedCmsFinish, checkCmsFinish } from './check-cms-finish.ts';
 import { checkCmsContracts } from './check-cms-contracts.ts';
+import { checkArchitectureRepairs } from './check-architecture-repairs.ts';
+import { checkCohesion } from './check-cohesion.ts';
 
 const framework = resolve(import.meta.dirname, '..');
 const output = 'D:/Tools/cache/weava/foundation-' + Date.now();
 const root = join(output, 'site'), admin = join(output, 'admin');
 const production = process.argv.includes('--production');
+const mediaAudit = process.argv.includes('--audit-repairs') || process.argv.includes('--media-baseline');
 mkdirSync(output, { recursive: true });
+const sourcePaths = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: framework, encoding: 'utf8', windowsHide: true });
+assert.equal(sourcePaths.status, 0);
+const sourceFiles = sourcePaths.stdout.split('\0').filter((file) => file && /^(apps|packages|scripts|tests)\//.test(file) || ['package.json','pnpm-lock.yaml','tsconfig.json','vitest.config.ts'].includes(file)).sort();
+const fingerprints = () => Object.fromEntries(sourceFiles.map((file) => [file, createHash('sha256').update(readFileSync(join(framework, file))).digest('hex')]));
+const sourceState = { head: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: framework, encoding: 'utf8', windowsHide: true }).stdout.trim(), files: fingerprints() };
+writeFileSync(join(output, 'source-state.json'), JSON.stringify(sourceState, null, 2));
 const site = new Site(root), password = randomBytes(24).toString('hex');
 site.setOwner(password);
 site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null);
@@ -39,6 +51,7 @@ const settings = site.settings();
 site.saveSettings({ ...settings.value, name: '隔离验收站', navigation: [{ label: '首页', url: '/', children: [{ label: '子导航', url: '/posts/0/' }] }] }, settings.revision);
 site.publish();
 const token = site.cliToken();
+if (process.argv.includes('--audit-repairs')) seedAuditRepairs(root);
 if (process.argv.includes('--extensions')) seedExtensions(root);
 if (process.argv.includes('--cms-finish')) seedCmsFinish(root);
 site.close();
@@ -60,8 +73,8 @@ await new Promise<void>((resolve) => portServer.close(() => resolve()));
 const origin = 'http://127.0.0.1:' + port;
 writeFileSync(join(root, 'site.json'), JSON.stringify({ version: 1, port }));
 const descriptor = openSync(join(output, 'server.log'), 'a');
-const server = spawn(process.execPath, production ? [join(output, 'web/server/entry.mjs')] : [join(framework, 'node_modules/astro/bin/astro.mjs'), 'dev', '--port', String(port), '--host', '127.0.0.1'], {
-  cwd: production ? framework : join(framework, 'apps/web'), windowsHide: true, stdio: ['ignore', descriptor, descriptor],
+const server = spawn(process.execPath, production ? [...(mediaAudit ? ['--import', pathToFileURL(join(framework, 'scripts/media-io-observer.mjs')).href] : []), join(output, 'web/server/entry.mjs')] : [join(framework, 'node_modules/astro/bin/astro.mjs'), 'dev', '--port', String(port), '--host', '127.0.0.1'], {
+  cwd: production ? framework : join(framework, 'apps/web'), windowsHide: true, stdio: ['ignore', descriptor, descriptor, ...(mediaAudit ? ['ipc' as const] : [])],
   env: { ...process.env, WEAVA_SITE: root, WEAVA_FRAMEWORK: framework, WEAVA_ADMIN_DIST: admin,
     PORT: String(port), HOST: '127.0.0.1', NODE_ENV: production ? 'production' : 'development',
     WEAVA_SOURCE_WORKER: production ? '0' : '1', ...(production ? { WEAVA_WORKER: join(output, 'runtime/worker.mjs') } : {}),
@@ -94,11 +107,13 @@ try {
   let ready = false;
   for (let i = 0; i < 60; i++) {
     if (server.exitCode !== null) throw new Error('Isolated server exited; see server.log');
-    try { const health = await fetch(origin + '/__health', { signal: AbortSignal.timeout(1500) });
+    try { const health = await fetch(origin + '/__health', { headers:{Authorization:'Bearer '+token},signal: AbortSignal.timeout(1500) });
       if (health.ok) { assert.equal((await health.json() as any).site, resolve(root)); ready = true; break; } } catch {}
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   assert(ready, 'isolated source server did not become ready');
+  if (mediaAudit) evidence.mediaTransport = await checkMediaTransport(origin, root, server, process.argv.includes('--media-baseline'));
+  if (!process.argv.includes('--media-baseline')) {
   const response = await fetch(origin + '/api/v1/content?limit=1&page=2&type=post');
   assert.equal((await response.json() as any[]).length, 1); assert.equal(response.headers.get('X-Total-Count'), '33');
   const search = await (await fetch(origin + '/api/v1/search?q=' + encodeURIComponent('页面独有搜索词'))).json() as any[];
@@ -111,7 +126,7 @@ try {
   browser = await chromium.launch({ channel: 'chrome', headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await context.request.post(origin + '/api/admin/v1/login', { data: { password } });
-  const page = await context.newPage(); page.on('pageerror', (error) => errors.push(error.message));
+  const page = await context.newPage(); page.setDefaultTimeout(15000); page.on('pageerror', (error) => errors.push(error.message));
   inspectedPage = page;
   await page.goto(origin + '/');
   assert.equal(await page.locator('.cards > .card').count(), 24);
@@ -148,6 +163,7 @@ try {
   assert.notEqual((await fetch(origin + '/__health').then((response) => response.json()) as any).releaseId, before);
   evidence.browserSettingsPublication = { publicArticleTitle: 'Article 0', siteName: '只发布的新站名', sourceWorkerCompleted: true };
   await page.getByRole('button', { name: '内容', exact: true }).click();
+  await page.getByLabel('搜索内容',{exact:true}).fill('未发布的文章改稿');
   await page.locator('.entry-list button').filter({ has: page.getByRole('heading', { name: '未发布的文章改稿', exact: true }) }).click();
   await page.getByRole('button', { name: '发布', exact: true }).click();
   await page.getByRole('heading', { name: '发布变更', exact: true }).waitFor();
@@ -189,6 +205,7 @@ try {
   const contentList = await cli(['content', 'list', '--page', '2', '--page-size', '10']);
   assert.equal(contentList.items.length, 10); assert.equal(contentList.total, 34);
   evidence.cli = { export: true, importDryRun: true, scheduleList: true, paginatedContent: true, compiled: production };
+  if (process.argv.includes('--audit-repairs')) evidence.auditRepairs = await checkAuditRepairs({ page, api, origin, output });
   if (process.argv.includes('--authoring')) evidence.authoring = await checkAuthoring({ origin, api, page, context, output });
   if (process.argv.includes('--authoring')) evidence.editing = await checkEditing({ origin, api, page, context, output });
   if (process.argv.includes('--authoring')) evidence.wordpress = await checkImport({ origin, api, cli, page, context, output });
@@ -202,10 +219,13 @@ try {
   if (process.argv.includes('--cms-contracts')) evidence.cmsContracts = await checkCmsContracts({origin,api,cli,page,root,output});
   if (process.argv.includes('--maintenance')) evidence.maintenance = await checkMaintenance({ origin, api, cli, page, context, output });
   if (process.argv.includes('--five-sites')) evidence.fiveSites = await checkFiveSites(output,framework);
+  if (process.argv.includes('--cohesion')) evidence.cohesion = await checkCohesion({page,api,origin,output});
+  if (process.argv.includes('--architecture')) evidence.architecture = await checkArchitectureRepairs({page,context,api,origin,root,output});
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(origin + '/admin/'); await page.getByRole('heading', { name: '内容', exact: true }).waitFor();
   await page.screenshot({ path: join(output, 'admin-mobile.png'), fullPage: true });
   assert.deepEqual(errors, []); evidence.browserErrors = errors;
+  }
   evidence.passed = true;
 } catch (error: any) {
   evidence.failed = error.message; evidence.browserErrors = errors;
@@ -223,6 +243,8 @@ try {
   if(evidence.passed&&process.argv.includes('--upgrade')){
     try{evidence.upgrade=await checkProgramUpgrade({output,root,framework});}catch(error:any){evidence.passed=false;evidence.upgradeFailure=error.message;process.exitCode=1;}
   }
+  evidence.sourceUnchanged = JSON.stringify(fingerprints()) === JSON.stringify(sourceState.files);
+  if (!evidence.sourceUnchanged) { evidence.passed = false; evidence.sourceDrift = 'Source changed during verification; rerun against the final revision'; process.exitCode = 1; }
   writeFileSync(join(output, 'results.json'), JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify(evidence, null, 2));
 }

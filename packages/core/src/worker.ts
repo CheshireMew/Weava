@@ -11,6 +11,7 @@ import { archiveHistory, restoreHistoryArchive } from './history-archive.ts';
 import { preparePublication } from './publication.ts';
 import { runPublicationPlan } from './publication-plans.ts';
 import { imageVariant } from './image-variants.ts';
+import { WeavaError } from '@weava/contracts';
 const [root, id] = process.argv.slice(2);
 const site = new Site(root);
 const job = site.job(id);
@@ -34,7 +35,16 @@ try {
     const release = site.publish({ ...review.options, jobId: id });
     result = { releaseId: release.id, entries: release.entries.length };
     }
-  } else if (job.operation === 'backup')
+  } else if (job.operation.startsWith('analytics-')) {
+    extensionAnalytics = new Analytics(root);
+    const params = new URLSearchParams(job.payload.query);
+    if(job.operation==='analytics-report')result=extensionAnalytics.report(params,job.payload.timezone);
+    else if(job.operation==='analytics-export')result=extensionAnalytics.export(params,job.payload.timezone);
+    else if(job.operation==='analytics-realtime')result=extensionAnalytics.realtime(params);
+    else if(job.operation==='analytics-visitor')result=extensionAnalytics.visitor(job.payload.id,params,job.payload.timezone);
+    else throw new Error('未知统计操作');
+  } else if (job.operation === 'preflight-wxr') result = await importWordPressWxr(site,readFileSync(inside(join(site.root,'imports'),job.payload.sourcePath),'utf8'),{...job.payload.options,dryRun:true});
+  else if (job.operation === 'backup')
     result = await createBackup(
       site,
       job.payload.path ?? 'D:/Tools/weava/backups',
@@ -54,10 +64,10 @@ try {
   else if (job.operation === 'restore-history') result = restoreHistoryArchive(site, job.payload.id);
   else throw new Error('未知任务：' + job.operation);
   site.updateJob(id, { status: 'complete', message: '已完成。', result });
-  console.log(JSON.stringify(result));
+  console.log(JSON.stringify({status:'complete',jobId:id,operation:job.operation}));
 } catch (error: any) {
-  site.updateJob(id, { status: 'failed', message: error.message });
-  console.error(error.stack);
+  site.updateJob(id, { status: 'failed', message: error.message, errorStatus: error instanceof WeavaError ? error.status : 400, errorDetails: error instanceof WeavaError ? error.details : undefined });
+  console.error(String(error.stack ?? error.message).slice(-8192));
   process.exitCode = 1;
 } finally {
   extensionAnalytics?.close();

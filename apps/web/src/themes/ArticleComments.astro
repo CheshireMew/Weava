@@ -9,6 +9,8 @@ const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: ti
   <form class="nl-comment-form" data-comment-form hidden={!allowComments} data-closed={!allowComments ? "true" : undefined}>
     <span class="nl-comment-avatar" aria-hidden="true">我</span>
     <div class="nl-comment-inputs">
+      <input type="hidden" name="parentId" value="" />
+      <p data-reply-target hidden><span></span> <button type="button" data-cancel-reply>取消回复</button></p>
       <textarea name="body" aria-label="评论内容" placeholder="写下你的评论…" required maxlength="4000" rows="3"></textarea>
       <div class="nl-comment-fields">
         <input name="author" aria-label="称呼" placeholder="你的称呼" autocomplete="nickname" required maxlength="40" />
@@ -21,7 +23,7 @@ const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: ti
   </form>
   {!allowComments && <p>这篇内容已关闭新评论。</p>}
   <div class="nl-comment-list" data-comment-list>
-    {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{comment.author.slice(0, 1)}</span><div><header><strong>{comment.author}</strong><time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header><p>{comment.body}</p></div></article>)}
+    {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{comment.author.slice(0, 1)}</span><div><header><strong>{comment.author}</strong>{comment.isOwner&&<span class="comment-owner">站主</span>}<time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header>{comment.replyTo&&<small>回复 {comment.replyTo}</small>}<p>{comment.body}</p>{allowComments&&<button type="button" data-reply-id={comment.id} data-reply-author={comment.author}>回复</button>}</div></article>)}
   </div>
   <p class="nl-empty-comments" data-empty-comments hidden={items.length > 0}>暂无评论</p>
   <button type="button" class="nl-load-comments" data-load-comments hidden={!hasMore}>更多评论</button>

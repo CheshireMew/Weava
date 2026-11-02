@@ -1,3 +1,5 @@
+import { mediaReferencesIn, entryMediaReferences } from './media-references.ts';
+import { mediaIdentity } from './paths.ts';
 import { join, extname } from 'node:path';
 import { mkdirSync, existsSync, writeFileSync, statSync, readFileSync } from 'node:fs';
 import { inside } from './storage.ts';
@@ -14,9 +16,14 @@ export function mediaKind(url: string): 'image' | 'video' | 'audio' | 'file' {
 export function queryMedia(site: Site, params: URLSearchParams) {
   const q = (params.get('q') ?? '').toLowerCase(), kind = params.get('kind'), group = params.get('group');
   const archived = params.get('archived') === 'true';
-  const items = site.store.list('media').filter((row) => !!row.value.archived === archived && (!group || (group === '__ungrouped__' ? !row.value.groupId : row.value.groupId === group)) && (!q || String(row.value.name).toLowerCase().includes(q)) && (!kind || mediaKind(row.value.url) === kind))
-    .sort((a, b) => String(b.value.createdAt).localeCompare(String(a.value.createdAt)) || a.id.localeCompare(b.id));
-  return paginate(items, Number(params.get('page') ?? 1), Number(params.get('pageSize') ?? 24));
+  const page=Number(params.get('page')??1),pageSize=Number(params.get('pageSize')??24);paginate([],page,pageSize);
+  const clauses=['archived=?'],args:any[]=[archived?1:0];
+  if(group==='__ungrouped__')clauses.push("COALESCE(group_id,'')=''");else if(group){clauses.push('group_id=?');args.push(group);}
+  if(q){clauses.push('instr(search,?)>0');args.push(q.normalize('NFKC'));}
+  if(kind){clauses.push('kind=?');args.push(kind);}
+  const where=clauses.join(' AND '),total=(site.store.raw.prepare('SELECT COUNT(*) n FROM media_list WHERE '+where).get(...args) as {n:number}).n;
+  const selected=site.store.raw.prepare('SELECT id,revision,data,updated_at FROM media_list WHERE '+where+' ORDER BY created_at DESC,id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;data:string;updated_at:string}[];
+  return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:selected.map(row=>({id:row.id,revision:row.revision,value:JSON.parse(row.data),updatedAt:row.updated_at}))};
 }
 export const mediaGroups = (site: Site) => site.store.list('media-group');
 export function saveMediaGroup(site: Site, input: unknown, revision: number | null) {
@@ -63,8 +70,8 @@ export function archiveMedia(site: Site, items: { id: string; revision: number }
 export function mediaReferences(site: Site, id: string) {
   const media = site.store.get('media', id);
   if (!media) throw new WeavaError('媒体不存在。', 404);
-  const urls = [media.value.url, ...(media.value.derivatives ?? []).map((item: any) => item.url)];
-  const uses = (value: unknown) => urls.some((url) => JSON.stringify(value).includes(url));
+  const urls = new Set([media.value.url, ...(media.value.derivatives ?? []).map((item: any) => item.url)].map(mediaIdentity));
+  const uses = (value: unknown) => [...mediaReferencesIn(value)].some((url) => urls.has(url));
   const working = { settings: site.settings().value, types: site.store.list('type').map((row) => row.value), layouts: layouts(site).map((row) => row.value) };
   const release = site.release();
   const content = (entry: any) => [entry.cover, entry.fields, entry.blocks, entry.blocks?.length ? null : entry.document];
@@ -73,7 +80,8 @@ export function mediaReferences(site: Site, id: string) {
     published: (release?.entries ?? []).filter((entry) => uses([content(entry), referencedLayouts(entry, release!)])).map(({ id, title, path }) => ({ id, title, path })),
     layouts: site.store.list('layout').filter((row) => uses(row.value)).map((row) => ({ id: row.id, label: row.value.label })),
     settings: uses(working.settings),
-    historicalRevisions: (site.store.raw.prepare("SELECT COUNT(*) n FROM revisions WHERE scope='entry' AND instr(data,?)>0").get(media.value.url) as any).n,
+    historicalRevisions: (site.store.raw.prepare("SELECT data FROM revisions WHERE scope='entry'").all() as {data:string}[])
+      .filter(row => [...entryMediaReferences(JSON.parse(row.data))].some(path => urls.has(path))).length,
   };
 }
 export interface ImageCrop { left: number; top: number; width: number; height: number }
@@ -124,6 +132,7 @@ export function responsiveImages(site: Site, html: string) {
   });
   return $.html();
 }
+import { validateMediaFormat } from './media-format.ts';
 export function stageMedia(site: Site, data: Buffer, name: string) {
   if (!data.length || data.length > 32 * 1024 * 1024)
     throw new WeavaError('附件大小需要在 32 MB 以内。');
@@ -147,6 +156,7 @@ export function stageMedia(site: Site, data: Buffer, name: string) {
     ].includes(ext)
   )
     throw new WeavaError('不支持这个附件格式。');
+  validateMediaFormat(data,ext);
   const path = join(site.root, 'media', digest(data).slice(0, 24) + ext);
   if (!existsSync(path)) writeFileSync(path, data);
   return { path, name };
@@ -154,6 +164,7 @@ export function stageMedia(site: Site, data: Buffer, name: string) {
 export async function prepareMedia(site: Site, data: Buffer, name: string) {
   if (!data.length || data.length > 32 * 1024 * 1024)
     throw new WeavaError('附件大小需要在 32 MB 以内。');
+  validateMediaFormat(data,extname(name).toLowerCase());
   const hash = digest(data),
     id = hash.slice(0, 24);
   const existing = site.store.get('media', id);

@@ -1,12 +1,15 @@
+import { withInstanceMaintenance } from './instance-access.ts';
 import { join, extname } from 'node:path';
 import { existsSync, readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { load } from 'cheerio';
 import { entrySchema, defaultSettings, WeavaError, type Entry, type Settings } from '@weava/contracts';
-import { Site, normalizePath } from './site.ts';
+import { Site } from './site.ts';
+import { normalizePath } from './paths.ts';
 import { inside, digest, atomicJson, now } from './storage.ts';
 import { renderDocument, plain } from './documents.ts';
 import { uploadMedia } from './media.ts';
 import { Analytics } from './analytics.ts';
+import { sourceContentHash } from './source-content.ts';
 
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8').replace(/^\ufeff/, ''));
 
@@ -15,6 +18,7 @@ export async function migrateWordPressViews(input: string, target: string) {
   if (snapshot.schema !== 'wordpress-view-totals-v1' || !Array.isArray(snapshot.entries))
     throw new WeavaError('不支持这个 WordPress 浏览量导出格式。');
   if (!existsSync(join(target, 'weava.sqlite'))) throw new WeavaError('请先迁移 WordPress 文章。');
+  return withInstanceMaintenance(target, async () => {
   const site = new Site(target), analytics = new Analytics(target);
   try {
     const missing: string[] = [];
@@ -44,6 +48,7 @@ export async function migrateWordPressViews(input: string, target: string) {
     atomicJson(join(target, 'imports', 'wordpress-views-import.json'), report);
     return report;
   } finally { analytics.close(); site.close(); }
+  });
 }
 
 export async function migrateWordPress(source: string, target: string, dryRun = false) {
@@ -149,6 +154,7 @@ export async function migrateWordPress(source: string, target: string, dryRun = 
       source: { system: 'wordpress', id: article.id, originalUrl: article.original_url, originalStatus: article.status, originalSlug: article.slug,
         originalBodySha256: article.body_sha256, modifiedAt: date(article.modified_at_gmt), metadata, categories: article.categories, tags: article.tags },
     });
+    value.source!.importedContentHash = sourceContentHash(value);
     entries.push(value); paths.set(path, value.id);
     for (const term of article.categories) if (visibility === 'public') categories.set(term.slug, term);
     for (const term of article.tags) if (visibility === 'public') tags.set(term.slug, term);
@@ -209,6 +215,7 @@ export async function migrateWordPress(source: string, target: string, dryRun = 
     pages: entries.filter((e) => e.kind === 'page').length, media: media.size, redirects: redirects.size,
     convertedAlignmentMarkers: articles.reduce((count, a) => count + (a.source_fields.post_content.match(/\{\.alignnone\}/g)?.length ?? 0), 0), skipped, unresolved };
   if (dryRun) return { ...summary, dryRun: true };
+  return withInstanceMaintenance(target, async () => {
   if (unresolved.length) throw new WeavaError('文章中有尚未处理的站内链接。', 400, unresolved);
   const site = new Site(target);
   try {
@@ -232,7 +239,7 @@ export async function migrateWordPress(source: string, target: string, dryRun = 
     mkdirSync(archive, { recursive: true });
     for (const name of ['wordpress-source.json','articles.json','attachments.json','site.json','article-links.csv','media-url-map.json','verification.json','checksums.sha256'])
       if (existsSync(join(source, name))) copyFileSync(join(source, name), join(archive, name));
-    let changed = false;
+    let changed = false, routesChanged = false;
     site.store.raw.transaction(() => {
       if (!site.store.get('type', 'post')) site.saveType({ id:'post',label:'文章',fields:[],pathPrefix:'/posts/',template:'article' },null);
       for (const { entry, hash } of desired) {
@@ -249,13 +256,16 @@ export async function migrateWordPress(source: string, target: string, dryRun = 
       }
       for (const [from,value] of redirects) {
         const row = site.store.get('redirect',from);
-        if (!row || digest(row.value) !== digest(value)) site.store.put('redirect',from,value,row?.revision ?? null);
+        if (!row || digest(row.value) !== digest(value)) { site.store.put('redirect',from,value,row?.revision ?? null); routesChanged = true; }
+        if (digest(site.release()?.redirects?.[from] ?? null) !== digest(value)) routesChanged = true;
       }
       if (changed || !site.release()) site.publish({ label:'从 WordPress 迁移' });
+      else if (routesChanged) site.publish({ scope:'routes',label:'发布 WordPress 旧网址' });
     }).immediate();
-    const report = { ...summary, completedAt:now(), changed, releaseId:site.release()?.id,
+    const report = { ...summary, completedAt:now(), changed:changed || routesChanged, releaseId:site.release()?.id,
       entries:desired.map(({entry})=>({ id:entry.id,path:entry.path,visibility:entry.visibility })), sourcePreserved:archive };
     atomicJson(join(target,'imports','wordpress-migration-report.json'),report);
     return report;
   } finally { site.close(); }
+  });
 }

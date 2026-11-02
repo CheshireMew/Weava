@@ -25,6 +25,7 @@
     "apps/admin/src/**/*.tsx",
     "apps/web/src/**/*.ts",
     "scripts/**/*.ts",
-    "tests/**/*.ts"
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
   ]
 }

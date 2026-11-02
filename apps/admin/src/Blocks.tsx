@@ -50,6 +50,9 @@ export function BlockProperties({ value: block, onChange, catalog = {} }: { valu
       <label>内边距<input type="number" min="0" max="160" value={block.style?.padding ?? 0} onChange={(event) => style({padding:Number(event.target.value)})} /></label>
       <label>间距<input type="number" min="0" max="120" value={block.style?.gap ?? 24} onChange={(event) => style({gap:Number(event.target.value)})} /></label>
       <label>背景<input type="color" value={block.style?.background ?? '#ffffff'} onChange={(event) => style({background:event.target.value})} /></label>
+      <label>文字颜色<input type="color" value={block.style?.textColor ?? '#202a25'} onChange={(event) => style({textColor:event.target.value})} /></label>
+      <label>正文字号<input type="number" min="14" max="32" placeholder="跟随主题" value={block.style?.fontSize ?? ''} onChange={(event) => style({fontSize:event.target.value ? Number(event.target.value) : undefined})} /></label>
+      <label>标题字号<input type="number" min="20" max="72" placeholder="跟随主题" value={block.style?.headingSize ?? ''} onChange={(event) => style({headingSize:event.target.value ? Number(event.target.value) : undefined})} /></label>
       {block.type === 'columns' && (['desktop','tablet','mobile'] as const).map((size) => <label key={size}>{({desktop:'桌面列数',tablet:'平板列数',mobile:'手机列数'})[size]}<input type="number" min="1" max={size === 'mobile' ? 2 : size === 'tablet' ? 4 : 6} value={block.style?.columns?.[size] ?? (size === 'mobile' ? 1 : 2)} onChange={(event) => style({columns:{desktop:2,tablet:2,mobile:1,...block.style?.columns,[size]:Number(event.target.value)}})} /></label>)}
     </details>
   </div>;

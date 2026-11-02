@@ -1,4 +1,4 @@
-import { contentViewSchema, creationTemplateSchema, entrySchema, WeavaError, type Block, type CreationTemplate } from '@weava/contracts';
+import { cloneBlocks, contentViewSchema, creationTemplateSchema, entrySchema, WeavaError, type Block, type CreationTemplate } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { queryDrafts } from './query.ts';
 import { prepareEntryCandidate } from './content-validation.ts';
@@ -37,7 +37,6 @@ export function createContent(site: Site, input: { kind: 'content' | 'page'; typ
   const definition = site.store.get('type', type)?.value;
   if (input.kind === 'content' && !definition) throw new WeavaError('内容类型不存在。');
   const id = uuid(), prefix = input.kind === 'page' ? '/' : definition.pathPrefix;
-  const cloneBlocks = (blocks: Block[]): Block[] => blocks.map((block) => ({ ...structuredClone(block), id: uuid(), ...(block.children ? { children: cloneBlocks(block.children) } : {}) }));
   const value = entrySchema.parse({ ...structuredClone(template?.initial ?? {}), id, kind: input.kind, type,
     title: input.title ?? template?.initial.title ?? '未命名' + (input.kind === 'page' ? '页面' : '内容'),
     path: input.path ?? prefix + id.slice(0, 8) + '/', status: 'draft',

@@ -1,5 +1,5 @@
 ---
-import { site, siteExtension } from '../runtime.ts';
+import { site, siteExtension, engagement } from '../runtime.ts';
 import {
   normalizePath,
   renderBlocks,
@@ -13,21 +13,28 @@ import {
   queryPublished,
   contentQuery,
   pageLinks,
+  validatePublicQuery,
+  referencedLayouts,
+  validateQueryFields,
   renderEntryTemplate,
   renderSharedRegion,
   layouts,
   pageMetadata,
+  wordpressArchiveEntry,
+  originalWordPressImages,
   composeMetadata, scopedFeed, feedLinks,
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
+import ArticleComments from '../themes/ArticleComments.astro';
 import SeoHead from '../components/SeoHead.astro';
-import { entrySchema } from '@weava/contracts';
+import Advertisement from '../components/Advertisement.astro';
+import { entrySchema, systemRoutes, WeavaError } from '@weava/contracts';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
 const owner = site.authenticate(token);
 if (preview && !owner) return new Response('请先登录后台。', { status: 401 });
-const publicDocument = ['/sitemap.xml', '/rss.xml', '/robots.txt', '/search/'].includes(Astro.url.pathname);
+const publicDocument = Object.values(systemRoutes).some((path) => path === Astro.url.pathname);
 let release =
   site.visibleRelease(owner && !publicDocument) ??
   (preview
@@ -77,13 +84,18 @@ if (preview) {
     entry = layout.kind === 'template' ? { ...entry, template: layout.id } : { ...entry, kind: 'page', template: 'page', blocks: layout.blocks, title: layout.label };
   }
   release = { ...release, entries: [...release.entries.filter((item) => item.id !== entry.id), entry] };
-} else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname));
+} else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname)) ?? wordpressArchiveEntry(release, Astro.url);
+try {
+  const pageLayouts = entry ? referencedLayouts(entry, release) : [];
+  validatePublicQuery(Astro.url.searchParams, release, [...(entry?.blocks ?? []), ...pageLayouts.flatMap((layout) => layout.blocks)]);
+  if (Astro.url.pathname === '/search/') validateQueryFields(contentQuery(Astro.url.searchParams), release.types);
+} catch (error) { if (!(error instanceof WeavaError)) throw error; return new Response(error.message, { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
 const privateArticle = entry?.visibility === 'private';
 if (preview || privateArticle) {
   Astro.response.headers.set('Cache-Control', 'private, no-store');
   Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
 }
-if (Astro.url.pathname === '/sitemap.xml')
+if (Astro.url.pathname === systemRoutes.sitemap)
   return new Response(
     '<?xml version="1.0" encoding="utf-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
       release.entries
@@ -96,12 +108,12 @@ if (Astro.url.pathname === '/sitemap.xml')
       '</urlset>',
     { headers: { 'Content-Type': 'application/xml' } },
   );
-if (Astro.url.pathname === '/robots.txt')
+if (Astro.url.pathname === systemRoutes.robots)
   return new Response(
     `User-agent: *\nDisallow: /admin/\nDisallow: /__preview/\nSitemap: ${release.settings.domain.replace(/\/$/, '')}/sitemap.xml\n`,
     { headers: { 'Content-Type': 'text/plain' } },
   );
-if (Astro.url.pathname === '/rss.xml')
+if (Astro.url.pathname === systemRoutes.rss)
   return new Response(
     '<?xml version="1.0"?><rss version="2.0"><channel><title>' +
       e(release.settings.name) +
@@ -146,10 +158,8 @@ if (missing) Astro.response.status = 404;
 const canonical = settings.domain.replace(/\/$/, '') + (entry?.path ?? Astro.url.pathname);
 const title = entry?.title ?? (missing ? '页面未找到' : '搜索');
 const description = entry?.description ?? settings.description;
-const content = responsiveImages(
-  site,
-  entry ? renderEntryTemplate(entry, release, (await siteExtension)?.blocks, { url: Astro.url, editable: preview && Astro.url.searchParams.get('editor') === '1', editTemplate: preview && !!Astro.url.searchParams.get('layout') && release.layouts?.find((layout) => layout.id === Astro.url.searchParams.get('layout'))?.kind === 'template' }) : '',
-);
+const content = responsiveImages(site, originalWordPressImages(
+  entry ? renderEntryTemplate(entry, release, (await siteExtension)?.blocks, { url: Astro.url, editable: preview && Astro.url.searchParams.get('editor') === '1', editTemplate: preview && !!Astro.url.searchParams.get('layout') && release.layouts?.find((layout) => layout.id === Astro.url.searchParams.get('layout'))?.kind === 'template' }) : '', entry));
 const headerRegion = responsiveImages(site, renderSharedRegion('header', release, entry, (await siteExtension)?.blocks));
 const footerRegion = responsiveImages(site, renderSharedRegion('footer', release, entry, (await siteExtension)?.blocks));
 const beforeRegion = responsiveImages(site, renderSharedRegion('before', release, entry, (await siteExtension)?.blocks));
@@ -161,6 +171,8 @@ const results = resultsPage.items;
 const searchLinks = pageLinks(resultsPage, Astro.url);
 const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, missing, html: content + headerRegion + beforeRegion + afterRegion + footerRegion });
 const schema = metadata.schema;
+const interactive=entry?.kind==='content'&&!preview&&!privateArticle;
+const discussion=interactive?engagement.summary(entry!.id):null;
 ---
 
 <!doctype html>
@@ -179,9 +191,11 @@ const schema = metadata.schema;
   <body
     style={`--accent:${theme.accent};--paper:${theme.background};--width:${theme.width}px;--radius:${theme.radius}px;--space:${theme.spacing}px;font-family:${theme.font}`}
     data-release={release.id}
+    data-article-id={interactive?entry?.id:undefined} data-canonical={canonical} data-language={settings.language} data-timezone={settings.timezone}
     data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
   >
-    <a class="skip" href="#main">跳到正文</a>{headerRegion ? <header class="wrap" set:html={headerRegion} /> : <header class="site-header wrap">
+    <a class="skip" href="#main">跳到正文</a>
+    {headerRegion ? <header class="wrap" set:html={headerRegion} /> : <header class="site-header wrap">
       <a class="brand" href="/"
         >{
           settings.logo ? (
@@ -196,13 +210,17 @@ const schema = metadata.schema;
         <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label="搜索"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
       </nav>
     </header>}
+    <div class="wrap weava-advertisement-region"><Advertisement settings={settings} position="siteTop" /></div>
     {beforeRegion && <div class="wrap shared-region" set:html={beforeRegion} />}
     <main id="main" tabindex="-1" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
+      {entry?.kind === 'content' && <Advertisement settings={settings} position="articleTop" />}
       {
         entry && (
           <div class="page-body" set:html={content} />
         )
       }
+      {entry?.kind === 'content' && <Advertisement settings={settings} position="articleBottom" />}
+      {discussion&&<div class="site-discussion"><ArticleComments items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} allowComments={entry?.allowComments}/></div>}
       {
         missing && (
           <section class="hero">
@@ -247,12 +265,15 @@ const schema = metadata.schema;
           </section>
         )
       }
-    </main>{afterRegion && <div class="wrap shared-region" set:html={afterRegion} />}{footerRegion ? <footer class="wrap" set:html={footerRegion} /> : <footer class="wrap site-footer">
+    </main>{afterRegion && <div class="wrap shared-region" set:html={afterRegion} />}
+    <div class="wrap weava-advertisement-region"><Advertisement settings={settings} position="siteBottom" /></div>
+    {footerRegion ? <footer class="wrap" set:html={footerRegion} /> : <footer class="wrap site-footer">
       <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/')) &&
         <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? '源代码' : '关于'}</a>}
       <a href="/rss.xml">RSS</a>
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
+    {interactive&&<script src="/weava-article.js" defer is:inline />}
     {!preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   {!preview && content.includes('data-copy-code') && <script src="/weava-code.js" defer is:inline />}
   </body>

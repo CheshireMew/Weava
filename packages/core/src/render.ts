@@ -1,16 +1,17 @@
 import type { Block, Entry, Release, PublishedEntry, FieldDefinition } from '@weava/contracts';
-import { escape as e, renderDocument, articleOutline } from './documents.ts';
+import { escape as e, renderDocument, articleOutline, sanitize } from './documents.ts';
 import { queryEntries, pageLinks } from './query.ts';
 import { load } from 'cheerio';
-import { fieldVisible, validateBlockProps } from '@weava/contracts';
+import { fieldVisible, validateBlockProps, safeContentUrl, WeavaError } from '@weava/contracts';
 import { layoutFor, builtInLayouts } from './layouts.ts';
 import { renderEvidence } from './seo.ts';
 import { recommendedEntries, renderDocumentNavigation } from './editorial.ts';
 import { renderCode } from './code-blocks.ts';
+import { wordpressArchivePage } from './wordpress-archives.ts';
 export interface RenderOptions {
   url?: URL; strict?: boolean; editable?: boolean; editBody?: boolean;
   editTemplate?: boolean;
-  bodyDepth?: number; layoutStack?: string[];
+  bodyDepth?: number; layoutStack?: string[]; bodyStack?: string[];
 }
 function boundProps(block: Block, entry: Entry | undefined, release: Release, strict = false) {
   const props = { ...block.props };
@@ -38,6 +39,7 @@ export function resolveContentLinks(html: string, release: Release, strict = fal
   return $.html();
 }
 export function renderNavigation(items: import('@weava/contracts').Navigation[], path?: string, release?: Release): string {
+  for (const item of items) if (!safeContentUrl(item.url)) throw new WeavaError('导航网址无效。');
   const html = items.map((item) => `<div class="nav-branch"><a href="${e(item.url)}"${path === item.url ? ' aria-current="page"' : ''}>${e(item.label)}</a>${item.children?.length ? `<div class="nav-children">${renderNavigation(item.children, path)}</div>` : ''}</div>`).join('');
   return release ? resolveContentLinks(html, release) : html;
 }
@@ -59,6 +61,7 @@ export function renderFields(
             return target ? `<a href="${e(target.path)}">${e(target.title)}</a>` : '';
           }
           case 'media':
+            if (!safeContentUrl(v, true)) return '';
             return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(v)
               ? `<img src="${e(v)}" alt="${e(d.label)}" loading="lazy">`
               : `<a href="${e(v)}">${e(d.label)}</a>`;
@@ -119,21 +122,21 @@ export function renderBlocks(
           case 'content-list':
           case 'cards': {
             const key = String(p.pageKey || 'page');
-            const page = Number(options.url?.searchParams.get(key) ?? 1);
+            const page = key === 'page' && options.url ? wordpressArchivePage(entry, options.url) ?? Number(options.url.searchParams.get(key) ?? 1) : Number(options.url?.searchParams.get(key) ?? 1);
             const fields = { ...p.fields };
             const definitions = release.types.find((type) => type.id === p.contentType)?.fields.filter((field) => field.filterable) ?? [];
             if (p.filters === 'show') for (const field of definitions) {
               const value = options.url?.searchParams.get('field.' + field.key);
               if (value) fields[field.key] = value;
             }
-            const result = queryEntries(release.entries, { kind: 'content', type: p.contentType, category: p.category,
+            const result = queryEntries(release.entries, { kind: 'content', type: p.contentType, author: p.author, category: p.category,
               tag: p.tag, query: p.query, sort: p.sort, fields, page,
               pageSize: Math.max(1, Math.min(100, Number(p.limit) || 24)) }, release.types, release.terms);
             const controls = p.filters === 'show' && definitions.length ? `<form class="content-filters" method="get">${[...(options.url?.searchParams ?? [])].filter(([name]) => name !== key && !name.startsWith('field.')).map(([name,value]) => `<input type="hidden" name="${e(name)}" value="${e(value)}">`).join('')}${definitions.map((field) => {
               const value = options.url?.searchParams.get('field.' + field.key) ?? '', choices = field.type === 'boolean' ? ['true','false'] : field.type === 'select' ? field.options : undefined;
               return `<label>${e(field.label)}${choices ? `<select aria-label="${e(field.label)}" name="field.${e(field.key)}"><option value="">全部</option>${choices.map((choice) => `<option value="${e(choice)}"${choice === value ? ' selected' : ''}>${field.type === 'boolean' ? choice === 'true' ? '是' : '否' : e(choice)}</option>`).join('')}</select>` : `<input aria-label="${e(field.label)}" name="field.${e(field.key)}" type="${field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}" value="${e(value)}">`}</label>`;
             }).join('')}<button type="submit">筛选</button></form>` : '';
-            const links = options.url ? pageLinks(result, options.url, key) : null;
+            const links = options.url ? pageLinks(result, options.url, key, entry) : null;
             const pagination = links && result.pages > 1 ? `<nav class="pagination" aria-label="列表分页">${links.previous ? `<a rel="prev" href="${e(links.previous)}">上一页</a>` : ''}<span>${page} / ${result.pages}</span>${links.next ? `<a rel="next" href="${e(links.next)}">下一页</a>` : ''}</nav>` : '';
             return `<section class="block">${p.title ? `<h2>${e(p.title)}</h2>` : ''}${controls}${cards(result.items,release.types)}${pagination}</section>`;
           }
@@ -148,7 +151,7 @@ export function renderBlocks(
           }
           case 'content-detail': {
             const target = p.entryId ? release.entries.find((e) => e.id === p.entryId) : entry;
-            return `<article class="prose block">${target ? renderDocument(target.document) : ''}</article>`;
+            return `<div class="referenced-body block">${target ? renderEntryBody(target, release, custom, { ...options, editable: false }) : ''}</div>`;
           }
           case 'faq':
             return `<section class="block" data-weava-faq>${(p.items ?? []).map((i: any) => `<details><summary>${e(i.question)}</summary><div class="prose">${renderDocument({ version: 1, format: 'markdown', source: i.answer ?? '' })}</div></details>`).join('')}</section>`;
@@ -167,8 +170,7 @@ export function renderBlocks(
           case 'entry-body': {
             if (!entry) return '';
             if (options.bodyDepth) throw new Error('内容正文不能循环引用。');
-            const html=entry.blocks.length ? renderBlocks(entry.blocks, release, entry, custom, { ...options, bodyDepth: 1, editable: options.editBody ?? options.editable }) : `<article class="prose">${renderDocument(entry.document)}</article>`;
-            return articleOutline(html).html;
+            return renderEntryBody(entry, release, custom, { ...options, editable: options.editBody ?? options.editable });
           }
           case 'entry-toc':{
             if(!entry)return '';
@@ -195,7 +197,7 @@ export function renderBlocks(
           case 'navigation':
             return `<nav class="shared-navigation">${renderNavigation(release.settings.navigation, entry?.path, release)}</nav>`;
           case 'compatibility':
-            return String(p.html ?? '');
+            return sanitize(String(p.html ?? ''));
           default:
             if (custom[b.type]) return custom[b.type]({ ...b, props: p }, release, entry);
             throw new Error('区块渲染器未注册：' + b.type);
@@ -205,6 +207,8 @@ export function renderBlocks(
           const style = b.style;
           const css = [style.align ? `text-align:${style.align}` : '', style.padding !== undefined ? `padding:${style.padding}px` : '',
             style.gap !== undefined ? `--space:${style.gap}px` : '', style.background ? `background:${style.background}` : '',
+            style.textColor ? `color:${style.textColor};--site-muted:${style.textColor}` : '',
+            style.fontSize ? `--block-font-size:${style.fontSize}px` : '', style.headingSize ? `--block-heading-size:${style.headingSize}px` : '',
             style.columns ? `--cols-desktop:${style.columns.desktop};--cols-tablet:${style.columns.tablet};--cols-mobile:${style.columns.mobile}` : ''].filter(Boolean).join(';');
           html = `<div class="layout-block width-${style.width ?? 'normal'}${style.columns ? ' responsive-columns' : ''}" style="${e(css)}">${html}</div>`;
         }
@@ -212,6 +216,14 @@ export function renderBlocks(
       })
       .join('');
   return resolveContentLinks(render(blocks), release, options.strict);
+}
+export function renderEntryBody(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
+  if (options.bodyStack?.includes(entry.id)) throw new WeavaError('正文引用形成循环：' + [...options.bodyStack, entry.id].join(' → '));
+  const next = { ...options, bodyDepth: 1, bodyStack: [...(options.bodyStack ?? []), entry.id] };
+  let html = entry.blocks.length ? renderBlocks(entry.blocks, release, entry, custom, next) : `<article class="prose">${renderDocument(entry.document)}</article>`;
+  const heading = (blocks: Block[]): boolean => blocks.some(block => block.type === 'entry-heading' || heading(block.children ?? []));
+  if (heading(layoutFor(entry, release).blocks)) html = html.replace(/<(\/?)h1(?=[\s>])/gi, '<$1h2');
+  return articleOutline(html).html;
 }
 export function renderEntryTemplate(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const template = layoutFor(entry, release);

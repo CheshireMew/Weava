@@ -1,4 +1,11 @@
 export * from './storage.ts';
+export * from './paths.ts';
+export * from './request-identity.ts';
+export * from './job-logs.ts';
+export * from './job-runner.ts';
+export * from './http-body.ts';
+export * from './task-results.ts';
+export * from './instance-access.ts';
 export * from './site.ts';
 export * from './documents.ts';
 export * from './render.ts';
@@ -15,6 +22,9 @@ export * from './taxonomy.ts';
 export * from './layouts.ts';
 export * from './revisions.ts';
 export * from './wordpress-wxr.ts';
+export * from './migrate-wordpress-routes.ts';
+export * from './wordpress-archives.ts';
+export { originalWordPressImages } from './source-content.ts';
 export * from './wordpress-statistics.ts';
 export * from './wordpress-statistics-export.ts';
 export * from './history-archive.ts';
@@ -33,3 +43,5 @@ export * from './schema-export.ts';
 export * from './redirects.ts';
 export * from './publication-plans.ts';
 export * from './image-variants.ts';
+
+export { mediaResponse } from './media-response.ts';

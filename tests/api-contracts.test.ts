@@ -1,15 +1,18 @@
-import { expect,it } from 'vitest';
+import { expect,it,vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { adminApi,matchAdminApi,validateApiInput,type ApiOutput } from '@weava/contracts/api';
 import { createAdminClient,ApiClientError } from '@weava/contracts/api-client';
 import { authoringOpenApi } from '../packages/contracts/src/api-openapi.ts';
 import { apiReferenceMarkdown } from '../packages/contracts/src/api-reference.ts';
+import { createAdminHandlers } from '../apps/web/src/api/dispatch.ts';
+import { exchangeHandlers } from '../apps/web/src/api/exchange.ts';
+import {mkdirSync} from 'node:fs';
+import {join} from 'node:path';
+import type { ApiServices } from '../apps/web/src/api/types.ts';
 
 it('declares every built-in admin route and gives each operation request and response documentation',()=>{
-  const source=readFileSync('apps/web/src/pages/api/[...route].ts','utf8');
-  const routes=new Set([...source.matchAll(/action === '([^']+)'/g)].map((match)=>match[1]));
-  const declared=new Set(Object.values(adminApi).map((value)=>value.path as string));
-  for(const route of routes)expect(declared.has(route),route).toBe(true);
+  const handlers=createAdminHandlers({} as ApiServices);
+  expect(Object.keys(handlers).sort()).toEqual(Object.keys(adminApi).sort());
   expect(matchAdminApi('GET','entry/encoded%3Aid')?.params.id).toBe('encoded:id');
   expect(matchAdminApi('GET','job/task')).toBeDefined();
   const document=authoringOpenApi('test','https://example.com');
@@ -20,7 +23,7 @@ it('declares every built-in admin route and gives each operation request and res
     if(definition.method==='POST')expect(operation.requestBody).toBeDefined();
     for(const param of definition.path.matchAll(/\{(\w+)\}/g))expect(operation.parameters).toContainEqual(expect.objectContaining({name:param[1],in:'path',required:true}));
   }
-  expect(Object.keys(adminApi)).toHaveLength(95);
+  expect(Object.keys(adminApi)).toHaveLength(105);
   expect(readFileSync('docs/api-reference.md','utf8')).toBe(apiReferenceMarkdown());
 });
 it('checks request revisions and query types with the same rules used by server and client',()=>{
@@ -29,6 +32,7 @@ it('checks request revisions and query types with the same rules used by server 
   expect(()=>validateApiInput(matchAdminApi('GET','comments')!,new URLSearchParams('page=-1'),undefined)).toThrow();
   expect(matchAdminApi('DELETE','entry')).toBeUndefined();
   expect(()=>adminApi.saveSettings.body.parse({value:{},revision:null})).toThrow();
+  expect(adminApi.importWxr.body.parse({xml:'<rss/>',options:{mediaDirectory:'D:/imports'}}).options?.mediaDirectory).toBe('D:/imports');
 });
 it('builds encoded paths and query strings through the operation client',async()=>{
   const calls:{url:string;init?:RequestInit}[]=[];
@@ -38,6 +42,13 @@ it('builds encoded paths and query strings through the operation client',async()
   const result=await client.call('planEntry',{query:{id:'a/b'}});expect(result.revision).toBe(2);
   expect(calls[0].url).toBe('https://example.com/api/admin/v1/plans/entry?id=a%2Fb');
   const match=matchAdminApi('GET','entry/a%2Fb');expect(match?.params.id).toBe('a/b');
+});
+it('passes the reviewed local attachment directory through the actual job dispatch boundary',async()=>{
+  const root='D:/Tools/cache/weava/tests/import-dispatch-'+Date.now();mkdirSync(join(root,'imports'),{recursive:true});
+  const enqueue=vi.fn(()=>({id:'queued',status:'queued'}));
+  const handlers=exchangeHandlers({site:{root},jobs:{enqueue}} as any);
+  await handlers.importWxr({body:adminApi.importWxr.body.parse({xml:'<rss/>',options:{mediaDirectory:'D:/imports',downloadMedia:false}})} as any,{request:new Request('http://localhost/api/admin/v1/import/wxr')} as any);
+  expect(enqueue.mock.calls[0]).toEqual(['import-wxr',expect.objectContaining({options:expect.objectContaining({mediaDirectory:'D:/imports',downloadMedia:false})}),undefined]);
 });
 it('rejects malformed responses and reports login expiration without replaying a write',async()=>{
   let calls=0,expired=0;
@@ -62,4 +73,16 @@ it('exports typed operation inputs and results rather than a universal any trans
     void client.call('getEntry',{});
     void client.call('getEntry',{params:{id:'a'}});
   }
+});
+it('allows queued analytics and WXR reads to finish, while respecting explicit client budgets',async()=>{
+  const budgets:number[]=[],timeout=vi.spyOn(AbortSignal,'timeout').mockImplementation(milliseconds=>{budgets.push(milliseconds);return new AbortController().signal;});
+  const transport:typeof fetch=async()=>Response.json({error:'Test response'},{status:400});
+  try{
+    const client=createAdminClient({fetch:transport});
+    for(const path of ['analytics','analytics/realtime','analytics/visitor?id=reader','analytics/export'])await expect(client.request(path)).rejects.toMatchObject({status:400});
+    await expect(client.request('import/wxr',{xml:'<rss/>',options:{dryRun:true}})).rejects.toMatchObject({status:400});
+    await expect(client.request('session')).rejects.toMatchObject({status:400});
+    await expect(createAdminClient({fetch:transport,timeoutMs:5000}).request('analytics')).rejects.toMatchObject({status:400});
+    expect(budgets).toEqual([140000,140000,140000,140000,140000,30000,5000]);
+  }finally{timeout.mockRestore();}
 });

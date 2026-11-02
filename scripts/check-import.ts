@@ -1,6 +1,6 @@
 import type { BrowserContext, Page } from 'playwright';
 import { createServer } from 'node:http';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync,mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { strict as assert } from 'node:assert';
@@ -13,6 +13,7 @@ export async function checkImport({ origin, api, cli, page, context, output }: {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const mediaUrl = 'http://127.0.0.1:' + (server.address() as any).port + '/wp-content/uploads/photo.png';
+    const mediaDirectory=join(output,'wordpress-media');mkdirSync(join(mediaDirectory,'wp-content/uploads'),{recursive:true});writeFileSync(join(mediaDirectory,'wp-content/uploads/photo.png'),image);
     const file = join(output, 'wordpress.xml'); writeFileSync(file, wordpressFixture({ mediaUrl }));
     const compiled = await cli(['migrate', 'wxr', '--input', file, '--dry-run', '--no-comments'], join(output, 'cli-wxr-site'));
     assert.equal(compiled.entries, 5); assert.equal(compiled.comments, 0); assert.equal(downloads, 0);
@@ -32,8 +33,12 @@ export async function checkImport({ origin, api, cli, page, context, output }: {
     assert.equal((await api('entries')).filter((row: any) => row.id.startsWith('wordpress:')).length, 0);
     await page.getByRole('button', { name: '预检导入', exact: true }).click(); await page.getByRole('heading', { name: '预检结果', exact: true }).waitFor();
     await page.getByRole('button', { name: '导入已预检内容', exact: true }).click();
+    await page.locator('.import-manager [role="alert"]').filter({hasText:/内网/}).waitFor();assert.equal(downloads,0);assert.equal((await api('entries')).filter((row:any)=>row.id.startsWith('wordpress:')).length,0);
+    await page.getByLabel('本地附件目录（可选）',{exact:true}).fill(mediaDirectory);
+    await page.getByRole('button',{name:'预检导入',exact:true}).click();await page.getByRole('heading',{name:'预检结果',exact:true}).waitFor();
+    await page.getByRole('button',{name:'导入已预检内容',exact:true}).click();
     await page.getByRole('heading', { name: '导入完成', exact: true }).waitFor({ timeout: 30000 });
-    assert.equal(downloads, 1);
+    assert.equal(downloads, 0);
     const entries = (await api('entries')).filter((row: any) => row.id.startsWith('wordpress:'));
     assert.equal(entries.length, 5); assert.equal((await api('media')).filter((row: any) => row.value.name === 'photo.png').length, 1);
     assert.equal((await fetch(origin + '/hello/')).status, 404);
@@ -57,6 +62,6 @@ export async function checkImport({ origin, api, cli, page, context, output }: {
     assert.equal((await api('comments')).items.filter((comment: any) => comment.id.startsWith('wpcomment:')).length, 2);
     await visitor.close();
     return { compiledCliPreflight: true, browserPreflight: true, staleReviewRejected: true, workerImport: true, localMedia: true,
-      separatePublication: true, pagesAndParents: true, reusableBlock: true, internalAnchors: true, originalPluginNeedsReview: true, comments: 2 };
+      blockedInternalDownload:true,offlineDirectoryImport:true,separatePublication: true, pagesAndParents: true, reusableBlock: true, internalAnchors: true, originalPluginNeedsReview: true, comments: 2 };
   } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
 }

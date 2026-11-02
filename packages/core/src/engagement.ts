@@ -10,6 +10,9 @@ export interface ArticleComment {
   body: string;
   createdAt: string;
   status?: 'visible' | 'hidden' | 'pending';
+  parentId?: string | null;
+  replyTo?: string | null;
+  isOwner?: boolean;
 }
 export class Engagement {
   private clock: () => number;
@@ -20,6 +23,14 @@ export class Engagement {
     this.code = options.code ?? (() => Array.from({ length: 5 }, () => alphabet[randomInt(alphabet.length)]).join(''));
   }
   private hash(value: string) { return createHmac('sha256', this.secret).update(value).digest('hex'); }
+  private decorate(comment:ArticleComment,admin=false) {
+    const thread=this.db.prepare('SELECT parent_id parentId,owner FROM comment_threads WHERE comment_id=?').get(comment.id) as {parentId:string|null;owner:number}|undefined;
+    const parent=thread?.parentId?this.db.prepare('SELECT author,status FROM article_comments WHERE id=? AND entry_id=?').get(thread.parentId,comment.entryId) as {author:string;status:string}|undefined:undefined;
+    return {...comment,parentId:parent&&(admin||parent.status==='visible')?thread!.parentId:null,replyTo:parent&&(admin||parent.status==='visible')?parent.author:null,isOwner:!!thread?.owner};
+  }
+  private validateParent(entryId:string,parentId?:string|null) {
+    if(parentId&&!this.db.prepare("SELECT 1 FROM article_comments WHERE id=? AND entry_id=? AND status='visible'").get(parentId,entryId))throw new WeavaError('回复的评论不存在或暂不可见。',409);
+  }
   private reader(token: string) {
     if (!/^[a-f0-9]{64}$/.test(token)) throw new WeavaError('请刷新页面后重试。');
     return this.hash('reader:' + token);
@@ -39,7 +50,7 @@ export class Engagement {
     const liked = token ? !!this.db.prepare('SELECT 1 FROM article_likes WHERE entry_id=? AND reader_key=?').get(entryId, this.reader(token)) : false;
     const offset = (Math.max(1, Math.min(10000, Math.floor(page) || 1)) - 1) * 20;
     const rows = this.db.prepare(`SELECT id,entry_id entryId,author,body,created_at createdAt FROM article_comments WHERE entry_id=? AND status='visible' ORDER BY created_at ${sort === 'oldest' ? 'ASC' : 'DESC'},rowid ${sort === 'oldest' ? 'ASC' : 'DESC'} LIMIT 20 OFFSET ?`).all(entryId, offset) as ArticleComment[];
-    return { ...counts, liked, items: rows, hasMore: offset + rows.length < counts.comments };
+    return { ...counts, liked, items: rows.map(row=>this.decorate(row)), hasMore: offset + rows.length < counts.comments };
   }
   setLike(entryId: string, token: string, liked: boolean, network = 'unknown') {
     const reader = this.reader(token);
@@ -63,16 +74,18 @@ export class Engagement {
     this.db.prepare('INSERT INTO comment_captchas VALUES(?,?,?,?,0)').run(id, reader, this.hash('captcha:' + id + ':' + word), expiresAt);
     return { id, image: 'data:image/png;base64,' + png.toString('base64'), expiresAt };
   }
-  postComment(entryId: string, token: string, network: string, value: { author: string; body: string; captchaId: string; captcha: string; clientId: string }, status: 'visible' | 'pending' = 'visible') {
+  postComment(entryId: string, token: string, network: string, value: { author: string; body: string; captchaId: string; captcha: string; clientId: string; parentId?:string|null }, status: 'visible' | 'pending' = 'visible') {
     const reader = this.reader(token), networkKey = this.hash('network:' + network), time = this.clock();
     const author = String(value.author ?? '').trim(), body = String(value.body ?? '').trim();
     if (!author || author.length > 40 || !body || body.length > 4000) throw new WeavaError('请填写称呼（40 字以内）和评论（4000 字以内）。');
     if (!/^[a-zA-Z0-9-]{10,100}$/.test(value.clientId ?? '')) throw new WeavaError('评论请求标识无效，请刷新后重试。');
     const existing = this.db.prepare('SELECT id,entry_id entryId,author,body,status,created_at createdAt FROM article_comments WHERE entry_id=? AND reader_key=? AND client_id=?').get(entryId, reader, value.clientId) as ArticleComment | undefined;
     if (existing) {
-      if (existing.author !== author || existing.body !== body) throw new WeavaError('评论请求内容已改变，请重新提交。', 409);
-      return existing;
+      const parent=this.db.prepare('SELECT parent_id FROM comment_threads WHERE comment_id=?').get(existing.id) as any;
+      if (existing.author !== author || existing.body !== body || (parent?.parent_id??null)!==(value.parentId??null)) throw new WeavaError('评论请求内容已改变，请重新提交。', 409);
+      return this.decorate(existing);
     }
+    this.validateParent(entryId,value.parentId);
     // Claim once outside the posting transaction: wrong answers and failed posts cannot reuse a challenge.
     const challenge = this.db.prepare('UPDATE comment_captchas SET used=1 WHERE id=? AND reader_key=? AND used=0 RETURNING answer_hash,expires_at').get(String(value.captchaId ?? ''), reader) as { answer_hash: string; expires_at: number } | undefined;
     const answer = this.hash('captcha:' + String(value.captchaId ?? '') + ':' + String(value.captcha ?? '').replace(/\s/g, '').toUpperCase());
@@ -86,7 +99,23 @@ export class Engagement {
         throw new WeavaError('评论提交太频繁，请稍后再试。', 429);
       const comment: ArticleComment = { id: randomBytes(16).toString('hex'), entryId, author, body, createdAt: new Date(time).toISOString(), status };
       this.db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)').run(comment.id, entryId, reader, networkKey, value.clientId, author, body, status, comment.createdAt);
-      return comment;
+      this.db.prepare('INSERT INTO comment_threads VALUES(?,?,0)').run(comment.id,value.parentId??null);
+      return this.decorate(comment);
+    }).immediate();
+  }
+  replyAsOwner(parentId:string,body:string,author:string,clientId:string) {
+    const parent=this.db.prepare('SELECT entry_id FROM article_comments WHERE id=?').get(parentId) as {entry_id:string}|undefined;
+    if(!parent)throw new WeavaError('评论不存在。',404);
+    this.validateParent(parent.entry_id,parentId);
+    body=body.trim();author=author.trim().slice(0,40);
+    if(!body||body.length>4000||!author||!/^[a-zA-Z0-9-]{10,100}$/.test(clientId))throw new WeavaError('回复需要 1～4000 字及有效的请求标识。');
+    return this.db.transaction(()=>{
+      const reader=this.hash('owner'),existing=this.db.prepare('SELECT id,entry_id entryId,author,body,status,created_at createdAt FROM article_comments WHERE entry_id=? AND reader_key=? AND client_id=?').get(parent.entry_id,reader,clientId) as ArticleComment|undefined;
+      if(existing){const value=this.decorate(existing,true);if(value.parentId!==parentId||existing.body!==body)throw new WeavaError('回复请求内容已改变。',409);return value;}
+      const comment:ArticleComment={id:randomBytes(16).toString('hex'),entryId:parent.entry_id,body,author,status:'visible',createdAt:new Date(this.clock()).toISOString()};
+      this.db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)').run(comment.id,comment.entryId,reader,this.hash('owner'),clientId,author,body,'visible',comment.createdAt);
+      this.db.prepare('INSERT INTO comment_threads VALUES(?,?,1)').run(comment.id,parentId);
+      return this.decorate(comment,true);
     }).immediate();
   }
   comments(status: string = 'all', page = 1) {
@@ -95,11 +124,11 @@ export class Engagement {
     const offset = (Math.max(1, Math.floor(page) || 1) - 1) * 30;
     const total = (this.db.prepare(`SELECT COUNT(*) count FROM article_comments ${where}`).get(...parameters) as any).count as number;
     const items = this.db.prepare(`SELECT id,entry_id entryId,author,body,status,created_at createdAt FROM article_comments ${where} ORDER BY created_at DESC,rowid DESC LIMIT 30 OFFSET ?`).all(...parameters, offset) as ArticleComment[];
-    return { items, total, hasMore: offset + items.length < total };
+    return { items:items.map(row=>this.decorate(row,true)), total, hasMore: offset + items.length < total };
   }
   moderate(id: string, status: string) {
     if (!['visible', 'hidden'].includes(status)) throw new WeavaError('评论状态无效。');
     if (!this.db.prepare('UPDATE article_comments SET status=? WHERE id=?').run(status, id).changes) throw new WeavaError('评论不存在。', 404);
-    return { id, status };
+    return { id, status: status as 'visible' | 'hidden' };
   }
 }

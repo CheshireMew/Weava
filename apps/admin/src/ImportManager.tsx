@@ -5,9 +5,10 @@ const download = (value: any, name: string) => { const url = URL.createObjectURL
 export default function ImportManager({ refresh }: { refresh: () => Promise<any> }) {
   const [source, setSource] = useState<{ name: string; text: string; wxr: boolean } | null>(null);
   const [settings, setSettings] = useState(false), [media, setMedia] = useState(true), [comments, setComments] = useState(true), [merge, setMerge] = useState(false);
+  const [mediaDirectory,setMediaDirectory]=useState('');
   const [report, setReport] = useState<any>(null), [revisions, setRevisions] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState<any>(null);
-  const options = () => ({ settings, downloadMedia: media, comments, mode: merge ? 'merge' as const : 'create' as const, revisions });
+  const options = () => ({ settings, downloadMedia: media&&!mediaDirectory.trim(),mediaDirectory:media&&mediaDirectory.trim()?mediaDirectory.trim():undefined, comments, mode: merge ? 'merge' as const : 'create' as const, revisions });
   const jsonSource = () => { const data = JSON.parse(source!.text.replace(/^\ufeff/, '')); return settings ? data : { ...data, settings: undefined }; };
   const preview = async () => {
     if (!source) return; setBusy(true); setError(null); setProgress('正在完整预检…');
@@ -30,6 +31,7 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
     <label className="button">选择导入文件<input type="file" aria-label="选择导入文件" accept=".json,.xml" disabled={busy} onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setError(null); setReport(null); if (file.size > 128 * 1024 * 1024) { setError(new Error('文件超过 128 MB，请分批导出。')); return; } const text = await file.text(); setSource({ name: file.name, text, wxr: /^\s*(?:\ufeff)?</.test(text) }); }} /></label>
     {source && <p>{source.name}</p>}
     <div className="import-options">{[['同时导入站点设置', settings, setSettings], ['合并已有内容', merge, setMerge], ...(source?.wxr ? [['下载来源附件', media, setMedia], ['导入来源评论', comments, setComments]] : [])].map(([label, value, change]) => <label className="checkbox" key={String(label)}><input type="checkbox" disabled={busy} checked={Boolean(value)} onChange={(event) => { (change as (value: boolean) => void)(event.target.checked); setReport(null); }} />{label as string}</label>)}</div>
+    {source?.wxr&&media&&<div><label>本地附件目录（可选）<input aria-describedby="import-media-directory-help" value={mediaDirectory} disabled={busy} onChange={event=>{setMediaDirectory(event.target.value);setReport(null);}}/></label><p id="import-media-directory-help" className="muted">目录位于运行 Weava 的电脑上，内部保留原网址路径，例如 wp-content/uploads。留空则从公网下载；本机或内网站点请使用本地目录。</p></div>}
     <div className="import-actions"><button disabled={busy || !source} onClick={() => void preview()}>预检导入</button><button className="primary" disabled={busy || !report?.dryRun} onClick={() => void commit()}>导入已预检内容</button></div>
     {progress && <p role="status">{progress}</p>}{error && <div role="alert"><p>{error.message}</p>{Array.isArray(error.details) && <ul>{error.details.map((detail: any, index: number) => <li key={index}>{detail.scope} {detail.id}：{detail.reason ?? detail.error}</li>)}</ul>}</div>}
     {report && <div className="import-report"><h3>{report.dryRun ? '预检结果' : '导入完成'}</h3>

@@ -41,6 +41,16 @@ it('imports WordPress Markdown, paths, covers and privacy without duplicating or
   const releaseId = site.release()!.id;
   site.close();
   expect((await migrateWordPress(source,target) as any).changed).toBe(false);
+  const legacy = new Site(target);
+  const legacyRelease = legacy.release()!;
+  legacy.store.raw.prepare('UPDATE releases SET data=? WHERE id=?').run(JSON.stringify({ ...legacyRelease, redirects: {} }), legacyRelease.id);
+  legacy.close();
+  expect((await migrateWordPress(source,target) as any).changed).toBe(true);
+  const repaired = new Site(target);
+  expect(repaired.redirect(new URL('https://blog.example.com/?p=1'))).toBe('/write/post-1/');
+  const repairedReleaseId = repaired.release()!.id;
+  repaired.close();
+  expect((await migrateWordPress(source,target) as any).changed).toBe(false);
   json('views.json',{ schema:'wordpress-view-totals-v1',sourceId:'wordpress:example:views',capturedAt:'2026-10-28T00:00:00Z',entries:[{postId:'1',views:120},{postId:'2',views:3}] });
   const imported = await migrateWordPressViews(join(source,'views.json'),target);
   expect(imported.views).toBe(123);
@@ -51,7 +61,7 @@ it('imports WordPress Markdown, paths, covers and privacy without duplicating or
   expect(analytics.lifetime().lifetimeViews).toBe(123);
   analytics.close();
   const editedSite = new Site(target);
-  expect(editedSite.release()!.id).toBe(releaseId);
+  expect(editedSite.release()!.id).toBe(repairedReleaseId);
   editedSite.saveEntry({ ...first.value,title:'站主修改' },first.revision);
   editedSite.close();
   await expect(migrateWordPress(source,target)).rejects.toThrow(/目标存在修改/);

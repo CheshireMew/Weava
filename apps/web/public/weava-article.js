@@ -82,6 +82,7 @@
   if (!entryId) return;
   const form = document.querySelector('[data-comment-form]');
   const list = document.querySelector('[data-comment-list]');
+  if (!form || !list) return;
   const message = form.querySelector('[data-comment-message]');
   const sort = document.querySelector('[data-comment-sort]');
   const more = document.querySelector('[data-load-comments]');
@@ -108,7 +109,13 @@
       const column = document.createElement('div'), header = document.createElement('header'), author = document.createElement('strong'), time = document.createElement('time'), body = document.createElement('p');
       author.textContent = item.author; time.dateTime = item.createdAt;
       time.textContent = new Intl.DateTimeFormat(document.body.dataset.language || 'zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: document.body.dataset.timezone || 'Asia/Shanghai' }).format(new Date(item.createdAt));
-      body.textContent = item.body; header.append(author, time); column.append(header, body); article.append(avatar, column); list.append(article);
+      body.textContent = item.body; header.append(author);
+      if(item.isOwner){const badge=document.createElement('span');badge.className='comment-owner';badge.textContent='站主';header.append(badge);}
+      header.append(time); column.append(header);
+      if(item.replyTo){const target=document.createElement('small');target.textContent='回复 '+item.replyTo;column.append(target);}
+      column.append(body);
+      if(form.dataset.closed!=='true'){const button=document.createElement('button');button.type='button';button.textContent='回复';button.dataset.replyId=item.id;button.dataset.replyAuthor=item.author;column.append(button);}
+      article.append(avatar, column); list.append(article);
     });
     more.hidden = !data.hasMore;
     document.querySelector('[data-empty-comments]').hidden = list.childElementCount > 0;
@@ -131,6 +138,10 @@
   more.addEventListener('click', () => loadComments(true).catch((error) => notify(error.message)));
   if (form.dataset.closed === 'true') return;
   const authorInput = form.elements.author, bodyInput = form.elements.body, captchaInput = form.elements.captcha;
+  const parentInput=form.elements.parentId,replyTarget=form.querySelector('[data-reply-target]');
+  const cancelReply=()=>{parentInput.value='';replyTarget.hidden=true;};
+  form.querySelector('[data-cancel-reply]').addEventListener('click',cancelReply);
+  list.addEventListener('click',event=>{const button=event.target.closest('[data-reply-id]');if(!button)return;parentInput.value=button.dataset.replyId;replyTarget.querySelector('span').textContent='回复 '+button.dataset.replyAuthor;replyTarget.hidden=false;bodyInput.focus();});
   const captchaRow = form.querySelector('[data-captcha-row]'), captchaImage = form.querySelector('[data-captcha-image]'), refresh = form.querySelector('[data-refresh-captcha]'), submit = form.querySelector('[type="submit"]');
   let captchaId = '', captchaPending, posting = false, clientId = '', signature = '';
   try { authorInput.value = localStorage.getItem('weava-comment-author') || ''; } catch {}
@@ -148,15 +159,16 @@
     event.preventDefault(); if (posting) return;
     if (!captchaId) { await loadCaptcha(); captchaInput.focus(); return; }
     if (!form.reportValidity()) return;
-    const current = JSON.stringify([authorInput.value.trim(), bodyInput.value.trim()]);
+    const current = JSON.stringify([authorInput.value.trim(), bodyInput.value.trim(),parentInput.value]);
     if (!clientId || signature !== current) { signature = current; clientId = crypto.randomUUID(); }
     posting = true; submit.disabled = true; submit.textContent = '发布中…'; message.textContent = '';
     try {
-      const data = await api('comment', { author: authorInput.value, body: bodyInput.value, captchaId, captcha: captchaInput.value, clientId });
+      const data = await api('comment', { author: authorInput.value, body: bodyInput.value, parentId:parentInput.value||null,captchaId, captcha: captchaInput.value, clientId });
       track('article:comment');
       ++summaryVersion; page = 1; sort.value = 'latest'; render(data, false);
       try { localStorage.setItem('weava-comment-author', authorInput.value.trim()); } catch {}
       bodyInput.value = ''; captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; message.textContent = data.comment?.status === 'pending' ? '评论已提交，等待审核' : '评论已发布';
+      cancelReply();
     } catch (error) { message.textContent = error.message; captchaId = ''; await loadCaptcha(); }
     finally { posting = false; submit.disabled = false; submit.textContent = '发布评论'; }
   });

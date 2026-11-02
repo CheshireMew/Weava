@@ -4,6 +4,27 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+.site-discussion { margin: 28px 0; padding-top: 20px; border-top: 1px solid #203b2d25; }
+.site-discussion .nl-comments-heading { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+.site-discussion .nl-comments-heading h2 { margin:0 0 12px;font-size:22px; }
+.site-discussion :is(input,textarea,select,button) { font:inherit;border:1px solid #203b2d35;border-radius:6px;padding:8px 12px;background:#fff;max-width:100%; }
+.site-discussion :is(button,select,input) { min-height:44px; }
+.site-discussion textarea { display:block;width:100%;resize:vertical; }
+.site-discussion .nl-comment-form,.site-discussion .nl-comment { display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px; }
+.site-discussion .nl-comment-avatar { display:grid;place-items:center;background:#203b2d10;width:32px;height:32px;border-radius:50%; }
+.site-discussion .nl-comment-fields { display:flex;flex-wrap:wrap;gap:8px;margin-top:8px; }
+.site-discussion .nl-captcha { display:flex;align-items:center;flex-wrap:wrap;gap:8px; }
+.site-discussion .nl-captcha[hidden],.site-discussion [hidden] { display:none; }
+.site-discussion .nl-captcha img { display:block; }
+.site-discussion .nl-captcha button { padding:4px; }
+.site-discussion .nl-comment { padding:16px 0;border-bottom:1px solid #203b2d18; }
+.site-discussion .nl-comment header { display:flex;flex-wrap:wrap;gap:12px;align-items:baseline; }
+.site-discussion .nl-comment :is(time,small) { font-size:12px;color:#526257; }
+.site-discussion .nl-comment p { white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0; }
+.site-discussion .nl-comment-message { margin:8px 0;font-size:14px; }
+.nl-comment [data-reply-id] { border:0;background:transparent;color:inherit;padding:4px 0;text-decoration:underline; }
+.comment-owner { display:inline-block;padding:1px 6px;border:1px solid currentColor;border-radius:4px;font-size:11px;line-height:1.5;color:var(--nl-accent,var(--accent,#315c4c)); }
+@media print { .site-discussion { display:none; } }
 * {
   box-sizing: border-box;
 }
@@ -37,31 +58,35 @@ img {
   margin: auto;
   padding-inline: 32px;
 }
+.weava-advertisement { min-width: 0; max-width: 100%; margin-block: 24px; overflow-wrap: anywhere; }
+.weava-advertisement-region:empty { display: none; }
+.weava-advertisement :is(img, video, iframe) { max-width: 100%; }
+@media print { .weava-advertisement-region, .weava-advertisement { display: none !important; } }
 .site-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 102px;
+  height: 64px;
   gap: 24px;
   border-bottom: 1px solid #203b2d18;
 }
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 21px;
+  gap: 10px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.6px;
 }
 .brand-icon {
-  font: italic 800 25px Georgia;
+  font: italic 800 22px Georgia;
   background: var(--accent);
   color: white;
-  width: 38px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   text-align: center;
-  line-height: 36px;
+  line-height: 30px;
 }
 .site-header nav {
   display: flex;
@@ -77,21 +102,27 @@ img {
   display: none;
 }
 .hero {
-  padding: 94px 0 76px;
-  max-width: 900px;
+  padding: 24px 0 12px;
+}
+.hero.block {
+  margin-block: 0;
 }
 .hero h1 {
-  font-size: clamp(42px, 6vw, 76px);
-  letter-spacing: -3px;
-  line-height: 1.13;
-  margin: 20px 0 28px;
-  font-weight: 600;
+  font-size: clamp(30px, 3.2vw, 44px);
+  letter-spacing: -1px;
+  line-height: 1.25;
+  margin: 8px 0 0;
+  font-weight: 650;
 }
 .hero p {
-  max-width: 660px;
+  max-width: 760px;
   color: var(--site-muted, #526257);
-  font-size: 20px;
-  line-height: 1.9;
+  font-size: 16px;
+  line-height: 1.7;
+  margin: 12px 0 0;
+}
+.hero .button {
+  margin-top: 16px;
 }
 .eyebrow {
   font-size: 12px;
@@ -104,24 +135,27 @@ img {
   display: inline-block;
   background: var(--accent);
   color: white;
-  padding: 12px 24px;
+  padding: 10px 18px;
+  min-height: 44px;
   border: 0;
   border-radius: var(--radius);
   font-size: 14px;
-  margin-block: 12px;
+  margin-block: 0;
 }
 .block {
-  margin-block: calc(var(--space) * 1.5);
+  margin-block: var(--space, 24px);
 }
 .block > h2 {
-  font-size: 28px;
-  font-weight: 550;
-  letter-spacing: -1px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+  line-height: 1.4;
+  margin: 0 0 16px;
 }
 .cards {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  gap: 16px;
 }
 .card {
   background: #ffffffa6;
@@ -136,23 +170,27 @@ img {
 .card > img {
   display: block;
   width: 100%;
-  aspect-ratio: 1.6;
+  aspect-ratio: 2.4;
+  max-height: 180px;
 }
 .card > div {
-  padding: 28px;
+  padding: 16px;
 }
 .card small {
-  font-size: 11px;
-  letter-spacing: 1px;
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--site-muted, #526257);
 }
 .card h3 {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1.45;
-  margin: 12px 0;
+  margin: 6px 0 0;
 }
 .card p {
   font-size: 14px;
+  line-height: 1.65;
+  margin: 8px 0 0;
   color: var(--site-muted, #526257);
 }
 .columns {
@@ -164,7 +202,24 @@ img {
   display: grid;
   grid-template-columns: 1fr 1fr;
   align-items: center;
-  gap: 42px;
+  gap: 24px;
+}
+.image-text > img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.2;
+  max-height: 260px;
+}
+.image-text h2 {
+  font-size: 24px;
+  line-height: 1.4;
+  margin: 0 0 12px;
+}
+.image-text p {
+  margin: 0;
+}
+.image-text p + p {
+  margin-top: 12px;
 }
 .image-text img,
 .gallery img,
@@ -183,13 +238,13 @@ img {
   max-width: 850px;
 }
 .article-heading {
-  padding: 65px 0 35px;
+  padding: 28px 0 20px;
 }
 .article-heading h1 {
   font-size: clamp(32px, 5vw, 48px);
   line-height: 1.25;
   letter-spacing: -1.5px;
-  margin: 20px 0;
+  margin: 12px 0;
 }
 .article-heading > p {
   color: var(--site-muted, #526257);
@@ -202,7 +257,7 @@ img {
 .cover {
   width: 100%;
   border-radius: var(--radius);
-  margin-top: 32px;
+  margin-top: 16px;
 }
 .prose {
   font-size: 17px;
@@ -275,14 +330,14 @@ figcaption {
   display: flex;
   gap: 24px;
   justify-content: space-between;
-  margin-top: 90px;
-  padding-block: 30px;
+  margin-top: 32px;
+  padding-block: 20px;
   border-top: 1px solid #203b2d18;
   font-size: 12px;
   color: #7b887e;
 }
 .search-page {
-  padding: 64px 0;
+  padding: 28px 0;
 }
 .search-page form {
   display: flex;
@@ -354,7 +409,7 @@ figcaption {
     padding-inline: 20px;
   }
   .site-header {
-    height: 78px;
+    height: 64px;
   }
   .brand {
     font-size: 18px;
@@ -369,7 +424,7 @@ figcaption {
     position: absolute;
     left: 0;
     right: 0;
-    top: 78px;
+    top: 64px;
     padding: 25px;
     background: var(--paper);
     z-index: 10;
@@ -380,13 +435,13 @@ figcaption {
     display: flex;
   }
   .hero {
-    padding: 55px 0;
+    padding: 20px 0 8px;
   }
   .hero h1 {
-    letter-spacing: -1.8px;
+    letter-spacing: -0.6px;
   }
   .hero p {
-    font-size: 17px;
+    font-size: 16px;
   }
   .cards {
     grid-template-columns: 1fr;
@@ -396,7 +451,7 @@ figcaption {
     grid-template-columns: 1fr;
   }
   .article-heading {
-    padding-top: 40px;
+    padding-top: 24px;
   }
   .site-footer {
     flex-wrap: wrap;
@@ -415,6 +470,8 @@ figcaption {
 }
 .layout-block.width-wide { max-width: 1180px; margin-inline: auto; }
 .layout-block.width-full { max-width: none; }
+.layout-block[style*="--block-font-size"] :is(.prose, .hero p, .image-text p) { font-size: var(--block-font-size); }
+.layout-block[style*="--block-heading-size"] :is(h1, h2, h3) { font-size: clamp(20px, 5vw, var(--block-heading-size)); }
 .responsive-columns > .columns { grid-template-columns: repeat(var(--cols-desktop, 2), minmax(0, 1fr)); }
 .shared-navigation { display: flex; flex-wrap: wrap; gap: 24px; }
 .template-documentation .prose { max-width: 78ch; }
@@ -453,7 +510,7 @@ input::placeholder, textarea::placeholder { color: var(--site-muted, #526257); o
 .prose .lightbox-trigger { display: block; width: 100%; text-align: start; border: 0; background: transparent; padding: 0; margin: 0; max-width: 100%; }
 .content-filters input, .content-filters select { max-width: 100%; }
 @media (max-width: 720px) {
-  .site-header { height: auto; min-height: 78px; padding-block: 16px; }
+  .site-header { height: auto; min-height: 64px; padding-block: 8px; }
   .brand { font-size: 18px; }
   .menu-button { display: inline-flex; flex-shrink: 0; padding: 10px; min-height: 44px; }
   .site-header nav { top: 100%; padding: 16px 20px; }

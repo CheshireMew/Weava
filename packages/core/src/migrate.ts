@@ -1,3 +1,4 @@
+import { withInstanceMaintenance } from './instance-access.ts';
 import { join, relative, resolve, extname } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { load } from 'cheerio';
@@ -67,6 +68,7 @@ export async function migrateCrypto(
     sourceChanged,
   };
   if (dryRun) return { ...plan, dryRun: true };
+  return withInstanceMaintenance(target, async () => {
   const site = new Site(target);
   const imported: any[] = [],
     conflicts: any[] = [],
@@ -501,4 +503,5 @@ export async function migrateCrypto(
   } finally {
     site.close();
   }
+  });
 }
