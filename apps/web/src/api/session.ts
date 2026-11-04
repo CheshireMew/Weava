@@ -11,6 +11,7 @@ export function sessionHandlers(services: Pick<ApiServices, 'site'>) {
         authenticated: authorized(services, context),
         initialized: site.ownerExists(),
         version: frameworkVersion,
+        accountLinks:true as const,
       };
     },
     login: async ({ body: data }, context) => {
@@ -33,5 +34,11 @@ export function sessionHandlers(services: Pick<ApiServices, 'site'>) {
       cookies.set('weava-session', '', { path: '/', maxAge: 0 });
       return { ok: true };
     },
-  } satisfies Pick<AdminHandlers, 'session' | 'login' | 'logout'>;
+    accountAccess: async({body},context)=>site.auth.accessInfo(body.token,context.identity.network),
+    completeAccountAccess:async({body},context)=>{
+      const result=await site.auth.completeAccess(body.token,context.identity.network,body);
+      context.cookies.set('weava-session','',{path:'/',httpOnly:true,sameSite:'strict',secure:context.identity.secure,maxAge:0});
+      return result;
+    },
+  } satisfies Pick<AdminHandlers, 'session' | 'login' | 'logout' | 'accountAccess' | 'completeAccountAccess'>;
 }

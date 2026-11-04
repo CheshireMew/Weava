@@ -8,10 +8,12 @@ import { renderEvidence } from './seo.ts';
 import { recommendedEntries, renderDocumentNavigation } from './editorial.ts';
 import { renderCode } from './code-blocks.ts';
 import { wordpressArchivePage } from './wordpress-archives.ts';
+import { releaseIndex } from './release-index.ts';
 export interface RenderOptions {
   url?: URL; strict?: boolean; editable?: boolean; editBody?: boolean;
   editTemplate?: boolean;
   bodyDepth?: number; layoutStack?: string[]; bodyStack?: string[];
+  validation?: boolean;
 }
 function boundProps(block: Block, entry: Entry | undefined, release: Release, strict = false) {
   const props = { ...block.props };
@@ -30,7 +32,7 @@ export function resolveContentLinks(html: string, release: Release, strict = fal
   $('[href^="entry:"]').each((_index, element) => {
     const href = $(element).attr('href')!.slice(6), hashAt = href.indexOf('#');
     const id = decodeURIComponent(hashAt < 0 ? href : href.slice(0, hashAt)), hash = hashAt < 0 ? '' : href.slice(hashAt);
-    const target = release.entries.find((entry) => entry.id === id);
+    const target = releaseIndex(release).byId.get(id);
     if (!target) {
       if (strict) throw new Error('关联内容不存在或尚未发布：' + id);
       $(element).replaceWith($(element).contents());
@@ -220,15 +222,15 @@ export function renderBlocks(
 export function renderEntryBody(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   if (options.bodyStack?.includes(entry.id)) throw new WeavaError('正文引用形成循环：' + [...options.bodyStack, entry.id].join(' → '));
   const next = { ...options, bodyDepth: 1, bodyStack: [...(options.bodyStack ?? []), entry.id] };
-  let html = entry.blocks.length ? renderBlocks(entry.blocks, release, entry, custom, next) : `<article class="prose">${renderDocument(entry.document)}</article>`;
+  let html = entry.blocks.length ? renderBlocks(entry.blocks, release, entry, custom, next) : `<article class="prose">${(entry as PublishedEntry).html ?? renderDocument(entry.document)}</article>`;
   const heading = (blocks: Block[]): boolean => blocks.some(block => block.type === 'entry-heading' || heading(block.children ?? []));
   if (heading(layoutFor(entry, release).blocks)) html = html.replace(/<(\/?)h1(?=[\s>])/gi, '<$1h2');
   return articleOutline(html).html;
 }
 export function renderEntryTemplate(entry: Entry, release: Release, custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {}, options: RenderOptions = {}) {
   const template = layoutFor(entry, release);
-  const nav = renderDocumentNavigation(entry, release);
-  const related = entry.kind === 'content' && release.settings.theme !== 'newsletter' ? recommendedEntries(entry, release) : [];
+  const nav = options.validation ? {before:'',after:''} : renderDocumentNavigation(entry, release);
+  const related = !options.validation && entry.kind === 'content' && release.settings.theme !== 'newsletter' ? recommendedEntries(entry, release) : [];
   const body = renderBlocks(template.blocks, release, entry, custom, { ...options, editable: options.editTemplate, editBody: options.editTemplate ? false : options.editable }) + renderEvidence(entry);
   return `<div class="entry-template template-${e(template.id)}${entry.documentation ? ' has-documentation' : ''}" data-template="${e(template.id)}">${nav.before}${entry.documentation ? `<div class="doc-content">${body}</div>` : body}${nav.after}${related.length ? `<section class="related-content"><h2>相关内容</h2>${related.map((item) => `<a href="${e(item.path)}">${e(item.title)}</a>`).join('')}</section>` : ''}</div>`;
 }

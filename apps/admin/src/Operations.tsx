@@ -1,143 +1,73 @@
 import { useState, lazy, Suspense } from 'react';
-
 import { api } from './api.ts';
-
+import { PanelSections } from './PanelSections.tsx';
+import { operationLabels, jobStatusLabels } from './admin-labels.ts';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
-
 const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
 
-export default function Operations({
-  state,
-  task,
-  refresh,
-  onError,
-  openLogs,
-}: {
+export default function Operations({ state, task, refresh, onError, openLogs }: {
   state: any;
   task: (op: 'publish' | 'backup' | 'verify', p?: any) => any;
   openLogs: (id: string) => void;
   refresh: () => any;
   onError: (s: string) => void;
 }) {
-  const [path, setPath] = useState('D:/Tools/weava/backups'),
-    [verify, setVerify] = useState(''),
-    [usage, setUsage] = useState<any>(null);
+  const [path, setPath] = useState('D:/Tools/weava/backups');
+  const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
-  return (
-    <div className="panel">
-      <div className="panel-title">
-        <div>
-          <h1>运行与备份</h1>
-          <p>发布记录、任务状态与内容备份。</p>
-          {state.program && (
-            <p>
-              程序 {state.program.framework} · 数据版本 {state.program.databaseSchema}
-              {state.program.selected ? ' · 使用已检查的独立版本' : ''}
-            </p>
-          )}
-        </div>
-        <button onClick={refresh}>刷新</button>
-      </div>
-      <div className="settings-panels">
-        <section className="form-card">
-          <h2>全站发布</h2>
-          <p>发布已有公开内容、页面及设置的工作稿；新草稿可在编辑页单独发布。</p>
-          <button className="primary" onClick={() => task('publish', {})}>
-            发布全站工作稿
-          </button>
+  return <div className="panel operations-panel">
+    <div className="panel-title"><h1>备份与维护</h1><button onClick={refresh}>刷新</button></div>
+    <PanelSections label="备份与维护分类" sections={[
+      { id: 'backup', label: '备份', content: <section className="form-card settings-form">
+        <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
+        <label>备份保存位置<input value={path} onChange={event => setPath(event.target.value)} /></label>
+        <button className="primary" disabled={!path.trim()} onClick={() => task('backup', { path })}>创建备份</button>
+        <details className="settings-disclosure"><summary>检查已有备份</summary>
+          <label>备份所在文件夹<input value={verify} onChange={event => setVerify(event.target.value)} /></label>
+          <button disabled={!verify.trim()} onClick={() => task('verify', { path: verify })}>检查备份是否完整</button>
+        </details>
+      </section> },
+      { id: 'import', label: '导入与导出', content: <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense> },
+      { id: 'publication', label: '发布记录', content: <>
+        <section className="form-card"><h2>网站更新</h2>
+          <p>一次发布已有公开内容和网站设置的修改。新文章请在编辑页发布。</p>
+          <button onClick={() => task('publish', {})}>发布全站工作稿</button>
         </section>
-        <section className="form-card">
-          <h2>完整备份</h2>
-          <label>
-            备份根目录
-            <input value={path} onChange={(e) => setPath(e.target.value)} />
-          </label>
-          <button onClick={() => task('backup', { path })}>创建备份</button>
-          <label>
-            校验备份目录
-            <input value={verify} onChange={(e) => setVerify(e.target.value)} />
-          </label>
-          <button onClick={() => task('verify', { path: verify })}>校验</button>
+        <section className="form-card"><h2>已发布的版本</h2>
+          {!state.releases.length && <p className="muted">网站尚未发布。</p>}
+          <div className="release-list">{state.releases.slice(0, 20).map((release: any) => <div key={release.id}>
+            <time>{new Date(release.created_at).toLocaleString()}</time>
+            <button onClick={async () => {
+              try { await api('rollback', { id: release.id }); await refresh(); }
+              catch (error: any) { onError(error.message); }
+            }}>恢复这个公开版本</button>
+          </div>)}</div>
         </section>
-      </div>
-      <Suspense fallback={<p>正在载入导入工具…</p>}>
-        <ImportManager refresh={refresh} />
-      </Suspense>
-      <Suspense fallback={<p>正在载入扩展…</p>}>
-        <ExtensionManager rows={state.extensions ?? []} refresh={refresh} />
-      </Suspense>
-      <Suspense fallback={<p>正在载入历史维护…</p>}>
-        <HistoryMaintenance refresh={refresh} />
-      </Suspense>
-      <section className="form-card">
-        <h2>空间占用</h2>
-        <button
-          onClick={() =>
-            api('maintenance')
-              .then(setUsage)
-              .catch((e) => onError(e.message))
-          }
-        >
-          检查占用
-        </button>
-        {usage && (
-          <>
-            <p>
-              内容数据库 {size(usage.databaseBytes)} · 统计 {size(usage.analyticsBytes)} · 媒体{' '}
-              {size(usage.media.bytes)}
-            </p>
-            <p>
-              {usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本 ·{' '}
-              {usage.backups.length} 份已记录备份
-            </p>
-            <p>
-              未被内容或历史引用的媒体：{usage.unreferenced.count} 个，
-              {size(usage.unreferenced.bytes)}。文件继续保留。
-            </p>
-            {usage.backups.map((b: any) => (
-              <p key={b.path}>
-                {b.path} · {size(b.bytes)}
-              </p>
-            ))}
-          </>
-        )}
-      </section>
-      <h2>公开版本</h2>
-      <div className="release-list">
-        {state.releases.slice(0, 20).map((r: any) => (
-          <div key={r.id}>
-            <span>
-              {new Date(r.created_at).toLocaleString()}
-              <small>{r.id}</small>
-            </span>
-            <button
-              onClick={async () => {
-                try {
-                  await api('rollback', { id: r.id });
-                  await refresh();
-                } catch (e: any) {
-                  onError(e.message);
-                }
-              }}
-            >
-              切换到这个版本
-            </button>
-          </div>
-        ))}
-      </div>
-      <h2>任务记录</h2>
-      <div className="release-list">
-        {state.jobs.map((j: any) => (
-          <div key={j.id}>
-            <span>
-              {j.operation} · {j.status}
-              <small>{j.message}</small>
-            </span>
-            <button onClick={() => openLogs(j.id)}>日志</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+      </> },
+      { id: 'tasks', label: '任务记录', content: <section className="form-card">
+        <h2>任务记录</h2>{!state.jobs.length && <p className="muted">暂无任务记录。</p>}
+        <div className="release-list">{state.jobs.map((job: any) => <div key={job.id}>
+          <span>{operationLabels[job.operation] ?? '网站任务'} · {jobStatusLabels[job.status] ?? '状态未知'}<small>{job.message}</small></span>
+          <button onClick={() => openLogs(job.id)}>查看详情</button>
+        </div>)}</div>
+      </section> },
+      { id: 'maintenance', label: '维护', content: <>
+        <section className="form-card"><h2>空间占用</h2>
+          <button onClick={() => api('maintenance').then(setUsage).catch(error => onError(error.message))}>检查占用</button>
+          {usage && <>
+            <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · 媒体 {size(usage.media.bytes)}</p>
+            <p>{usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本 · {usage.backups.length} 份已记录备份</p>
+            <p>未被内容或历史引用的媒体：{usage.unreferenced.count} 个，{size(usage.unreferenced.bytes)}。文件继续保留。</p>
+            {!!usage.backups.length && <details className="settings-disclosure"><summary>备份位置</summary>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</details>}
+          </>}
+        </section>
+        <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>
+        <details className="settings-disclosure"><summary>扩展与程序信息</summary>
+          <Suspense fallback={<p>正在载入扩展…</p>}><ExtensionManager rows={state.extensions ?? []} refresh={refresh} /></Suspense>
+          {state.program && <p>程序版本 {state.program.framework} · 数据版本 {state.program.databaseSchema}</p>}
+        </details>
+      </> },
+    ]} />
+  </div>;
 }

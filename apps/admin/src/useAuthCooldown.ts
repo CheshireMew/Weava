@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ApiClientError } from '@weava/contracts/api-client';
+import { ApiClientError } from '@weava/contracts/api-error';
 export function useAuthCooldown() {
   const [until,setUntil]=useState(0),[now,setNow]=useState(Date.now());
   useEffect(()=>{if(!until)return;const timer=setInterval(()=>setNow(Date.now()),250);return()=>clearInterval(timer);},[until]);

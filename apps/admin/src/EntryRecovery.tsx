@@ -1,5 +1,5 @@
 import { api } from './api.ts';
-import { saveLocalDraft } from './local-drafts.ts';
+import { drafts } from './draft-repository.ts';
 
 import type { ContentWorkspace } from './useContentWorkspace.ts';
 
@@ -34,7 +34,6 @@ export function EntryRecovery({
     conflictPaused,
     restoreLocal,
     setRestoreLocal,
-    recoveryCopies,
     setRecoveryCopies,
     draftNotice,
     setDraftNotice,
@@ -66,33 +65,12 @@ export function EntryRecovery({
       )}
       {restoreLocal && (
         <div className="recovery-banner">
-          浏览器保留了{recoveryCopies.length || 1}份未保存内容。
-          {recoveryCopies.length > 1 && (
-            <select
-              aria-label="选择本地草稿"
-              value={
-                recoveryCopies.find((copy) => copy.record === restoreLocal)?.id ??
-                recoveryCopies[0].id
-              }
-              onChange={(event) =>
-                setRestoreLocal(
-                  recoveryCopies.find((copy) => copy.id === event.target.value)!.record,
-                )
-              }
-            >
-              {recoveryCopies.map((copy) => (
-                <option key={copy.id} value={copy.id}>
-                  {copy.updatedAt ? new Date(copy.updatedAt).toLocaleString() : '此前保存'} ·{' '}
-                  {copy.record.value.title}
-                </option>
-              ))}
-            </select>
-          )}
+          这篇文章有尚未保存的本地草稿。
           <button
             onClick={async () => {
               const local = restoreLocal;
               try {
-                saveLocalDraft(local, localStorage, Date.now(), true);
+                await drafts().save(local);
               } catch (error: any) {
                 setDraftNotice(error.message);
               }

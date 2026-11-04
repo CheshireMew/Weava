@@ -1,6 +1,7 @@
 import { normalizePath } from './paths.ts';
 
 import { prepareEntryCandidate } from './content-validation.ts';
+import type { EntryReferences } from './content-validation.ts';
 
 import { now, digest } from './storage.ts';
 
@@ -60,11 +61,11 @@ export class SiteContent {
         throw new WeavaError('这个字段类型不能用于列表筛选：' + f.label);
     }
     const affected = [];
-    const candidateEntries = new Map(
-      this.site.store.list('entry').map((row) => [row.id, row.value as Entry]),
-    );
-    for (const entry of candidates) candidateEntries.set(entry.id, entry);
-    for (const value of [...candidateEntries.values()].filter((entry) => entry.type === type.id)) {
+    const candidateEntries = new Map(candidates.map(entry=>[entry.id,entry]));
+    const ids=new Set([...candidateEntries.keys(),...(this.site.store.raw.prepare("SELECT id FROM records WHERE scope='entry'").all() as {id:string}[]).map(row=>row.id)]);
+    for (const id of ids) {
+      const value=candidateEntries.get(id)??this.site.store.get('entry',id)!.value as Entry;
+      if(value.type!==type.id)continue;
       const row = { id: value.id, value };
       try {
         if (row.value.kind === 'content') {
@@ -73,7 +74,7 @@ export class SiteContent {
             throw new WeavaError(blocked.map((issue) => issue.message).join('；'), 400, blocked);
         }
         const issues = fieldIssues(definitions, row.value.fields, {
-          reference: (id) => candidateEntries.get(id),
+          reference: (id) => candidateEntries.get(id)??this.site.store.get('entry',id)?.value,
         });
         if (issues.length)
           throw new WeavaError(issues.map((issue) => issue.message).join('；'), 400, issues);
@@ -96,7 +97,7 @@ export class SiteContent {
       };
     });
   }
-  saveEntry(value: Entry, revision: number | null, options: { references?: Entry[] } = {}) {
+  saveEntry(value: Entry, revision: number | null, options: { references?: EntryReferences } = {}) {
     const input = prepareEntryCandidate(this.site, value, { required: false, ...options });
     input.path = normalizePath(input.path);
     if (isReservedContentPath(input.path)) throw new WeavaError('这个网址由系统使用。');

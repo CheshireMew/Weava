@@ -10,20 +10,32 @@ class MemoryStorage {
 }
 const record = (title: string, id = 'entry') => ({ id, revision: 1, updatedAt: '2026-10-30T00:00:00Z', value: entrySchema.parse({ id, kind: 'page', title, path: '/' + id + '/' }) });
 describe('bounded local draft recovery', () => {
-  it('coalesces typing but keeps distinct recoverable versions and never exceeds ten per entry', () => {
+  it('overwrites one recovery draft across long editing sessions and revision changes', () => {
     const storage = new MemoryStorage(); saveLocalDraft(record('第一版'), storage, 1000);
     saveLocalDraft(record('第一版补充'), storage, 2000); expect(localDrafts('entry', storage)).toHaveLength(1);
     for (let i = 0; i < 15; i++) saveLocalDraft(record('版本' + i), storage, 17000 + i * 16000);
-    expect(localDrafts('entry', storage)).toHaveLength(10); expect(localDrafts('entry', storage)[0].record.value.title).toBe('版本14');
+    saveLocalDraft({...record('最新内容'),revision:2}, storage, 300000);
+    expect(localDrafts('entry', storage)).toHaveLength(1); expect(localDrafts('entry', storage)[0].record.value.title).toBe('最新内容');
   });
-  it('acknowledges successful saves without discarding other recovery copies; restoring creates a distinct copy', () => {
+  it('clears saved content while preserving newer unsaved edits and other articles', () => {
     const storage = new MemoryStorage(); saveLocalDraft(record('旧版'), storage, 1000); saveLocalDraft(record('新版'), storage, 17000);
-    saveLocalDraft(record('旧版'), storage, 18000, true);
-    acknowledgeLocalDrafts('entry', storage);
-    expect(localDrafts('entry', storage).map((copy) => copy.record.value.title)).toEqual(['旧版', '新版', '旧版']);
-    expect(localDrafts('entry', storage).every((copy) => copy.pending === false)).toBe(true);
-    saveLocalDraft(record('继续写作'), storage, 19000); expect(localDrafts('entry', storage)).toHaveLength(4);
-    expect(localDrafts('entry', storage)[0].pending).toBe(true);
+    saveLocalDraft(record('其他文章','other'), storage, 18000);
+    acknowledgeLocalDrafts(record('旧版'), storage);
+    expect(localDrafts('entry', storage)[0].record.value.title).toBe('新版');
+    acknowledgeLocalDrafts({...record('新版'),revision:2}, storage);
+    expect(localDrafts('entry', storage)).toEqual([]);
+    expect(localDrafts('other', storage)).toHaveLength(1);
+  });
+  it('reads only the latest pending content from older multi-copy archives', () => {
+    const storage = new MemoryStorage();
+    storage.setItem('weava-drafts:v2',JSON.stringify({version:2,entries:{entry:[
+      {id:'saved',updatedAt:3000,pending:false,record:record('已保存')},
+      {id:'new',updatedAt:2000,pending:true,record:record('未保存新版')},
+      {id:'old',updatedAt:1000,pending:true,record:record('未保存旧版')},
+    ]}}));
+    expect(localDrafts('entry',storage).map(copy=>copy.record.value.title)).toEqual(['未保存新版']);
+    saveLocalDraft(record('继续写作'),storage,4000);
+    expect(JSON.parse(storage.getItem('weava-drafts:v2')!).entries.entry).toHaveLength(1);
   });
   it('migrates the previous single copy only after writing the new archive succeeds', () => {
     const storage = new MemoryStorage(); storage.setItem('weava-draft:entry', JSON.stringify(record('此前草稿')));

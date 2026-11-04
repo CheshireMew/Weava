@@ -1,8 +1,10 @@
+import { uploadFile } from './upload-file.ts';
 import { useState } from 'react';
 import type { Entry } from '@weava/contracts';
 import { api, waitJob } from './api.ts';
 import { useContentLibrary } from './useContentLibrary.ts';
 import { useEntryEditor } from './useEntryEditor.ts';
+import { drafts } from './draft-repository.ts';
 export interface ContentWorkspaceOptions {
   state: any;
   setState: React.Dispatch<React.SetStateAction<any>>;
@@ -35,15 +37,16 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     library.setFilter('');
     library.setStatus('all');
     library.setLibraryType(kind === 'content' ? type : '');
+
   }
   async function newEntry() {
     try {
       await persist();
-      const kind = tab === 'pages' ? 'page' : 'content',
+      const kind = 'content' as const,
         type = library.libraryType || state.types[0]?.value.id || 'post';
-      if (
+      if (kind === 'content' &&
         state.creationTemplates?.some(
-          (row: any) => row.value.kind === kind && (kind === 'page' || row.value.type === type),
+          (row: any) => row.value.kind === 'content' && row.value.type === type,
         )
       ) {
         setCreating({ kind, type });
@@ -53,6 +56,31 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     } catch (error: any) {
       setError(error.message);
     }
+  }
+  async function duplicateEntry(row: { id: string; revision: number }) {
+    await persist();
+    const request = ++selection.current;
+    const copy = await api('entries/duplicate', { id: row.id, revision: row.revision });
+    if (request !== selection.current) return;
+    editor.adopt(copy);
+    editor.setPreview('');
+    library.setFilter('');
+    library.setStatus('draft');
+    library.setLibraryPage(1);
+    options.notify('已复制为新草稿');
+    await refresh().catch(error => setError(error.message));
+  }
+  async function deleteEntry(row: { id: string; revision: number }) {
+    await api('entries/delete', { id: row.id, revision: row.revision });
+    await drafts().forget(row.id).catch(error => setError(error.message));
+    library.setBulkIds(ids => ids.filter(id => id !== row.id));
+    if (editor.record?.id === row.id) editor.clear();
+    // Move off an emptied last page before reloading the remaining entries.
+    if (library.items.length === 1 && library.libraryPage > 1)
+      library.setLibraryPage(page => page - 1);
+    library.setLibrary((previous: any) => ({ ...previous, total: Math.max(0, previous.total - 1), items: previous.items.filter((item: any) => item.id !== row.id) }));
+    options.notify('已删除');
+    await refresh().catch(error => setError(error.message));
   }
   async function publish() {
     const row = await persist();
@@ -68,23 +96,8 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
       input.onchange = async () => {
         if (!input.files?.[0]) return resolve(null);
         try {
-          const file = input.files[0],
-            reader = new FileReader();
-          reader.onload = async () => {
-            try {
-              const result = await api('media', {
-                name: file.name,
-                base64: String(reader.result).split(',')[1],
-              });
-              const finished = await waitJob(result, setJob);
-              await refresh();
-              resolve(finished.result.value);
-            } catch (e: any) {
-              setError(e.message);
-              resolve(null);
-            }
-          };
-          reader.readAsDataURL(file);
+          const row=await uploadFile(input.files[0],()=>{},setJob);
+          await refresh();resolve(row.value);
         } catch (e: any) {
           setError(e.message);
           resolve(null);
@@ -102,6 +115,8 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     setCreating,
     createNew,
     newEntry,
+    duplicateEntry,
+    deleteEntry,
     publish,
     upload,
   };

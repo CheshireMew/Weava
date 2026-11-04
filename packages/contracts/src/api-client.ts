@@ -1,9 +1,8 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { adminApi, matchAdminApi, validateApiInput, type AdminApi, type ApiOperation, type ApiInput, type ApiOutput } from './admin-api.ts';
 import { errorSchema } from './api-models.ts';
-export class ApiClientError extends Error {
-  constructor(message:string, public status:number, public details?:unknown, public retryAfter?:number) { super(message); }
-}
+import { ApiClientError } from './api-error.ts';
+export { ApiClientError } from './api-error.ts';
 export interface ApiClientOptions { baseUrl?:string;fetch?:typeof fetch;headers?:HeadersInit|(()=>HeadersInit);timeoutMs?:number;onUnauthorized?:(path:string)=>void }
 type ParamPath<P extends string> = P extends `${infer A}{${string}}${infer B}` ? `${A}${string}${ParamPath<B>}` : P;
 type Method='GET'|'POST';
@@ -27,10 +26,10 @@ export function createAdminClient(options:ApiClientOptions={}):AdminClient {
     if(!match) throw new ApiClientError('接口未在共用定义中声明：'+method+' '+path,0);
     const query=new URLSearchParams(path.includes('?')?path.slice(path.indexOf('?')+1):'');
     try { validateApiInput(match,query,body); } catch(error) { throw new ApiClientError('请求参数无效。',400,error instanceof z.ZodError?error.issues:undefined); }
-    const headers=new Headers(typeof options.headers==='function'?options.headers():options.headers);headers.set('Content-Type','application/json');
+    const headers=new Headers(typeof options.headers==='function'?options.headers():options.headers);headers.set('Content-Type',match.definition.binary?'application/octet-stream':'application/json');
     let response:Response;
     const timeout=options.timeoutMs??(match.definition.path.startsWith('analytics')||match.operation==='importWxr'?140000:30000);
-    try { response=await transport((options.baseUrl??'/api/admin/v1/').replace(/\/?$/,'/')+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(timeout)}); }
+    try { response=await transport((options.baseUrl??'/api/admin/v1/').replace(/\/?$/,'/')+path,{method,headers,body:body===undefined?undefined:match.definition.binary?body as BodyInit:JSON.stringify(body),signal:AbortSignal.timeout(timeout)}); }
     catch(error) { throw new ApiClientError(error instanceof Error&&error.name==='TimeoutError'?'网站响应超时，请稍后重试。':'无法连接网站，请检查服务和网络后重试。',0); }
     let result:unknown;
     try { result=response.headers.get('content-type')?.includes('application/json')?await response.json():await response.text(); }

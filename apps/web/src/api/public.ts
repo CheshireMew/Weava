@@ -1,4 +1,5 @@
 import { queryPublished, contentQuery } from '@weava/core';
+import { publishedMetadata } from '../../../../packages/core/src/release-reader.ts';
 import { WeavaError as DomainError } from '@weava/contracts';
 
 import { readJsonBody } from '@weava/core';
@@ -70,7 +71,7 @@ export async function publicApi(
     const query = contentQuery(url.searchParams);
     const result = queryPublished(site, query, route === 'v1/search');
     return json(
-      result.items.map(({ document, compatibility, html, source, blocks, ...entry }) => entry),
+      result.items.map(publishedMetadata),
       200,
       {
         'X-Total-Count': String(result.total),

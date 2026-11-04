@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
-import { WeavaError } from '@weava/contracts';
+import { WeavaError } from '../../contracts/src/errors.ts';
 
 /** Resolve existing ancestors as well as a not-yet-created destination. */
 export function canonicalPath(input: string) {

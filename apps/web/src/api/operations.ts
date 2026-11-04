@@ -16,6 +16,8 @@ import {
 import { join } from 'node:path';
 
 import type { ApiServices, AdminHandlers } from './types.ts';
+import { resolveSiteInfo } from '../../../../packages/core/src/site-info.ts';
+
 export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>) {
   const { site, siteExtension, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
@@ -25,6 +27,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       const { url } = context;
       return {
         settings: site.settings(),
+        ...(url.searchParams.get('panel') === 'appearance' ? { siteInfo: resolveSiteInfo(site) } : {}),
         types: site.store.list('type'),
         contentViews: contentViews(site),
         creationTemplates: creationTemplates(site),
@@ -86,18 +89,10 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       return await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null);
     },
     maintenance: async () => {
-      return storageUsage(site);
+      return jobs.query('storage-usage',{});
     },
     previewArchive: async ({ body: data }) => {
-      const plan = planHistoryArchive(site, data);
-      return {
-        options: plan.options,
-        releases: plan.releaseIds.length,
-        revisions: plan.revisions.length,
-        protectedReleases: plan.protectedReleases,
-        protectedRevisions: plan.protectedRevisions,
-        review: plan.review,
-      };
+      return jobs.query('archive-plan',data);
     },
     archiveHistory: async ({ body: data }) => {
       return await execute('archive-history', data);
@@ -110,7 +105,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     },
     archiveContents: async ({}, context) => {
       const { url } = context;
-      return historyArchiveContents(site, url.searchParams.get('id') ?? '');
+      return jobs.query('archive-contents',{id:url.searchParams.get('id')??''});
     },
     jobs: async () => {
       return site.jobs();

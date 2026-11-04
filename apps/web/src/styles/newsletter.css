@@ -30,7 +30,8 @@
 .newsletter .nl-navigation [aria-current='page'] { font-weight: 700; }
 .newsletter .nl-navigation [aria-current='page']::after { content: ''; height: 2px; position: absolute; background: var(--nl-ink); bottom: 0; left: 0; right: 0; }
 .newsletter .nl-site-advertisement { display: flow-root; }
-.newsletter .nl-site-advertisement-top > .weava-advertisement { margin: 16px 0 0; }
+.newsletter .nl-site-advertisement-top > .weava-advertisement { margin: 8px 0 0; }
+.newsletter .nl-site-advertisement-top:has([data-ad-slot="siteTop"]) + main .nl-lead { margin-top: 12px; }
 .newsletter .nl-site-advertisement-bottom > .weava-advertisement { margin: 24px 0 0; }
 .newsletter .nl-lead { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 24px; margin-bottom: 24px; }
 .newsletter .nl-feature { padding-right: 27px; border-right: 1px solid var(--nl-line); }

@@ -8,7 +8,9 @@ import { imageAttributes, renderFields, articleOutline, renderNavigation, select
 import ArticleActions from './ArticleActions.astro';
 import { featuredEntries, recommendedEntries, feedLinks } from '@weava/core';
 import ArticleComments from './ArticleComments.astro';
+import SiteInfoLinks from '../components/SiteInfoLinks.astro';
 import '../styles/newsletter.css';
+import { newsletterCatalog,newsletterRanking } from '../../../../packages/core/src/newsletter.ts';
 
 interface Props {
   release: Release;
@@ -34,17 +36,16 @@ const settings = release.settings;
 const sidebarHtml = typeof settings.extensions.newsletter?.sidebarHtml === 'string'
   ? settings.extensions.newsletter.sidebarHtml : '';
 const privateArticle = entry?.visibility === 'private';
-const posts = release.entries.filter((item) => item.kind === 'content' && item.visibility !== 'private')
-  .map((item) => ({ ...item, cover: item.cover || item.html.match(/<img\b[^>]*\bsrc=["']([^"']+)/i)?.[1] || '' }))
-  .sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)));
-const totals = analytics.viewTotals(posts);
+const catalog=newsletterCatalog(release),{posts,featured,categories,archiveUrl}=catalog;
+const template = entry ? layoutFor(entry, release).id : null;
+const needsRanking=template==='newsletter-home'||entry?.kind==='content'||(template==='newsletter-archive'&&Astro.url.searchParams.get('sort')==='popular');
+const ranking=needsRanking?newsletterRanking(release,analytics):null;
+const popular=ranking?.popular??[],totals=ranking?.totals??new Map<string,number>();
 const views = (item: PublishedEntry) => totals.get(item.id) ?? 0;
-const formattedViews = (item: PublishedEntry) => new Intl.NumberFormat(settings.language).format(views(item));
-const popular = [...posts].sort((a, b) => views(b) - views(a) || String(b.publishedAt).localeCompare(String(a.publishedAt)));
-const featured = featuredEntries(posts);
+const viewFormatter=new Intl.NumberFormat(settings.language);
+const formattedViews = (item: PublishedEntry) => viewFormatter.format(views(item));
 const feature = featured[0];
 const side = featured.slice(1, 5);
-const template = entry ? layoutFor(entry, release).id : null;
 const isHome = template === 'newsletter-home';
 const isSearch = Astro.url.pathname === '/search/';
 const listBlock = entry?.blocks.find((block) => block.type === 'content-list' || block.type === 'cards');
@@ -52,9 +53,9 @@ const isListing = template === 'newsletter-archive';
 const sort = Astro.url.searchParams.get('sort') === 'popular' ? 'popular' : 'latest';
 const ordered = sort === 'popular' ? popular : posts;
 const grid = sort === 'popular' ? popular.slice(0, 9) : posts.slice(5, 14);
-const matching = selectEntries(ordered, { kind: 'content', type: listBlock?.props.contentType, author: listBlock?.props.author,
+const matching = isListing ? selectEntries(ordered, { kind: 'content', type: listBlock?.props.contentType, author: listBlock?.props.author,
   category: listBlock?.props.category, tag: listBlock?.props.tag, query: listBlock?.props.query,
-  fields: listBlock?.props.fields }, release.types, release.terms);
+  fields: listBlock?.props.fields }, release.types, release.terms) : [];
 const listingPage = paginate(matching,
   isListing ? wordpressArchivePage(entry, Astro.url) ?? Number(Astro.url.searchParams.get('page') ?? 1) : 1, Math.min(100, Number(listBlock?.props.limit) || 24));
 const listing = listingPage.items;
@@ -63,13 +64,7 @@ const date = (item: PublishedEntry, year = false) => item.publishedAt
   ? new Intl.DateTimeFormat(settings.language, { month: 'short', day: 'numeric', ...(year ? { year: 'numeric' } : {}), timeZone: settings.timezone }).format(new Date(item.publishedAt))
   : '';
 const image = (item: PublishedEntry, sizes: string) => ({ ...imageAttributes(site, item.cover), sizes });
-const archive = release.entries.find((item) => item.kind === 'page' && (item.template === 'newsletter-archive' || item.fields.newsletterLayout === 'archive'));
-const archiveUrl = archive?.path ?? '/search/';
-const categories = settings.taxonomies.map((category) => ({
-  ...category, count: posts.filter((post) => post.termIds?.categories.includes(category.id) || post.categories.includes(category.label)).length,
-  path: release.entries.find((page) => page.kind === 'page' && page.blocks.some((block) => [category.id, category.label].includes(block.props.category)))?.path,
-})).filter((category) => category.count && category.path);
-const recommended = { related: entry ? recommendedEntries(entry, release, 10) : [], popular: popular.filter((item) => item.id !== entry?.id).slice(0, 10), latest: posts.filter((item) => item.id !== entry?.id).slice(0, 10) };
+const recommended = entry?.kind==='content' ? { related: recommendedEntries(entry, release, 10).map(item=>catalog.byId.get(item.id)??item), popular: popular.slice(0,11).filter((item) => item.id !== entry.id).slice(0, 10), latest: posts.slice(0,11).filter((item) => item.id !== entry.id).slice(0, 10) } : {};
 const activePath = entry?.path ?? Astro.url.pathname;
 const isArticle = entry?.kind === 'content';
 const outline = isArticle ? articleOutline(content) : { html: content, items: [] };
@@ -91,7 +86,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
     data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
     style={`--nl-accent:${settings.themeConfig.accent};--nl-width:${settings.themeConfig.width}px;--paper:#fff;font-family:${settings.themeConfig.font}`}>
     <a class="skip" href="#main">跳到正文</a>
-    {headerRegion ? <header class="nl-wrap" set:html={headerRegion} /> : <>
+    {headerRegion ? <header class="nl-wrap" set:html={headerRegion} /> :
     <header class="nl-header">
       <a class="nl-home-mark" href="/" aria-label={settings.name}>
         {settings.logo ? <img src={settings.logo} alt="" width="34" height="34" /> : <span class="nl-monogram">{settings.name.slice(0, 1)}</span>}
@@ -99,12 +94,12 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
       <a class="nl-publication" href="/">{settings.name}</a>
       <div class="nl-header-actions">
         <a class="nl-icon" href="/search/" aria-label="搜索文章"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
-        <a class="nl-dashboard" href="/admin/">{owner ? '写作后台' : '登录'}</a>
+        {owner && <a class="nl-dashboard" href={`${site.auth.adminPath()}/`}>后台</a>}
       </div>
-    </header>
-    <nav class="nl-navigation" aria-label="主导航">
+    </header>}
+    {!headerRegion && <nav class="nl-navigation" aria-label="主导航">
       <Fragment set:html={renderNavigation(settings.navigation, activePath, release)} />
-    </nav></>}
+    </nav>}
     <div class="nl-wrap weava-advertisement-region nl-site-advertisement nl-site-advertisement-top"><Advertisement settings={settings} position="siteTop" /></div>
     {beforeRegion && <div class="nl-wrap shared-region" set:html={beforeRegion} />}
     <main id="main" tabindex="-1" class:list={['nl-wrap', { 'nl-reading': entry?.kind === 'content' }]}>
@@ -182,6 +177,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
     </main>
     {afterRegion && <div class="nl-wrap shared-region" set:html={afterRegion} />}
     <div class="nl-wrap weava-advertisement-region nl-site-advertisement nl-site-advertisement-bottom"><Advertisement settings={settings} position="siteBottom" /></div>
+    <SiteInfoLinks release={release} />
     {footerRegion ? <footer class="nl-wrap" set:html={footerRegion} /> : <footer class="nl-footer nl-wrap"><a href="/">{settings.name}</a><nav aria-label="页脚"><a href="/">首页</a><a href={archiveUrl}>归档</a><a href="/rss.xml">RSS</a>{feedLinks(entry, release).slice(1).map((link) => <a href={link.url}>{link.title} RSS</a>)}<a href="/sitemap.xml">站点地图</a></nav><span>{settings.footer}</span></footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && isArticle && <script src="/weava-article.js" defer is:inline />}

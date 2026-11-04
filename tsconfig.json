@@ -16,7 +16,9 @@
       "@weava/core": ["./packages/core/src/index.ts"],
       "@weava/contracts": ["./packages/contracts/src/index.ts"],
       "@weava/contracts/api": ["./packages/contracts/src/admin-api.ts"],
-      "@weava/contracts/api-client": ["./packages/contracts/src/api-client.ts"]
+      "@weava/contracts/api-client": ["./packages/contracts/src/api-client.ts"],
+      "@weava/contracts/api-error": ["./packages/contracts/src/api-error.ts"],
+      "@weava/contracts/session-api": ["./packages/contracts/src/session-api.ts"]
     }
   },
   "include": [

@@ -1,5 +1,5 @@
-import { z } from 'zod';
-export { z } from 'zod';
+import * as z from 'zod';
+export { z };
 export * from './urls.ts';
 export * from './blocks.ts';
 export * from './analytics.ts';
@@ -223,6 +223,7 @@ export { advertisementSlots, advertisementsSchema } from './advertisements.ts';
 export type { AdvertisementPosition, Advertisements } from './advertisements.ts';
 
 export interface Settings {
+  siteInfo?: import('./site-info.ts').SiteInfo;
   advertisements?: import('./advertisements.ts').Advertisements;
   commentModeration?: boolean;
   themeSettings?: Record<string, Settings['themeConfig']>;
@@ -323,6 +324,7 @@ export interface Release {
   layouts?: Layout[];
 }
 export interface PublishOptions {
+  candidateId?: string;
   scope?: 'all' | 'entries' | 'settings' | 'layouts' | 'terms' | 'routes';
   ids?: string[];
   label?: string;
@@ -370,16 +372,10 @@ export interface Job {
   errorStatus?: number;
   errorDetails?: unknown;
 }
-export class WeavaError extends Error {
-  constructor(
-    message: string,
-    public status = 400,
-    public details?: unknown,
-  ) {
-    super(message);
-    this.name = 'WeavaError';
-  }
-}
+export { WeavaError } from './errors.ts';
 
 export * from './block-tree.ts';
 export * from './publication-plans.ts';
+
+export { siteInfoSchema } from './site-info.ts';
+export type { SiteInfo } from './site-info.ts';

@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { Entry, Revision } from '@weava/contracts';
 import { api } from './api.ts';
 import { useManagedRecord } from './EditSessions.tsx';
+import { drafts } from './draft-repository.ts';
 import {
-  localDrafts,
+  matchesDraft,
   saveLocalDraft,
-  forgetLocalDrafts,
-  acknowledgeLocalDrafts,
   type LocalDraft,
 } from './local-drafts.ts';
 
@@ -20,6 +19,8 @@ export interface EntryEditorOptions {
 export function useEntryEditor({ setError, setLibrary, setState, compact }: EntryEditorOptions) {
   const selection = useRef(0),
     paused = useRef(false);
+  const localDraftSince=useRef(0);
+  const lastLocalDraft=useRef<Revision<Entry> | null>(null);
   const [saving, setSaving] = useState(false),
     [editorEpoch, setEditorEpoch] = useState(0);
   const [conflict, setConflict] = useState<any>(null),
@@ -77,6 +78,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     '内容编辑',
     {
       recovery: false,
+      closeMessage: '文章没有保存，是否确认关闭',
       discard: () => {
         if (session.record) forgetDraft(session.record.id);
         resetConflict();
@@ -84,13 +86,9 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
       },
       saved: (_row, snapshot, unchanged) => {
         if (unchanged) {
-          try {
-            acknowledgeLocalDrafts(snapshot.id);
-            setDraftNotice('');
-          } catch (error: any) {
-            setDraftNotice(error.message);
-          }
+          void drafts().acknowledge(snapshot).then(()=>setDraftNotice(''),error=>setDraftNotice(error.message));
           setRecoveryCopies([]);
+          setRestoreLocal(null);
         }
       },
     },
@@ -101,11 +99,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
   const persist = session.save,
     setRecord = session.change;
   function forgetDraft(id: string) {
-    try {
-      forgetLocalDrafts(id);
-    } catch (error: any) {
-      setDraftNotice(error.message);
-    }
+    void drafts().forget(id).catch(error=>setDraftNotice(error.message));
   }
   function resetConflict() {
     paused.current = false;
@@ -145,10 +139,10 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
       for (;;) {
         await persist();
         if (request !== selection.current) return;
-        const before = JSON.stringify(session.record);
+        const before = session.record;
         row = await api(`entry/${encodeURIComponent(id)}`);
         if (request !== selection.current) return;
-        if (before === JSON.stringify(session.record)) break;
+        if (before === session.record) break;
       }
       session.adopt(row);
       resetConflict();
@@ -163,11 +157,11 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
           if (request === selection.current) setError(error.message);
         });
       try {
-        const copies = localDrafts(id).filter(
-          (copy) =>
-            copy.pending !== false &&
-            JSON.stringify(copy.record.value) !== JSON.stringify(row.value),
-        );
+        const stored = await drafts().read(id);
+        const copies = stored.filter(copy => !matchesDraft(copy,row));
+        if(request!==selection.current)return;
+        for (const copy of stored) if (!copies.includes(copy)) await drafts().acknowledge(copy.record);
+        if(request!==selection.current)return;
         setRecoveryCopies(copies);
         setRestoreLocal(copies[0]?.record ?? null);
       } catch (error: any) {
@@ -181,21 +175,31 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     setContentCheck(null);
   }, [record?.id]);
   useEffect(() => {
-    if (!dirty || !record) return;
-    try {
-      saveLocalDraft(record);
-      setDraftNotice('');
-    } catch (error: any) {
-      setDraftNotice(error.message);
+    if (!dirty || !record){
+      localDraftSince.current=0;
+      const local=lastLocalDraft.current;
+      lastLocalDraft.current=null;
+      if(local&&record?.id===local.id)void drafts().acknowledge(local).catch(error=>setDraftNotice(error.message));
+      return;
     }
-    if (conflictPaused) return;
-    const timer = setTimeout(() => persist().catch(() => {}), 1200);
-    return () => clearTimeout(timer);
+    localDraftSince.current||=Date.now();
+    const local=setTimeout(()=>{
+      localDraftSince.current=0;
+      if(session.dirty&&session.record){
+        lastLocalDraft.current=session.record;
+        void drafts().save(session.record).then(()=>setDraftNotice(''),error=>setDraftNotice(error.message));
+      }
+    },Math.max(0,Math.min(250,1000-(Date.now()-localDraftSince.current))));
+    const timer = conflictPaused?undefined:setTimeout(() => persist().catch(() => {}), 1200);
+    return () => {clearTimeout(local);clearTimeout(timer);};
   }, [record, dirty, conflictPaused]);
   useEffect(() => {
     const leave = () => {
       try {
-        if (session.dirty && session.record) saveLocalDraft(session.record);
+        if (session.dirty && session.record) {
+          lastLocalDraft.current=session.record;
+          saveLocalDraft(session.record);
+        }
       } catch {}
     };
     const key = (event: KeyboardEvent) => {
@@ -205,9 +209,17 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
       }
     };
     window.addEventListener('beforeunload', leave);
+    const hidden=()=>{
+      if(document.visibilityState==='hidden'&&session.dirty&&session.record){
+        lastLocalDraft.current=session.record;
+        void drafts().save(session.record).catch(()=>{});
+      }
+    };
+    document.addEventListener('visibilitychange',hidden);
     window.addEventListener('keydown', key);
     return () => {
       window.removeEventListener('beforeunload', leave);
+      document.removeEventListener('visibilitychange',hidden);
       window.removeEventListener('keydown', key);
     };
   }, [session]);

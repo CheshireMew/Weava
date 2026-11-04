@@ -14,6 +14,7 @@ import { Site } from './site.ts';
 import { WeavaError, VERSION } from '@weava/contracts';
 import { assertMaintenanceAvailable, withInstanceMaintenance } from './instance-access.ts';
 import { pathWithin } from './paths.ts';
+import { digestFile } from './file-io.ts';
 export async function createBackup(site: Site, base: string, label = '手动备份') {
   const root = resolve(base);
   if (pathWithin(site.root, root))
@@ -41,7 +42,7 @@ export async function createBackup(site: Site, base: string, label = '手动备�
     if (existsSync(join(site.root, name))) copyFileSync(join(site.root, name), join(folder, name));
   const files = walk(folder).map((file) => ({
     path: relative(folder, file).replaceAll('\\', '/'),
-    hash: digest(readFileSync(file)),
+    hash: digestFile(file),
   }));
   const manifest = { version: 1, framework: VERSION, id, createdAt: now(), label, files };
   atomicJson(join(folder, 'manifest.json'), manifest);
@@ -62,7 +63,7 @@ export function verifyBackup(folder: string) {
     if (
       !existsSync(file) ||
       lstatSync(file).isSymbolicLink() ||
-      digest(readFileSync(file)) !== item.hash
+      digestFile(file) !== item.hash
     )
       throw new WeavaError('备份校验失败：' + item.path);
   }
@@ -86,7 +87,7 @@ export function copyVerifiedBackup(folder: string, target: string) {
     const destination = inside(target, item.path);
     mkdirSync(resolve(destination, '..'), { recursive: true });
     copyFileSync(inside(folder, item.path), destination);
-    if (digest(readFileSync(destination)) !== item.hash) throw new WeavaError('复制期间备份文件发生变化：' + item.path);
+    if (digestFile(destination) !== item.hash) throw new WeavaError('复制期间备份文件发生变化：' + item.path);
   }
   verifyDatabase(join(target, 'weava.sqlite'));
 }

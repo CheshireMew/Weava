@@ -1,19 +1,11 @@
-import { mediaReferencesIn } from './media-references.ts';
 import { mediaIdentity } from './paths.ts';
 import { join, relative } from 'node:path';
-import { statSync, existsSync, readFileSync } from 'node:fs';
+import { statSync, existsSync } from 'node:fs';
 import type { Site } from './site.ts';
 import { walk } from './storage.ts';
+import { maintenanceReferences } from './maintenance-reference-cache.ts';
 export function storageUsage(site: Site) {
-  const refs = new Set<string>();
-  const collect = (source: string) => { for (const path of mediaReferencesIn(source)) refs.add(path); };
-  for (const table of ['records', 'revisions', 'releases', 'publication_objects'])
-    for (const row of site.store.raw.prepare(`SELECT data FROM ${table}${['records','revisions'].includes(table) ? " WHERE scope NOT IN ('media','history-archive')" : ''}`).iterate() as Iterable<{
-      data: string;
-    }>) {
-      collect(row.data);
-    }
-  for (const file of walk(join(site.root,'archives','history'))) if (/\.jsonl$/.test(file)) collect(readFileSync(file,'utf8'));
+  const refs = maintenanceReferences(site);
   for (const row of site.store.list('media'))
     if (refs.has(mediaIdentity(row.value.url)))
       for (const derivative of row.value.derivatives ?? [])
@@ -41,12 +33,12 @@ export function storageUsage(site: Site) {
     );
   const versions = site.store.raw
     .prepare(
-      'SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM revisions',
+      'SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM revisions INDEXED BY revision_data_bytes',
     )
     .get();
   const releases = site.store.raw
     .prepare(
-      'SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM releases',
+      'SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM releases INDEXED BY release_data_bytes',
     )
     .get();
   return {
@@ -54,7 +46,7 @@ export function storageUsage(site: Site) {
     analyticsBytes: physical('analytics.sqlite'),
     versions: versions as {count:number;bytes:number},
     releases: releases as {count:number;bytes:number},
-    publicationObjects: site.store.raw.prepare('SELECT kind,COUNT(*) count,SUM(LENGTH(CAST(data AS BLOB))) bytes FROM publication_objects GROUP BY kind').all() as {kind:string;count:number;bytes:number}[],
+    publicationObjects: site.store.raw.prepare('SELECT kind,COUNT(*) count,SUM(LENGTH(CAST(data AS BLOB))) bytes FROM publication_objects INDEXED BY publication_object_bytes GROUP BY kind').all() as {kind:string;count:number;bytes:number}[],
     media: { count: media.length, bytes: media.reduce((sum, f) => sum + f.bytes, 0) },
     unreferenced: {
       count: unused.length,

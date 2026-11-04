@@ -1,4 +1,4 @@
-import { adminApi } from '@weava/contracts/api';
+import { uploadFile } from './upload-file.ts';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, waitJob } from './api.ts';
 import { Dialog } from './Dialog.tsx';
@@ -49,27 +49,8 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   async function upload(file: File) {
     setError(''); setProgress('读取文件…');
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(',')[1]);
-        reader.onerror = () => reject(new Error('无法读取文件，请重新选择。'));
-        reader.readAsDataURL(file);
-      });
-      const response = await new Promise<any>((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open('POST', '/api/admin/v1/media'); request.setRequestHeader('Content-Type', 'application/json'); request.setRequestHeader('Idempotency-Key', crypto.randomUUID());
-        request.timeout = 120000;
-        request.upload.onprogress = (event) => { if (event.lengthComputable) setProgress(`上传 ${Math.round(event.loaded / event.total * 100)}%`); };
-        request.onerror = () => reject(new Error('上传连接中断，请检查网络后重试。'));
-        request.ontimeout = () => reject(new Error('上传超时，请检查网络后重试。'));
-        request.onload = () => {
-          try { const data = JSON.parse(request.responseText); if (request.status >= 400) reject(new Error(data.error ?? '上传失败，请重试。')); else resolve(adminApi.uploadMedia.response.parse(data)); }
-          catch { reject(new Error('网站未返回有效的上传结果，请稍后重试。')); }
-        };
-        request.send(JSON.stringify(adminApi.uploadMedia.body.parse({ name: file.name, base64 })));
-      });
-      const complete = await waitJob(response, (job) => setProgress(job.message));
-      if (group && group !== '__ungrouped__') await api('media/info', { id: complete.result.id, revision: complete.result.revision, value: { ...complete.result.value, groupId: group } });
+      const result = await uploadFile(file,setProgress);
+      if (group && group !== '__ungrouped__') await api('media/info', { id: result.id, revision: result.revision, value: { ...result.value, groupId: group } });
       setQ(''); setPage(1); setEpoch((value) => value + 1);
     } catch (error: any) { setError(error.message ?? '上传失败，请重试。'); }
     finally { setProgress(''); if (fileInput.current) fileInput.current.value = ''; }

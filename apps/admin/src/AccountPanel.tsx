@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import { api } from './api.ts';
 import type { ApiOutput } from '@weava/contracts/api';
 import { useAuthCooldown } from './useAuthCooldown.ts';
+import { PasswordField } from './PasswordField.tsx';
 const eventNames:Record<string,string>={
   'account-initialized':'初始化账户','password-reset':'重置密码','account-recovered':'本机恢复账户',
   'account-updated':'修改账户资料或密码','login-succeeded':'登录成功','login-failed':'身份验证失败',
@@ -14,15 +15,18 @@ const eventNames:Record<string,string>={
 const time=(value:string|null)=>value?new Date(value).toLocaleString():'暂无记录';
 export default function AccountPanel({setError,notify,sessionGeneration}:{setError:(message:string)=>void;notify:(message:string)=>void;sessionGeneration:number}) {
   const [account,setAccount]=useState<ApiOutput<'account'>|null>(null);
+  const [loadError,setLoadError]=useState('');
   const [username,setUsername]=useState(''),[displayName,setDisplayName]=useState(''),[adminPath,setAdminPath]=useState('');
   const [password,setPassword]=useState(''),[newPassword,setNewPassword]=useState(''),[repeat,setRepeat]=useState(''),[code,setCode]=useState('');
   const [setup,setSetup]=useState<ApiOutput<'beginTwoFactor'>|null>(null),[qr,setQr]=useState('');
   const [codes,setCodes]=useState<string[]>([]),[savedCodes,setSavedCodes]=useState(false),[busy,setBusy]=useState(false);
   const [revokeAll,setRevokeAll]=useState(true),cooldown=useAuthCooldown(),loaded=useRef(false);
-  async function refresh(){const value=await api('account');setAccount(value);return value;}
+  function receiveAccount(value:ApiOutput<'account'>){setAccount(value);setLoadError('');if(!loaded.current){setUsername(value.username);setDisplayName(value.displayName);setAdminPath(value.adminPath);loaded.current=true;}}
+  async function refresh(){const value=await api('account');receiveAccount(value);return value;}
   useEffect(()=>{
     let active=true;
-    api('account').then(value=>{if(!active)return;setAccount(value);if(!loaded.current){setUsername(value.username);setDisplayName(value.displayName);setAdminPath(value.adminPath);loaded.current=true;}}).catch(error=>{if(active)setError(error.message);});
+    setLoadError('');
+    api('account').then(value=>{if(active)receiveAccount(value);}).catch(error=>{if(active){setLoadError(error.message);setError(error.message);}});
     return()=>{active=false;};
   },[sessionGeneration]);
   useEffect(()=>{
@@ -49,13 +53,13 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     <label><input type="checkbox" checked={savedCodes} onChange={event=>setSavedCodes(event.target.checked)}/>我已将恢复码保存在网站之外</label>
     <button className="primary" disabled={!savedCodes} onClick={()=>window.location.reload()}>重新登录</button>
   </section>;
-  if(!account)return <p role="status">正在读取账户…</p>;
+  if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<p role="status">正在读取账户…</p>}</section>;
   const proof={password,code:code||undefined},blocked=busy||!!cooldown.seconds;
   const cannotProve=blocked||!password||(account.twoFactorEnabled&&!code);
   return <div className="panel account-panel" aria-busy={busy}><div className="panel-title"><h1>账户</h1></div><div className="settings-panels">
     <section className="form-card"><h2>验证身份</h2>
       <p>修改账户、两步验证、登录入口或撤销凭据前，请在这里验证身份。</p>
-      <label>当前密码<input type="password" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)}/></label>
+      <PasswordField label="当前密码" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)}/>
       {account.twoFactorEnabled&&<label>验证码或恢复码<input autoComplete="one-time-code" value={code} onChange={event=>setCode(event.target.value)}/></label>}
       {!!cooldown.seconds&&<p role="status">请在 {cooldown.seconds} 秒后重试。</p>}
     </section>
@@ -66,8 +70,8 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     });}}>
       <label>账户名<input required minLength={3} maxLength={64} pattern={'[a-zA-Z0-9_.\\-]+'} autoComplete="username" value={username} onChange={event=>setUsername(event.target.value)}/></label>
       <label>显示名<input required maxLength={80} value={displayName} onChange={event=>setDisplayName(event.target.value)}/></label>
-      <label>新密码<input type="password" minLength={15} maxLength={1024} autoComplete="new-password" value={newPassword} onChange={event=>setNewPassword(event.target.value)}/></label>
-      <label>确认新密码<input type="password" autoComplete="new-password" value={repeat} onChange={event=>setRepeat(event.target.value)}/></label>
+      <PasswordField label="新密码" minLength={15} maxLength={1024} autoComplete="new-password" value={newPassword} onChange={event=>setNewPassword(event.target.value)}/>
+      <PasswordField label="确认新密码" autoComplete="new-password" value={repeat} onChange={event=>setRepeat(event.target.value)}/>
       <p>新密码至少 15 个字符，支持中文和空格。留空则保留原密码。修改账户名或密码会退出全部网页登录。</p>
       <button className="primary" disabled={cannotProve}>保存账户</button>
     </form></section>

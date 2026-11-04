@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { PanelSections } from './PanelSections.tsx';
 
 import { defaultSettings, type Settings } from '@weava/contracts';
 
@@ -11,6 +12,26 @@ import { useManagedRecord } from './EditSessions.tsx';
 
 import { SiteSeoFields } from './SeoFields.tsx';
 import { useSelectors } from './Selectors.tsx';
+import { SiteInfoSettings } from './SiteInfoSettings.tsx';
+import type { SiteInfo } from '../../../packages/contracts/src/site-info.ts';
+import TaxonomyManager, { useTaxonomyEditor } from './TaxonomyManager.tsx';
+import { CategoryDirectory } from './SiteSettingControls.tsx';
+
+const emptyTerms: any[] = [];
+const unchanged = async () => {};
+
+function SettingChoice({ label, value, choices, onChange }: {
+  label: string; value: string; choices: Record<string, string>; onChange: (value: string) => void;
+}) {
+  const [custom, setCustom] = useState(false);
+  const showCustom = custom || !Object.hasOwn(choices, value);
+  return <div><label>{label}<select value={showCustom ? '__custom__' : value} onChange={event => {
+    setCustom(event.target.value === '__custom__');
+    if (event.target.value !== '__custom__') onChange(event.target.value);
+  }}>{Object.entries(choices).map(([key, name]) => <option key={key} value={key}>{name}</option>)}<option value="__custom__">自定义…</option></select></label>
+    {showCustom && <label>自定义{label}<input value={value} onChange={event => onChange(event.target.value)} /></label>}
+  </div>;
+}
 
 export default function SettingsPanel({
   row,
@@ -20,6 +41,10 @@ export default function SettingsPanel({
   save,
   publish,
   onError,
+  siteInfo,
+  terms = emptyTerms,
+  refresh = unchanged,
+  initialSection,
 }: {
   row: any;
   themes: any[];
@@ -28,8 +53,14 @@ export default function SettingsPanel({
   save: (v: Settings, r: number) => Promise<any>;
   publish: () => any;
   onError: (s: string) => void;
+  siteInfo?: SiteInfo;
+  terms?: any[];
+  refresh?: () => Promise<any>;
+  initialSection?: string;
 }) {
   const selectors = useSelectors();
+  const taxonomy = useTaxonomyEditor(terms, refresh);
+  const [saving, setSaving] = useState(false);
   const managed = useManagedRecord<any>(
     row,
     (value) => save(value.value, value.revision),
@@ -41,49 +72,44 @@ export default function SettingsPanel({
   }, [row]);
   const set = (p: Partial<Settings>) =>
     managed.setRecord((record: any) => ({ ...record, value: { ...record.value, ...p } }));
+  async function saveSettings(publishAfter = false) {
+    setSaving(true);
+    try {
+      await taxonomy.save();
+      await managed.session.save();
+      if (publishAfter) await publish();
+    } catch (error: any) { onError(error.message); }
+    finally { setSaving(false); }
+  }
   return (
     <div className="panel">
       <div className="panel-title">
         <div>
-          <h1>外观与导航</h1>
+          <h1>网站设置</h1>
           <p>保存为工作稿，发布后更新网站。</p>
         </div>
         <div>
-          <button onClick={() => managed.session.save().catch((e) => onError(e.message))}>
+          <button disabled={saving || taxonomy.busy} onClick={() => void saveSettings()}>
             保存设置
           </button>
           <button
             className="primary"
-            onClick={async () => {
-              try {
-                await managed.session.save();
-                await publish();
-              } catch (e: any) {
-                onError(e.message);
-              }
-            }}
+            disabled={saving || taxonomy.busy}
+            onClick={() => void saveSettings(true)}
           >
             发布设置
           </button>
         </div>
       </div>
-      <div className="settings-panels">
-        <AdvertisementSettings
-          value={value.advertisements}
-          onChange={(advertisements) => set({ advertisements })}
-        />
-        <SiteSeoFields value={value} onChange={set} />
+      <PanelSections label="网站设置分类" initialSection={initialSection} sections={[
+        { id: 'site', label: '基本信息', content: <>
         <section className="form-card">
           <h2>网站</h2>
           {[
             ['name', '名称'],
             ['description', '介绍'],
             ['domain', '正式网址'],
-            ['logo', 'Logo 地址'],
-            ['language', '语言'],
-            ['timezone', '时区'],
             ['footer', '页脚文字'],
-            ['sourceUrl', '项目源代码地址'],
           ].map(([key, label]) => (
             <label key={key}>
               {label}
@@ -91,37 +117,25 @@ export default function SettingsPanel({
                 value={(value as any)[key] ?? ''}
                 onChange={(e) => set({ [key]: e.target.value })}
               />
-              {key === 'logo' && <button type="button" onClick={async () => {
-                const media = await selectors.media('image');
-                if (media) set({ logo: media.url });
-              }}>选择图片</button>}
             </label>
           ))}
+          <div className="form-columns site-locale">
+            <SettingChoice label="语言" value={value.language} choices={{ 'zh-CN': '简体中文', 'zh-TW': '繁體中文', en: 'English', 'en-US': 'English (US)', ja: '日本語' }} onChange={language => set({ language })} />
+            <SettingChoice label="时区" value={value.timezone} choices={{ 'Asia/Shanghai': '北京时间', 'Asia/Hong_Kong': '香港时间', 'Asia/Taipei': '台北时间', 'Asia/Tokyo': '东京时间', UTC: '协调世界时', 'America/New_York': '纽约时间', 'Europe/London': '伦敦时间' }} onChange={timezone => set({ timezone })} />
+          </div>
+          <div className="site-logo"><span>网站标志</span>
+            {value.logo && <img src={value.logo} alt="网站标志" />}
+            <button type="button" onClick={async () => { const media = await selectors.media('image'); if (media) set({ logo: media.url }); }}>选择图片</button>
+            <details className="settings-disclosure"><summary>使用图片地址</summary>
+              <label>标志图片地址<input value={value.logo ?? ''} onChange={event => set({ logo: event.target.value })} /></label>
+            </details>
+          </div>
         </section>
-        <section className="form-card">
+</> },
+        { id: 'about', label: '关于本站', content: <SiteInfoSettings section="about" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
+        { id: 'friends', label: '友情链接', content: <SiteInfoSettings section="friends" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
+        { id: 'appearance', label: '外观', content: <>        <section className="form-card">
           <h2>主题</h2>
-          {(['header', 'before', 'after', 'footer'] as const).map((position) => (
-            <label key={position}>
-              {{ header: '页头', before: '正文上方', after: '正文下方', footer: '页脚' }[position]}
-              <select
-                value={value.regions?.[position] ?? ''}
-                onChange={(event) =>
-                  set({
-                    regions: { ...value.regions, [position]: event.target.value || undefined },
-                  })
-                }
-              >
-                <option value="">使用默认</option>
-                {layouts
-                  .filter((row) => row.value.kind === 'region')
-                  .map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.value.label}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          ))}
           <label>
             主题
             <select
@@ -148,7 +162,6 @@ export default function SettingsPanel({
             ['width', '页面宽度', 'number'],
             ['radius', '圆角', 'number'],
             ['spacing', '区块间距', 'number'],
-            ['font', '字体', 'text'],
           ].map(([key, label, type]) => (
             <label key={key}>
               {label}
@@ -166,6 +179,7 @@ export default function SettingsPanel({
               />
             </label>
           ))}
+          <SettingChoice label="字体" value={value.themeConfig.font} choices={{ 'system-ui': '系统字体', 'system-ui, sans-serif': '系统无衬线字体', sans: '无衬线字体', serif: '衬线字体', monospace: '等宽字体' }} onChange={font => set({ themeConfig: { ...value.themeConfig, font } })} />
         </section>
         {value.theme === 'newsletter' && (
           <section className="form-card">
@@ -217,63 +231,26 @@ export default function SettingsPanel({
             </label>
           </section>
         )}
+</> },
+        { id: 'navigation', label: '导航与分类', content: <>
+        <TaxonomyManager model={taxonomy} onError={onError} />
         <section className="form-card">
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={value.commentModeration !== false}
-              onChange={(event) => set({ commentModeration: event.target.checked })}
-            />
-            新评论需要审核
-          </label>
           <h2>导航</h2>
           <NavigationEditor
             value={value.navigation}
             onChange={(navigation) => set({ navigation })}
           />
+          <CategoryDirectory terms={taxonomy.catalog} value={value.taxonomies} onChange={taxonomies => set({ taxonomies })} />
         </section>
-        <section className="form-card">
-          <h2>分类目录</h2>
-          {value.taxonomies.map((t, i) => (
-            <div className="navigation-row" key={i}>
-              <input
-                aria-label="分类标识"
-                value={t.id}
-                onChange={(e) =>
-                  set({
-                    taxonomies: value.taxonomies.map((v, j) =>
-                      i === j ? { ...v, id: e.target.value } : v,
-                    ),
-                  })
-                }
-              />
-              <input
-                aria-label="分类名称"
-                value={t.label}
-                onChange={(e) =>
-                  set({
-                    taxonomies: value.taxonomies.map((v, j) =>
-                      i === j ? { ...v, label: e.target.value } : v,
-                    ),
-                  })
-                }
-              />
-            </div>
-          ))}
-          <button
-            onClick={() =>
-              set({
-                taxonomies: [
-                  ...value.taxonomies,
-                  { id: 'topic-' + (value.taxonomies.length + 1), label: '新分类' },
-                ],
-              })
-            }
-          >
-            添加分类
-          </button>
-        </section>
-        {panels
+</> },
+        { id: 'sharing', label: '搜索与分享', content: <>        <SiteSeoFields value={value} onChange={set} />
+</> },
+        { id: 'ads', label: '广告', content: <>        <AdvertisementSettings
+          value={value.advertisements}
+          onChange={(advertisements) => set({ advertisements })}
+        />
+</> },
+        { id: 'advanced', label: '高级', content: <><section className="form-card"><h2>项目资料</h2><label>项目源代码地址<input value={value.sourceUrl ?? ''} onChange={event => set({ sourceUrl: event.target.value })} /></label></section>        {panels
           .filter((panel) => !panel.themes?.length || panel.themes.includes(value.theme))
           .map((panel) => (
             <section className="form-card" key={panel.id}>
@@ -285,7 +262,9 @@ export default function SettingsPanel({
               />
             </section>
           ))}
-      </div>
+</> },
+      ]} />
+
     </div>
   );
 }

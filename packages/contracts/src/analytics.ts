@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 // Runtime contracts and TypeScript types share these declarations.
 export const analyticsTotalsSchema = z.object({ "views": z.number(), "visitors": z.number(), "sessions": z.number(), "clicks": z.number() });

@@ -21,7 +21,7 @@ export class OwnerSecurity {
     const retryAfter = Math.max(1, Math.ceil((until - Date.now()) / 1000));
     throw new WeavaError(`尝试过于频繁，请在 ${retryAfter} 秒后重试。`, 429, {retryAfter,retryAt:until});
   }
-  reserve(scope: 'login' | 'account', network: string) {
+  reserve(scope: 'login' | 'account' | 'access', network: string) {
     const now = Date.now(), bucket = Math.floor(now / 60000), reset = (bucket + 1) * 60000;
     this.store.raw.transaction(() => {
       this.store.raw.prepare('DELETE FROM owner_auth_failures WHERE expires<=?').run(now);

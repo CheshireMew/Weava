@@ -4,12 +4,24 @@ import { webUrl } from './seo.ts';
 import type { Term } from '@weava/contracts';
 import { WeavaError, type Settings, siteSeoSchema, advertisementsSchema } from '@weava/contracts';
 import type { Site } from './site.ts';
+import { siteInfoSchema } from '../../contracts/src/site-info.ts';
 export class SiteSettings {
   constructor(private site: Pick<Site, 'store' | 'settings' | 'terms'>) {}
   settings() {
     return this.site.store.get('settings', 'site')!;
   }
   saveSettings(value: Settings, revision: number) {
+    if (value.siteInfo !== undefined) {
+      const info = siteInfoSchema.parse(value.siteInfo);
+      for (const role of ['about', 'friends'] as const) {
+        const config = info[role];
+        if (config && !config.entryId) {
+          const legacy = this.site.store.raw.prepare("SELECT id FROM entry_list WHERE kind='page' AND json_extract(summary,'$.path')=? LIMIT 1").get(config.path) as { id: string } | undefined;
+          if (legacy) config.entryId = legacy.id;
+        }
+      }
+      value = { ...value, siteInfo: info };
+    }
     if (value.advertisements !== undefined)
       value = { ...value, advertisements: advertisementsSchema.parse(value.advertisements) };
     const previousSettings = this.site.settings().value as Settings;

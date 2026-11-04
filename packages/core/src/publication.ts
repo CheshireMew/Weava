@@ -1,20 +1,23 @@
 import { mediaReferencesIn } from './media-references.ts';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'cheerio';
 import { effectiveFields, fieldIssues, contentBlockIssues, isReservedContentPath, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { normalizePath } from './paths.ts';
-import { now, uuid, digest } from './storage.ts';
+import { now, uuid, digest, walk } from './storage.ts';
 import { renderDocument, validateFields } from './documents.ts';
 import { renderBlocks, renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
-import { storeRelease } from './publication-store.ts';
+import { prepareReleaseStorage,writeReleaseStorage } from './publication-store.ts';
 import { validateEditorial, entrySummary } from './editorial.ts';
 import { projectTerms, bindBlockTerms } from './taxonomy.ts';
 import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
 import type { Layout } from '@weava/contracts';
 import { validateSeo } from './seo.ts';
 import { publicationModifiedAt } from './source-content.ts';
+import { immutableDigest, validatedReferences } from './publication-validation.ts';
+import { invalidateReleaseIndex } from './release-index.ts';
+import { applySiteInfo } from './site-info.ts';
 
 export type PublicationSite = Pick<Site, 'store' | 'root' | 'settings' | 'release' | 'terms' | 'fieldWidgets' | 'blockRenderers' | 'publicationValidators' | 'validateBlocks' | 'validateReleaseExtensions' | 'updateJob'>;
 export function preparePublication(site: PublicationSite, options: PublishOptions = {}) {
@@ -32,7 +35,9 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   if (scope === 'entries' && !options.ids?.length && !options.withdrawIds?.length) throw new WeavaError('请选择需要发布的内容。');
   if (options.withdrawIds?.length && scope !== 'entries') throw new WeavaError('撤下内容需要使用内容发布范围。');
   if (scope !== 'entries' && options.ids !== undefined) throw new WeavaError('发布范围与内容选择不一致。');
-  const snapshot = site.store.raw.transaction(() => ({ previous: site.release(), drafts: site.store.list('entry'),
+  const snapshot = site.store.raw.transaction(() => ({ previous: site.release(),
+    drafts: scope === 'entries' ? (options.ids ?? []).map(id => site.store.get('entry', id)).filter(row => row !== null) : scope === 'all' ? site.store.list('entry') : [],
+    reviewRevision: (site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as {n:number|null}).n,
     settings: site.settings(), types: site.store.list('type').map((row) => row.value),
     aliases: Object.fromEntries(site.store.list('redirect').map((row) => [row.id, row.value])),
     layouts: layouts(site).map((row) => row.value as Layout) }))();
@@ -57,7 +62,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
       snapshot.drafts[index] = { id, revision, value: JSON.parse(historical.data), updatedAt: historical.created_at };
     }
   }
-  const entries = new Map(previous?.entries.map((entry) => [entry.id, structuredClone(entry)]) ?? []);
+  const entries = new Map(previous?.entries.map((entry) => [entry.id, entry]) ?? []);
   const time = now();
   if (!['settings', 'layouts', 'terms', 'routes'].includes(scope)) for (const row of snapshot.drafts) {
     if (selected && !selected.has(row.id)) continue;
@@ -77,8 +82,12 @@ export function preparePublication(site: PublicationSite, options: PublishOption
     if (!old || options.withdrawRevisions?.[id] !== undefined && old.revisionId !== options.withdrawRevisions[id]) throw new WeavaError('待撤下的公开内容已变化，请重新检查。', 409);
     entries.delete(id);
   }
+  applySiteInfo(entries, settings, snapshot.settings.revision, time, previous?.entries);
   const terms: Term[] = ['entries', 'layouts', 'routes'].includes(scope) && previous ? [...(previous.terms ?? [])] : site.terms().map((row) => row.value);
+  const previousEntries=new Map(previous?.entries.map(entry=>[entry.id,entry])??[]);
+  const unchangedTerms=!!previous&&digest(terms)===digest(previous.terms??[]);
   for (const entry of entries.values()) {
+    if(unchangedTerms&&previousEntries.get(entry.id)===entry&&entry.termIds)continue;
     if (isReservedContentPath(normalizePath(entry.path))) throw new WeavaError('这个网址由系统使用：' + entry.path);
     // Legacy records receive stable references in the candidate, without rewriting author history.
     const normalized = entry.termIds ? entry : { ...entry, termIds: { categories: [] as string[], tags: [] as string[] } };
@@ -93,7 +102,8 @@ export function preparePublication(site: PublicationSite, options: PublishOption
         const term = site.store.get('term', id)?.value;
         if (term) terms.push(term);
       }
-    entries.set(entry.id, { ...projectTerms(normalized, terms), blocks: bindBlockTerms(normalized.blocks, [...(previous?.terms ?? []), ...terms]) });
+    const projected = { ...projectTerms(normalized, terms), blocks: bindBlockTerms(normalized.blocks, [...(previous?.terms ?? []), ...terms]) };
+    entries.set(entry.id, immutableDigest(projected) === immutableDigest(entry) ? entry : projected);
   }
   if (!['entries', 'layouts', 'routes'].includes(scope) || !previous) settings = { ...settings, taxonomies: settings.taxonomies.map((item) => {
     const term = terms.find((term) => term.id === item.id || (term.kind === 'category' && term.label === item.label));
@@ -154,9 +164,13 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   }
   for (const id of Object.values(settings.regions ?? {})) if (id) include(id);
   release.layouts = [...catalog.values()];
-  for (const entry of release.entries) {
-    if (!entry.description && entry.summaryMode && entry.summaryMode !== 'manual') entry.description = entrySummary(entry, entry.blocks.length ? renderBlocks(entry.blocks, release, entry, site.blockRenderers) : entry.html, (blocks) => renderBlocks(blocks, release, entry, site.blockRenderers));
+  for (const [position, entry] of release.entries.entries()) {
+    if (!entry.description && entry.summaryMode && entry.summaryMode !== 'manual') {
+      const description = entrySummary(entry, entry.blocks.length ? renderBlocks(entry.blocks, release, entry, site.blockRenderers) : entry.html, (blocks) => renderBlocks(blocks, release, entry, site.blockRenderers));
+      if (description !== entry.description) { const updated = {...entry,description}; entries.set(entry.id,updated); release.entries[position]=updated; }
+    }
   }
+  invalidateReleaseIndex(release);
   validateEditorial(release);
   site.validateReleaseExtensions(release);
   validateLayouts(release.layouts);
@@ -173,28 +187,20 @@ export function preparePublication(site: PublicationSite, options: PublishOption
     const alias = redirects[path];
     return !!alias && (!alias.entryId || entries.has(alias.entryId)) && validPath(alias.target, seen);
   };
+  const validationEnvironment = digest([settings, types, release.layouts, release.terms, Object.entries(site.blockRenderers).map(([key, render]) => [key,String(render)])]);
+  const mediaExists = new Map<string, boolean>();
   for (const entry of entries.values()) {
     const definition = types.find((type) => type.id === entry.type);
     if (definition) references(definition.fields, entry.fields, entry.id);
-    let html: string;
+    let refs: ReturnType<typeof validatedReferences>;
     try {
-      html = resolveContentLinks(renderSharedRegion('header', release, entry, site.blockRenderers, { strict: true }) +
-        renderSharedRegion('before', release, entry, site.blockRenderers, { strict: true }) + renderEntryTemplate(entry, release, site.blockRenderers, { strict: true }) +
-        renderSharedRegion('after', release, entry, site.blockRenderers, { strict: true }) + renderSharedRegion('footer', release, entry, site.blockRenderers, { strict: true }), release, true);
+      refs = validatedReferences(site.store, entry, release, site.blockRenderers, validationEnvironment);
     } catch (error: any) { throw new WeavaError(`“${entry.title}”无法渲染：${error.message}`, 400, { id: entry.id }); }
-    const source = html + JSON.stringify(entry.blocks) + JSON.stringify(entry.fields) + ' ' + entry.cover;
-    for (const path of mediaReferencesIn(source)) {
-      if (!existsSync(join(site.root, decodeURIComponent(path.slice(1))))) missing.push({ id: entry.id, path });
+    for (const path of refs.media) {
+      if (!mediaExists.has(path)) mediaExists.set(path, existsSync(join(site.root, decodeURIComponent(path.slice(1)))));
+      if (!mediaExists.get(path)) missing.push({ id: entry.id, path });
     }
-    if (!entry.compatibility) {
-      const $ = load(html);
-      $('a[href]').each((_i, node) => {
-        const href = $(node).attr('href') ?? '';
-        if (!href.startsWith('/') || href.startsWith('//')) return;
-        const path = normalizePath(href);
-        if (!validPath(path)) missing.push({ id: entry.id, path });
-      });
-    }
+    for (const path of refs.links) if (!validPath(path)) missing.push({ id: entry.id, path });
     // Explicit block references must not silently disappear at runtime.
     const blocks = (items: Entry['blocks']) => items.forEach((block) => {
       if (block.type === 'content-detail' && block.props.entryId && !entries.has(block.props.entryId))
@@ -208,30 +214,83 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   catch (error: any) { throw new WeavaError('导航引用无效：' + error.message); }
   for (const validate of site.publicationValidators) validate(release);
   if (options.failAt === 'validate') throw new WeavaError('测试：发布校验失败。');
-  const before = new Map(previous?.entries.map((entry) => [entry.id, structuredClone(entry)]) ?? []);
+  const before = new Map(previous?.entries.map((entry) => [entry.id, entry]) ?? []);
   const changes = {
     scope, baseReleaseId: previous?.id ?? null,
     settingsChanged: digest(previous?.settings ?? null) !== digest(settings),
     layoutsChanged: digest(previous?.layouts ?? builtInLayouts) !== digest(release.layouts),
     routesChanged: digest(previous?.redirects ?? {}) !== digest(redirects),
     termsChanged: digest(previous?.terms ?? []) !== digest(terms),
-    entries: release.entries.filter((entry) => digest(before.get(entry.id) ?? null) !== digest(entry))
+    entries: release.entries.filter((entry) => before.get(entry.id) !== entry && (!before.has(entry.id) || immutableDigest(before.get(entry.id)!) !== immutableDigest(entry)))
       .map((entry) => ({ id: entry.id, title: entry.title, path: entry.path, revision: entry.revisionId, action: before.has(entry.id) ? 'update' as const : 'add' as const })),
     removed: [...before.values()].filter((entry) => !entries.has(entry.id)).map(({ id, title, path }) => ({ id, title, path })),
   };
-  return { release, changes };
+  return { release, changes, reviewRevision: snapshot.reviewRevision };
 }
 
-export function publish(site: PublicationSite, options: PublishOptions = {}) {
-  const { release, changes } = preparePublication(site, options);
+export type PreparedPublication = ReturnType<typeof preparePublication>;
+function candidateOptions(options: PublishOptions) {
+  const { candidateId, jobId, failAt, ...value } = options;
+  const canonical = (item: any): any => Array.isArray(item) ? item.map(canonical) : item && typeof item === 'object'
+    ? Object.fromEntries(Object.keys(item).sort().filter(key => item[key] !== undefined).map(key => [key, canonical(item[key])])) : item;
+  return digest(canonical(value));
+}
+export function publicationRuntimeKey(site: PublicationSite) {
+  return digest(['publication-candidate-v1', existsSync(join(site.root,'program.json'))?readFileSync(join(site.root,'program.json'),'utf8'):process.env.WEAVA_FRAMEWORK??process.cwd(),
+    walk(join(site.root,'extensions')).map(file => { const info=statSync(file); return [file,info.size,info.mtimeMs]; }),
+    Object.entries(site.blockRenderers).map(([key,render])=>[key,String(render)]), site.fieldWidgets,
+    site.publicationValidators.map(String), site.store.raw.prepare("SELECT id,revision FROM records WHERE scope IN ('extension-config','extension-schema','extension-block') ORDER BY scope,id").all()]);
+}
+export function assertPublicationCurrent(site: PublicationSite, prepared: PreparedPublication) {
+  if ((site.store.state('release') ?? null) !== prepared.changes.baseReleaseId) throw new WeavaError('公开版本已变化，请重新查看发布内容。',409);
+  if ((site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as {n:number|null}).n !== prepared.reviewRevision) throw new WeavaError('工作稿已变化，请重新查看发布内容。',409);
+}
+/** A review stores only changed entries; unchanged bodies stay in their base release. */
+export function savePublicationReview(site: PublicationSite, options: PublishOptions, prepared: PreparedPublication) {
+  const id=uuid(), reviewed:PublishOptions={...options,baseReleaseId:prepared.changes.baseReleaseId,reviewRevision:prepared.reviewRevision,candidateId:id};
+  const base=new Map(site.release()?.entries.map(entry=>[entry.id,entry])??[]);
+  const {entries,...release}=prepared.release;
+  const payload={release,entries:entries.map(entry=>base.get(entry.id)===entry||base.has(entry.id)&&immutableDigest(base.get(entry.id)!)===immutableDigest(entry)?entry.id:entry),changes:prepared.changes,
+    reviewRevision:prepared.reviewRevision,optionsKey:candidateOptions(reviewed),runtimeKey:publicationRuntimeKey(site)};
+  const data=JSON.stringify(payload);
+  site.store.raw.transaction(()=>{
+    assertPublicationCurrent(site,prepared);
+    site.store.raw.prepare('DELETE FROM publication_candidates WHERE expires<?').run(Date.now());
+    site.store.raw.prepare('DELETE FROM publication_candidates WHERE id IN (SELECT id FROM publication_candidates ORDER BY expires DESC LIMIT -1 OFFSET 15)').run();
+    site.store.raw.prepare('INSERT INTO publication_candidates VALUES(?,?,?)').run(id,data,Date.now()+10*60000);
+  }).immediate();
+  return {...prepared.changes,options:reviewed};
+}
+export function readPublicationCandidate(site: PublicationSite, options: PublishOptions): PreparedPublication {
+  if (!options.candidateId) return preparePublication(site,options);
+  const row=site.store.raw.prepare('SELECT data FROM publication_candidates WHERE id=? AND expires>?').get(options.candidateId,Date.now()) as {data:string}|undefined;
+  if(!row)throw new WeavaError('发布预览已过期，请重新查看发布内容。',409);
+  const data=JSON.parse(row.data);
+  if(data.optionsKey!==candidateOptions(options)||data.runtimeKey!==publicationRuntimeKey(site))throw new WeavaError('发布选项或渲染程序已变化，请重新查看发布内容。',409);
+  const base=new Map(site.release()?.entries.map(entry=>[entry.id,entry])??[]);
+  const prepared:PreparedPublication={release:{...data.release,entries:data.entries.map((entry:any)=>typeof entry==='string'?base.get(entry):entry)},changes:data.changes,reviewRevision:data.reviewRevision};
+  assertPublicationCurrent(site,prepared);
+  if(prepared.release.entries.some(entry=>!entry))throw new WeavaError('候选内容已不可用，请重新查看发布内容。',409);
+  // Application validators can depend on external state and must not be skipped by caching.
+  for(const validate of site.publicationValidators)validate(prepared.release);
+  return prepared;
+}
+export function commitPublication(site: PublicationSite, prepared: PreparedPublication, options: PublishOptions = {}, complete?: (release:Release)=>void, guard?:()=>void) {
+  const { release, changes } = prepared;
+  assertPublicationCurrent(site,prepared);
+  const storage=prepareReleaseStorage(site.store.raw,release);
   site.store.raw.transaction(() => {
-    if ((site.store.state('release') ?? null) !== changes.baseReleaseId)
-      throw new WeavaError('公开版本在发布期间发生变化，请重试。', 409);
-    storeRelease(site.store.raw, release);
+    assertPublicationCurrent(site,prepared);
+    guard?.();
+    writeReleaseStorage(site.store.raw, storage);
     if (options.failAt === 'commit') throw new WeavaError('测试：发布提交失败。');
     site.store.setState('release', release.id);
     if (options.jobId) site.updateJob(options.jobId, { status: 'complete', message: '发布已完成。',
       result: { releaseId: release.id, entries: release.entries.length, changes } });
+    complete?.(release);
   }).immediate();
   return release;
+}
+export function publish(site: PublicationSite, options: PublishOptions = {}) {
+  return commitPublication(site,readPublicationCandidate(site,options),options);
 }

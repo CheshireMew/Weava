@@ -1,9 +1,17 @@
 import type { Entry, Revision } from '@weava/contracts';
+import { sameEditableValue } from './edit-session.ts';
 
 interface DraftStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 export interface LocalDraft { id: string; capturedAt: number; updatedAt: number; pending?: boolean; record: Revision<Entry> }
 interface DraftArchive { version: 2; entries: Record<string, LocalDraft[]> }
 const key = 'weava-drafts:v2', byteLimit = 3 * 1024 * 1024;
+export function latestPendingDraft(copies: LocalDraft[]): LocalDraft[] {
+  return copies.filter(copy => copy.pending !== false).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 1);
+}
+export function matchesDraft(copy: Pick<LocalDraft, 'record'>, record: Revision<Entry>) {
+  // Saving changes metadata; recovery is needed only when authored content differs.
+  return sameEditableValue({...copy.record.value, updatedAt: undefined}, {...record.value, updatedAt: undefined});
+}
 const read = (storage: DraftStorage): DraftArchive => {
   const raw = storage.getItem(key);
   if (!raw) return { version: 2, entries: Object.create(null) };
@@ -12,7 +20,10 @@ const read = (storage: DraftStorage): DraftArchive => {
   return { version: 2, entries: Object.assign(Object.create(null), archive.entries) };
 };
 function store(archive: DraftArchive, storage: DraftStorage, preserve: string) {
-  for (const id of Object.keys(archive.entries)) archive.entries[id] = archive.entries[id].slice(0, 10);
+  for (const id of Object.keys(archive.entries)) {
+    archive.entries[id] = latestPendingDraft(archive.entries[id]);
+    if (!archive.entries[id].length) delete archive.entries[id];
+  }
   const ids = Object.keys(archive.entries).sort((a, b) => archive.entries[b][0]?.updatedAt - archive.entries[a][0]?.updatedAt);
   for (const id of ids.slice(40)) if (id !== preserve) delete archive.entries[id];
   const trim = () => {
@@ -29,7 +40,7 @@ function store(archive: DraftArchive, storage: DraftStorage, preserve: string) {
   }
 }
 export function localDrafts(id: string, storage: DraftStorage = localStorage): LocalDraft[] {
-  const archive = read(storage), copies = archive.entries[id] ?? [];
+  const archive = read(storage), copies = latestPendingDraft(archive.entries[id] ?? []);
   const legacy = storage.getItem('weava-draft:' + id);
   if (!copies.length && legacy) {
     const record = JSON.parse(legacy);
@@ -37,22 +48,19 @@ export function localDrafts(id: string, storage: DraftStorage = localStorage): L
   }
   return copies;
 }
-export function saveLocalDraft(record: Revision<Entry>, storage: DraftStorage = localStorage, clock = Date.now(), force = false) {
-  const archive = read(storage), copies = archive.entries[record.id] ?? [];
-  const latest = copies[0];
-  if (!force && latest && latest.pending !== false && latest.record.revision === record.revision && clock - latest.capturedAt < 15000) {
-    copies[0] = { ...latest, updatedAt: clock, pending: true, record: structuredClone(record) };
-  } else copies.unshift({ id: crypto.randomUUID(), capturedAt: clock, updatedAt: clock, pending: true, record: structuredClone(record) });
-  archive.entries[record.id] = copies;
+export function saveLocalDraft(record: Revision<Entry>, storage: DraftStorage = localStorage, clock = Date.now()) {
+  const archive = read(storage);
+  archive.entries[record.id] = [{ id: record.id, capturedAt: clock, updatedAt: clock, pending: true, record: structuredClone(record) }];
   store(archive, storage, record.id);
   // Migration completes only after the replacement has been written successfully.
   storage.removeItem('weava-draft:' + record.id);
 }
-export function acknowledgeLocalDrafts(id: string, storage: DraftStorage = localStorage) {
+export function acknowledgeLocalDrafts(record: Revision<Entry>, storage: DraftStorage = localStorage) {
   const archive = read(storage);
-  if (archive.entries[id]) archive.entries[id] = archive.entries[id].map((copy) => ({ ...copy, pending: false }));
-  store(archive, storage, id);
-  storage.removeItem('weava-draft:' + id);
+  if (archive.entries[record.id]) archive.entries[record.id] = archive.entries[record.id].filter(copy => !matchesDraft(copy, record));
+  store(archive, storage, record.id);
+  const legacy = storage.getItem('weava-draft:' + record.id);
+  if (legacy && matchesDraft({record: JSON.parse(legacy)}, record)) storage.removeItem('weava-draft:' + record.id);
 }
 export function forgetLocalDrafts(id: string, storage: DraftStorage = localStorage) {
   const archive = read(storage);

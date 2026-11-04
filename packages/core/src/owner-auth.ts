@@ -8,6 +8,7 @@ import { validateAdminPath } from './admin-access.ts';
 import { OwnerSecurity } from './owner-security.ts';
 import { UAParser } from 'ua-parser-js';
 import { loadRelease } from './release-reader.ts';
+import { OwnerAccessLinks } from './owner-access-links.ts';
 
 import { WeavaError } from '@weava/contracts';
 export class OwnerAuth {
@@ -31,6 +32,31 @@ export class OwnerAuth {
   }
   ownerExists() {
     return !!this.store.state('owner');
+  }
+  private accessGrant(token:string,network:string) {
+    this.security.reserve('access',network);
+    try{return new OwnerAccessLinks(this.store.raw).inspect(token);}
+    catch(error){this.security.failed('access',network);throw error;}
+  }
+  accessInfo(token:string,network:string) { return this.accessGrant(token,network); }
+  async completeAccess(token:string,network:string,value:{username:string;password:string;confirmPassword:string}) {
+    this.accessGrant(token,network);
+    validateOwnerName(value.username);validateOwnerPassword(value.password,value.username);
+    if(value.password!==value.confirmPassword)throw new WeavaError('两次输入的密码不一致。');
+    if(this.loginInFlight>=2)throw new WeavaError('验证请求较多，请稍后重试。',429,{retryAfter:1,retryAt:Date.now()+1000});
+    const salt=randomBytes(16).toString('hex');this.loginInFlight++;
+    let key:Buffer;
+    try{key=await new Promise<Buffer>((resolve,reject)=>scrypt(value.password,salt,64,(error,key)=>error?reject(error):resolve(key)));}
+    finally{this.loginInFlight--;}
+    return new OwnerAccessLinks(this.store.raw).consume(token,grant=>{
+      this.store.setState('owner-profile',JSON.stringify({...this.profile(),username:value.username}));
+      this.store.setState('owner',salt+':'+key.toString('hex'));
+      if(grant.resetTwoFactor){this.store.setState('owner-totp','null');this.store.setState('owner-totp-pending','null');}
+      this.advanceSecurity();this.store.raw.prepare('UPDATE sessions SET expires=0').run();
+      this.security.reset();this.security.succeeded('access',network);
+      this.security.record(grant.mode==='initialize'?'account-initialized':'account-recovered',network);
+      return {ok:true as const,username:value.username,adminPath:this.adminPath()};
+    });
   }
   private profile():{username:string;displayName:string} { return JSON.parse(this.store.state('owner-profile') ?? '{"username":"owner","displayName":"站主"}'); }
   private advanceSecurity() { this.store.setState('owner-security', randomBytes(16).toString('hex')); }

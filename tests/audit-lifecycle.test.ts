@@ -72,6 +72,23 @@ it('WVA-02 excludes new processes throughout async maintenance, permits only its
   expect(() => first.store.maintain(() => undefined)).not.toThrow(); first.close();
 }, 30000);
 
+it('WVA-02 lets the explicitly delegated upgrade probe migrate while the parent retains exclusive maintenance', async () => {
+  const root=join(base,'delegated-schema-upgrade'),initial=new Site(root);
+  initial.store.setState('preserved','original');
+  initial.store.raw.prepare('DELETE FROM schema_migrations WHERE version=?').run(SCHEMA_VERSION);initial.close();
+  await withInstanceMaintenance(root,async()=>{
+    expect((await openInChild(root)).code).toBe(2);
+    const result=await openInChild(root,maintenanceEnvironment(root));expect(result.code,result.output).toBe(0);
+    // The child must not release its parent's maintenance lease on completion.
+    expect((await openInChild(root)).code).toBe(2);
+  });
+  const upgraded=new Site(root);
+  try{
+    expect(upgraded.store.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get()).toEqual({v:SCHEMA_VERSION});
+    expect(upgraded.store.state('preserved')).toBe('original');
+  }finally{upgraded.close();}
+},20000);
+
 it('WVA-02 keeps a real worker alive across web connection restart, refuses restore, and admits maintenance after completion', async () => {
   const root = join(base, 'real-worker'), site = new Site(root);
   site.saveEntry(entrySchema.parse({ id:'held',kind:'page',title:'Held',path:'/held/',status:'published',visibility:'public',fields:{},blocks:[],categories:[],tags:[] }),null);

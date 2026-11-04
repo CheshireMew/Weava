@@ -62,3 +62,18 @@ node --import tsx scripts/schedule-interruption-check.ts
 增长检查使用 200 篇内容，正文与 HTML 的不可变对象合计约 8.5 MB。连续 30 次设置发布后，文章对象保持 200 个、搜索记录保持 200 条；31 个版本清单合计约 432 KB。单篇改动只新增一个文章对象和搜索记录。归档与恢复不改变当前公开版本；本机设置发布耗时中位数约 704 ms，P95 约 736 ms。这是指定夹具的 Windows 本机测量，不是与 WordPress 生产性能的比较。
 
 已同步使用、接口、迁移、扩展、架构、运行恢复及 README 文档。没有对真实实例执行升级或公网切换，没有删除文件、制作安装包，WordPress 原主题和插件程序不由 WXR 自动迁入执行；依赖来源功能的内容保留原始资料，检查后再发布。新的 UI 优化由另一个已授权聊天接手，不改变这里的功能验收范围。
+
+## 一次性账户设置与恢复（2026-11-03）
+
+首次启动未设置账户的站点时，终端显示 10 分钟内有效的一次性链接，站主在网页自行选择账户名和密码，再正常登录。已有账户可由本机 `owner reset-link` 签发重设链接；提交前原账户与会话保持不变，成功后撤销全部网页登录，默认保留两步验证。链接过期或重新签发后失效，不提供通用初始密码或公开签发入口。
+
+| 要求 | 验证证据 |
+| --- | --- |
+| 令牌只允许指定账户设置，不可作为后台会话；摘要保存、过期及替换失效、事务内单次消费、并发和派生期间过期保护 | `tests/owner-access-links.test.ts`，12 项 |
+| 网页移除片段令牌、不持久化、确认密码、失效提示、两步验证说明、保存后正常登录 | `tests/owner-access-ui.test.tsx`，5 项 DOM 验证 |
+| 编译后首次启动交付链接、本机重签、来源检查、旧凭据与会话撤销、正常重启不显示密码 | `scripts/check-owner-access.ts --program E:\WeavaRuntime\programs\owner-access-20261103-final`；报告 `E:\WeavaRuntime\checks\owner-access-20261103\compiled-check-final.json`，7 组检查通过 |
+| 真实升级保留父进程维护占用，授权子进程可迁移，其他进程仍被排除 | `tests/audit-lifecycle.test.ts`；新增回归先复现拒绝迁移，再验证修复；首次失败已自动恢复并保留失败目录 |
+
+最终源码通过 53 个测试文件、313 项测试；TypeScript、API 文档一致性和差异格式检查通过。报告为 `E:\WeavaRuntime\checks\owner-access-20261103\tests-final.json`。本轮未操控浏览器；界面依据 DOM 验证和正式程序提供的静态资源核对，不声称新增浏览器视觉验收。
+
+获得构建和更新授权后，已将本地博客 `E:\Code\WeavaSites\blog-blacknico` 切换到 `E:\WeavaRuntime\programs\owner-access-20261103-final`，仍使用 4324 端口。升级前完整备份位于 `E:\WeavaRuntime\checks\owner-access-20261103\upgrades-final\upgrade-before-ab94fca8-06f5-47ae-9ec3-81b19e0bd7db`。预检通过全部 174 篇公开内容与现有扩展；实际启动后核对首页、后台资源和账户接口正常，账户凭据、内容设置、公开版本、历史及 CLI 凭据与备份一致。实际核对报告为同目录下的 `live-verification.json`；未代替站主填写新密码。

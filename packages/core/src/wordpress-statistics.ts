@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { z } from 'zod';
+import * as z from 'zod';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WeavaError } from '@weava/contracts';

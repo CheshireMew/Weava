@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { WeavaError } from '@weava/contracts';
+import { WeavaError } from '../../contracts/src/errors.ts';
 import { canonicalPath as canonical } from './paths.ts';
 
 interface LeaseRow { id: string; pid: number; role: 'writer' | 'maintenance' }
@@ -93,13 +93,19 @@ export function withInstanceMaintenance<T>(root: string, action: () => T, owner?
   const key = canonical(root), existing = context.getStore();
   if (existing?.root === key) return action();
   assertServiceStopped(root); assertLegacyWorkersStopped(root);
-  const id = randomUUID(), db = coordinator(root);
+  const inherited = delegated(root), id = inherited?.id ?? randomUUID(), db = coordinator(root);
   try {
     db.transaction(() => {
-      if (active(db).some((row) => row.id !== owner?.id)) throw new WeavaError('站点仍被写入连接或任务占用，不能开始离线维护。', 409);
-      db.prepare("INSERT INTO leases VALUES(?,?,'maintenance')").run(id, process.pid);
+      const rows = active(db);
+      if(inherited && !rows.some(row=>row.id===id&&row.role==='maintenance'))
+        throw new WeavaError('维护授权已失效，请重新检查升级。',409);
+      if (rows.some((row) => row.id !== owner?.id && (!inherited || row.id !== id)))
+        throw new WeavaError('站点仍被写入连接或任务占用，不能开始离线维护。', 409);
+      if(!inherited)db.prepare("INSERT INTO leases VALUES(?,?,'maintenance')").run(id, process.pid);
     }).immediate();
   } finally { db.close(); }
+  // An upgrade probe borrows its live parent's lease; only the parent releases it.
+  if(inherited)return context.run({root:key,id,owner:owner?.id},action);
   let result: T;
   try { result = context.run({ root: key, id, owner: owner?.id }, action); }
   catch (error) { release(root, id); throw error; }

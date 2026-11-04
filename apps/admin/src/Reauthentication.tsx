@@ -1,6 +1,7 @@
 import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
 import type { AdminSession } from './useAdminSession.ts';
+import { PasswordField } from './PasswordField.tsx';
 export function Reauthentication({
   model,
   setError,
@@ -71,17 +72,14 @@ export function Reauthentication({
               }
             }}
           >
-            <label>
-              站主密码
-              <input
+              <PasswordField
+                label="站主密码"
                 data-autofocus
-                type="password"
                 autoComplete="current-password"
                 required
                 value={reauthPassword}
                 onChange={(event) => setReauthPassword(event.target.value)}
               />
-            </label>
             <label>验证码或恢复码（如已开启）<input autoComplete="one-time-code" value={model.reauthCode} onChange={e=>model.setReauthCode(e.target.value)}/></label>
             {reauthError && (
               <p role="alert" className="error">

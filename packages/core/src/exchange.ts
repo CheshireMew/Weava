@@ -4,6 +4,7 @@ import { saveLayout } from './layouts.ts';
 import { saveTerm as saveTermRecord } from './taxonomy.ts';
 import type { Site } from './site.ts';
 import { digest } from './storage.ts';
+import { StagedEntries } from './staged-entries.ts';
 
 export interface SiteExchange {
   version: 1;
@@ -40,17 +41,18 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
   for (const key of ['entries', 'types', 'terms', 'layouts', 'contentViews', 'creationTemplates'] as const)
     if (source[key] !== undefined && !Array.isArray(source[key])) throw new WeavaError('导入的 ' + key + ' 需要是列表。');
   const types = (source.types ?? []).map((value) => typeSchema.parse(value));
-  const entries = (source.entries ?? []).map((value) => entrySchema.parse(value));
+  const entries = source.entries instanceof StagedEntries ? source.entries : (source.entries ?? []).map((value) => entrySchema.parse(value));
+  const references=new Map(entries.map(entry=>[entry.id,entry]));
   const layouts = (source.layouts ?? []).map((value) => layoutSchema.parse(value));
   const views = (source.contentViews ?? []).map((value) => contentViewSchema.parse(value));
   const templates = (source.creationTemplates ?? []).map((value) => creationTemplateSchema.parse(value));
   const groups = [['type', types], ['entry', entries], ['term', source.terms ?? []], ['layout', layouts], ['content-view', views], ['creation-template', templates]] as const;
   const conflicts: { scope: string; id: string; revision: number; reason: string }[] = [];
-  const empty = !site.store.list('entry').length && !site.release();
-  const rows = new Map<string, ReturnType<Site['store']['get']>>();
+  const empty = !site.store.raw.prepare("SELECT 1 FROM records WHERE scope='entry' LIMIT 1").get() && !site.store.state('release');
+  const rows = new Map<string,{revision:number;fingerprint:string}|null>();
   const changed = (scope: string, id: string, value: any) => {
-    const key = scope + ':' + id, row = site.store.get(scope, id); rows.set(key, row);
-    if (!row || fingerprint(scope, row.value) === fingerprint(scope, value)) return;
+    const key = scope + ':' + id, row = site.store.get(scope, id),hash=row?fingerprint(scope,row.value):''; rows.set(key,row?{revision:row.revision,fingerprint:hash}:null);
+    if (!row || hash === fingerprint(scope, value)) return;
     if (options.mode === 'merge' && options.revisions?.[key] === row.revision) return;
     if (empty && ['type', 'settings'].includes(scope)) return;
     conflicts.push({ scope, id, revision: row.revision,
@@ -75,7 +77,7 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
   const dryRun = new Error('rollback import preview');
   const save = (scope: string, id: string, value: any, write: (revision: number | null) => unknown) => {
     const key = scope + ':' + id, row = rows.get(key);
-    if (row && fingerprint(scope, row.value) === fingerprint(scope, value)) { report.unchanged.push(key); return; }
+    if (row && row.fingerprint === fingerprint(scope, value)) { report.unchanged.push(key); return; }
     write(row?.revision ?? null);
     (row ? report.updated : report.created).push(key);
   };
@@ -83,7 +85,7 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
     site.store.raw.transaction(() => {
       // Recheck revisions inside the write transaction; preflight must not authorize a later overwrite.
       for (const [key, row] of rows) {
-        const split = key.indexOf(':'), current = site.store.get(key.slice(0, split), key.slice(split + 1));
+        const split = key.indexOf(':'), current = site.store.raw.prepare('SELECT revision FROM records WHERE scope=? AND id=?').get(key.slice(0,split),key.slice(split+1)) as {revision:number}|undefined;
         if ((current?.revision ?? null) !== (row?.revision ?? null)) throw new WeavaError('导入目标已变化，请重新预检。', 409);
       }
       // Resolve parents before their children, regardless of source file ordering.
@@ -108,7 +110,7 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
         const [layout] = layoutQueue.splice(available, 1);
         save('layout', layout.id, layout, (revision) => saveLayout(site, layout, revision));
       }
-      for (const entry of entries) save('entry', entry.id, entry, (revision) => site.saveEntry(entry, revision, { references: entries }));
+      for (const entry of entries) save('entry', entry.id, entry, (revision) => site.saveEntry(entry, revision, { references }));
       for (const view of views) save('content-view', view.id, view, (revision) => saveContentView(site, view, revision));
       for (const template of templates) save('creation-template', template.id, template, (revision) => saveCreationTemplate(site, template, revision));
       for (const [id, value] of Object.entries(source.redirects ?? {})) save('redirect', id, value, (revision) => site.store.put('redirect', id, value, revision));

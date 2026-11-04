@@ -29,6 +29,7 @@ import Newsletter from '../themes/Newsletter.astro';
 import ArticleComments from '../themes/ArticleComments.astro';
 import SeoHead from '../components/SeoHead.astro';
 import Advertisement from '../components/Advertisement.astro';
+import SiteInfoLinks from '../components/SiteInfoLinks.astro';
 import { entrySchema, systemRoutes, WeavaError } from '@weava/contracts';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
@@ -267,8 +268,9 @@ const discussion=interactive?engagement.summary(entry!.id):null;
       }
     </main>{afterRegion && <div class="wrap shared-region" set:html={afterRegion} />}
     <div class="wrap weava-advertisement-region"><Advertisement settings={settings} position="siteBottom" /></div>
+    <SiteInfoLinks release={release} />
     {footerRegion ? <footer class="wrap" set:html={footerRegion} /> : <footer class="wrap site-footer">
-      <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/')) &&
+      <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/' && !e.source?.siteInfoRole)) &&
         <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? '源代码' : '关于'}</a>}
       <a href="/rss.xml">RSS</a>
     </footer>}

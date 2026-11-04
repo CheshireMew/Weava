@@ -34,13 +34,15 @@ Ctrl+C 会尽量完成保存。进程异常退出后，`diagnose report` 可以�
 | references/query | GET `types=类型标识列表&filters=JSON等值条件&q=…&page=…`，与关联保存校验共用限制 |
 | authoring/views、authoring/templates | GET 命名筛选/新建模板；POST `{value,revision}` 保存或归档恢复 |
 | settings、types | GET 读取；POST `{value, revision}` 保存 |
-| media | GET 列表；POST `{name, base64}` 返回 202 媒体任务；完成后的 result 为媒体记录 |
+| media | GET 列表；POST `{uploadId}` 返回 202 媒体任务；完成后的 result 为媒体记录。兼容旧 `{name,base64}` |
+| media/uploads | POST `{name,size}` 创建上传，返回 id、offset、chunkBytes、expiresAt；文件最多 32 MiB |
+| media/uploads/id | GET 当前上传位置；POST `application/octet-stream` 二进制分块，查询参数 offset 为服务器确认的位置，每块最多 1 MiB |
 | media/groups、media/move | GET 分组；POST groups `{value,revision}`；POST move `{items:[{id,revision}],groupId}`，null 为未分组 |
 | history?id=… | GET 历史记录 |
 | revision?id=…&version=…、revision/compare?id=…&from=…&to=… | GET 不可变修订；或两个修订及内容差异和正文预览 |
 | entry/merge、entry/merge/save | POST `{id,baseRevision,value,choices?}` 预览三方合并；保存再带 currentRevision，冲突 choices 按返回的 JSON 指针选择 local 或 remote |
 | restore | POST `{id, version, revision}` 恢复为工作稿 |
-| publication | POST 与 publish 相同的选择，返回变更摘要及冻结检查所需的 options |
+| publication | POST 与 publish 相同的选择，返回变更摘要及冻结检查所需的 options；原样提交 options 可复用十分钟内的候选，内容、公开版本或渲染程序变化需重新查看 |
 | publish | POST `{scope?, ids?, revisions?, label?}`；scope 为 all、entries、settings、layouts 或 terms；省略时按 ids 推断单篇或全站 |
 | entries/query | GET 带分页和筛选的后台摘要，返回 items、page、pageSize、total、pages |
 | terms | GET 分类标签；POST `{value, revision}` 保存稳定编号、名称、slug、kind、parentId |
@@ -68,6 +70,8 @@ Ctrl+C 会尽量完成保存。进程异常退出后，`diagnose report` 可以�
 | maintenance/archives、maintenance/archive?id=…、maintenance/restore | GET 归档列表或校验后的内容；POST `{id}` 任务恢复历史，不切换当前工作稿或公开版本 |
 
 异步操作可以带 Idempotency-Key，同一个标识只领取一次执行权。重试相同任务取得同一个编号，不再启动另一个进程。
+
+上传先创建记录，再按 offset 发送分块，最后将 uploadId 提交到 media。分块失败后读取上传状态，从确认位置继续；处理失败可以再次提交同一个 uploadId 重试。浏览器与 CLI 共用该协议。CLI 示例：`pnpm weava --site D:\Data\site media-upload D:\Data\photo.jpg --wait`；中断后使用 `--upload-id` 指定已有上传编号。
 
 WP Statistics 历史迁移通过 CLI 提供 `migrate wordpress-statistics-script/extract/inspect`、`migrate wordpress-statistics`（默认只预检，写入需 `--apply --review`）、`analytics wordpress-sources/wordpress-report/wordpress-verify`。它不依赖服务器账号，也不合并原生统计与历史累计，完整命令和格式见 [迁移工具](wordpress-statistics.md)。
 

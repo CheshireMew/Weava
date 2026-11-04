@@ -1,9 +1,10 @@
 import { searchDatasetSchema } from './search-data.ts';
 import { analyticsReportSchema, analyticsRealtimeSchema, analyticsVisitorDetailSchema, geoStatusSchema } from './analytics.ts';
 import * as m from './api-models.ts';
-import { z } from 'zod';
+import * as z from 'zod';
+import { accountProof, sessionResult, loginBody, loginResult, logoutResult,accountAccessBody,accountAccessResult,completeAccountAccessBody,completeAccountAccessResult } from './session-api.ts';
 const { id,revision,nullableRevision,empty,jsonObject,record,save,page,entrySchema,entryRecord,entrySummaryRecord,typeSchema,settingsSchema,termSchema,layoutSchema,contentViewSchema,creationTemplateSchema,mediaGroupSchema,imagePresetSchema,mediaRecord,jobSchema } = m;
-export interface ApiDefinition { method:'GET'|'POST'; path:string; summary:string; params:z.ZodType; query:z.ZodType; body:z.ZodType; response:z.ZodType; status:number; format:'json'|'csv'|'schema' }
+export interface ApiDefinition { method:'GET'|'POST'; path:string; summary:string; params:z.ZodType; query:z.ZodType; body:z.ZodType; response:z.ZodType; status:number; format:'json'|'csv'|'schema';binary?:boolean }
 const get = <P extends string,R extends z.ZodType,Q extends z.ZodType=typeof empty,A extends z.ZodType=typeof empty>(path:P,summary:string,response:R,query:Q=empty as unknown as Q,params:A=empty as unknown as A) => ({ method:'GET' as const,path,summary,params,query,body:z.undefined(),response,status:200,format:'json' as 'json'|'csv'|'schema' });
 const post = <P extends string,B extends z.ZodType,R extends z.ZodType>(path:P,summary:string,body:B,response:R,status=200) => ({ method:'POST' as const,path,summary,params:empty,query:empty,body,response,status,format:'json' as 'json'|'csv'|'schema' });
 const byId=z.object({ id }), byVersion=byId.extend({ revision }), pathId=z.object({ id });
@@ -16,12 +17,12 @@ const rowList=z.array(jsonObject);
 const references=z.object({ working:z.array(z.object({ id,title:z.string(),path:z.string() })),published:z.array(z.object({ id,title:z.string(),path:z.string() })),layouts:z.array(z.object({ id,label:z.string() })),settings:z.boolean(),historicalRevisions:z.number() });
 const planRecord=record(m.planValue),scheduleRecord=record(m.scheduleValue);
 const mediaMetadata=z.object({ name:z.string(),alt:optional,caption:optional,groupId:z.string().nullable().optional(),focalPoint:m.focalPoint.optional() });
+const uploadState=z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string(),expiresAt:z.string(),chunkBytes:z.number(),jobId:id.optional()});
 const imageVariant=z.object({ id,revision,presetId:id.optional(),spec:m.imageSpecSchema.optional() }).refine((v)=>!!v.presetId!==!!v.spec,{message:'请选择一种图片规格输入方式。'});
 const redirectRecords=z.array(z.object({ id,revision:nullableRevision,updatedAt:z.string(),value:m.redirectSchema }));
 const exportSchema=z.object({ version:z.number(),schemas:jsonObject,types:z.array(z.object({ id,revision,definition:typeSchema,schema:jsonObject })),rules:z.record(z.string(),z.string()) });
 const schemaResult=z.union([exportSchema,z.looseObject({ openapi:z.literal('3.1.0'),info:jsonObject,servers:z.array(jsonObject),security:z.array(jsonObject),components:jsonObject,paths:jsonObject }),z.string()]);
 const archiveContents=z.object({ id,releases:z.array(z.object({ id,createdAt:z.string() })),revisions:z.array(z.object({ revision,id,scope:z.string(),createdAt:z.string(),label:z.string() })) });
-const accountProof=z.object({ password:z.string().min(1).max(1024),code:z.string().max(100).optional() });
 const account=z.object({ username:z.string(),displayName:z.string(),adminPath:z.string(),twoFactorEnabled:z.boolean(),recoveryCodesRemaining:z.number(),events:z.array(z.object({id:z.number(),createdAt:z.string(),event:z.string(),source:z.string()})),sessions:z.array(z.object({ id:z.string(),createdAt:z.string().nullable(),lastSeen:z.string().nullable(),expiresAt:z.string(),browser:z.string(),os:z.string(),userAgent:z.string(),current:z.boolean() })) });
 
 /** This registry is consumed by HTTP validation, the typed client, and OpenAPI.
@@ -30,9 +31,11 @@ const account=z.object({ username:z.string(),displayName:z.string(),adminPath:z.
  * remain declared. Domain validation still checks content rules and revisions.
  */
 export const adminApi = {
-  session:get('session','读取登录状态',z.object({ authenticated:z.boolean(),initialized:z.boolean(),version:z.string() })),
-  login:post('login','登录',accountProof.extend({username:z.string().max(64).optional()}),z.object({ authenticated:z.literal(true) })),
-  logout:post('logout','退出登录',empty,z.object({ ok:z.literal(true) })),
+  session:get('session','读取登录状态',sessionResult),
+  login:post('login','登录',loginBody,loginResult),
+  logout:post('logout','退出登录',empty,logoutResult),
+  accountAccess:post('account-access','检查本机发放的一次性账户设置链接',accountAccessBody,accountAccessResult),
+  completeAccountAccess:post('account-access/complete','使用一次性链接设置账户，然后正常登录',completeAccountAccessBody,completeAccountAccessResult),
   account:get('account','读取站主资料和登录会话',account),
   saveAccount:post('account','更新站主资料或密码',accountProof.extend({username:z.string().min(3).max(64),displayName:z.string().min(1).max(80),newPassword:z.string().max(1024).optional()}),z.object({ok:z.literal(true),loginRequired:z.boolean()})),
   revokeSession:post('account/sessions/revoke','撤销登录会话',accountProof.extend({id:z.string().regex(/^(others|[a-f0-9]{64})$/)}),z.object({ok:z.literal(true)})),
@@ -47,6 +50,8 @@ export const adminApi = {
   entries:get('entries','列出工作稿摘要',z.array(entrySummaryRecord)),
   queryEntries:get('entries/query','查询工作稿摘要',page(entrySummaryRecord),contentQuery),
   createEntry:post('entries/create','新建内容',z.object({ kind:z.enum(['content','page']),type:optional,templateId:optional,title:optional,path:optional }),entryRecord),
+  duplicateEntry:post('entries/duplicate','复制为独立草稿',byVersion,entryRecord),
+  deleteEntry:post('entries/delete','删除内容并撤下公开页面，保留历史快照和共享媒体',byVersion,byId),
   getEntry:get('entry/{id}','读取完整工作稿',entryRecord,empty,pathId),
   saveEntry:post('entry','保存工作稿',save(entrySchema),entryRecord),
   checkEntry:post('entry/check','检查未保存候选',z.object({ value:z.unknown(),required:z.boolean().optional() }),m.entryCheck),
@@ -90,7 +95,10 @@ export const adminApi = {
   saveMerge:post('entry/merge/save','保存已解决冲突的合并',m.mergeInput.extend({ currentRevision:revision }),entryRecord),
   restore:post('restore','恢复历史修订为新工作稿',byVersion.extend({ version:revision }),entryRecord),
   media:get('media','列出媒体',z.array(mediaRecord)),
-  uploadMedia:post('media','上传媒体并生成派生图',z.object({ name:z.string(),base64:z.string() }),jobSchema,202),
+  uploadMedia:post('media','处理完整上传，兼容旧版 base64 上传',z.union([z.object({uploadId:id}),z.object({ name:z.string(),base64:z.string() })]),jobSchema,202),
+  beginUpload:post('media/uploads','创建可继续的媒体上传',z.object({name:z.string().min(1).max(300),size:z.number().int().min(1).max(32*1024*1024)}),uploadState),
+  uploadStatus:get('media/uploads/{id}','读取上传位置和处理任务',uploadState,empty,pathId),
+  uploadChunk:{...post('media/uploads/{id}','追加一份二进制分块（最多 1 MiB）',z.unknown(),uploadState),params:pathId,query:z.object({offset:z.coerce.number<string|number>().int().min(0)}),binary:true},
   mediaQuery:get('media/query','查询媒体',page(mediaRecord),z.object({ ...queryPage,q:optional,kind:z.enum(['image','video','audio','file','']).optional(),group:optional,archived:z.enum(['true','false']).optional() })),
   mediaInfo:post('media/info','保存媒体说明、分组和焦点',byVersion.extend({ value:mediaMetadata }),mediaRecord),
   mediaReferences:get('media/references','查询媒体引用',references,byId),
@@ -138,7 +146,7 @@ export const adminApi = {
 } as const;
 export type AdminApi = typeof adminApi;
 export type ApiOperation = keyof AdminApi;
-export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','cropMedia','imageVariant','backup','verify','importWxr'];
+export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','beginUpload','cropMedia','imageVariant','backup','verify','importWxr'];
 export type ApiInput<K extends ApiOperation> = { params:z.input<AdminApi[K]['params']>;query:z.input<AdminApi[K]['query']>;body:z.input<AdminApi[K]['body']> };
 export type ApiOutput<K extends ApiOperation> = z.output<AdminApi[K]['response']>;
 export type ContractMatch = { operation:ApiOperation; definition:ApiDefinition; params:Record<string,string> };

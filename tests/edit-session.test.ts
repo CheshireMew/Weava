@@ -1,6 +1,14 @@
 import { expect, it } from 'vitest';
 import { EditSession } from '../apps/admin/src/edit-session.ts';
 const row = {id:'entry',revision:1,value:{name:'Original'}};
+it('recognizes an undo to the saved value and reads dirty state without traversing a large document',()=>{
+  let reads=0;const document={get source(){reads++;return '正文'.repeat(100000);}};
+  const initial={...row,value:{name:'Original',document}};
+  const session=new EditSession(initial,async value=>value,()=>{});
+  session.change({...initial,value:{...initial.value,name:'Changed'}});expect(session.dirty).toBe(true);
+  const before=reads;for(let index=0;index<100;index++)expect(session.dirty).toBe(true);expect(reads).toBe(before);
+  session.change({...initial,value:{...initial.value,name:'Original'}});expect(session.dirty).toBe(false);
+});
 function storage() { const values = new Map<string,string>(); return {getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>{values.set(key,value);},removeItem:(key:string)=>{values.delete(key);}}; }
 it('ARC-04 keeps revision and value together on clean refresh and preserves the old base for dirty edits',()=>{
   const session = new EditSession(row,async value=>value,()=>{});

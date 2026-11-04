@@ -2,8 +2,12 @@ import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { Block, Release, PublishedEntry, Entry } from '@weava/contracts';
 import { plain, tokens } from './documents.ts';
-import { indexReleaseMedia } from './media-policy.ts';
+import { rememberPrivateMedia } from './media-policy.ts';
 import { indexPublishedRevisions } from './list-index.ts';
+import { publishedObjectKey, publishedMetadata, publishedHasBlocks } from './release-reader.ts';
+import { publicationDependencies } from './publication-validation.ts';
+import { entryMediaReferences, mediaReferencesIn } from './media-references.ts';
+import { referencedLayouts } from './layouts.ts';
 
 const keyOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -40,33 +44,61 @@ interface Manifest {
   redirectsKey: string;
   termsKey?: string;
   layoutsKey?: string;
+  catalogKey?: string;
 }
-function object(db: Database.Database, kind: string, value: unknown) {
-  const key = keyOf({ kind, value });
-  db.prepare('INSERT OR IGNORE INTO publication_objects(key,kind,data) VALUES(?,?,?)').run(key, kind, JSON.stringify(value));
-  return key;
-}
-export function storeRelease(db: Database.Database, release: Release, updateExisting = false) {
+/** Serialize, hash and derive indexes before taking the publication write lock. */
+export function prepareReleaseStorage(db: Database.Database, release: Release) {
+  const objects = new Map<string, {kind:string;data:string}>();
+  const object = (_db: Database.Database, kind: string, value: unknown) => {
+    const data=JSON.stringify(value),key=createHash('sha256').update('{"kind":'+JSON.stringify(kind)+',"value":'+data+'}').digest('hex');
+    objects.set(key,{kind,data});return key;
+  };
   const manifest: Manifest = { storageVersion: 2, id: release.id, createdAt: release.createdAt, label: release.label,
     entryKeys: [], settingsKey: object(db, 'settings', release.settings), typesKey: object(db, 'types', release.types),
     redirectsKey: object(db, 'redirects', release.redirects ?? {}), termsKey: object(db, 'terms', release.terms ?? []),
     layoutsKey: object(db, 'layouts', release.layouts ?? []) };
-  const member = db.prepare('INSERT INTO publication_members(release_id,object_key,entry_id,position) VALUES(?,?,?,?)');
-  const fts = db.prepare('INSERT INTO publication_fts(object_key,tokens) VALUES(?,?)');
-  const indexed = db.prepare('INSERT OR IGNORE INTO publication_search_keys(key) VALUES(?)');
+  const members:{entryId:string;position:number;searchKey:string;searchText:string;indexable:boolean}[]=[];
+  const sources:{entryKey:string;dependencyKey:string;searchKey:string}[]=[];
+  const media:{entryId:string;paths:Set<string>;private:boolean}[]=[];
+  const catalog:{key:string;summary:any;hasBlocks:boolean}[]=[];
+  const hasSourceCache=!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='publication_search_sources'").get();
+  const sourceLookup=hasSourceCache?db.prepare('SELECT s.search_key FROM publication_search_sources s JOIN publication_search_keys k ON k.key=s.search_key WHERE s.entry_key=? AND s.dependency_key=?'):undefined;
   for (const [position, entry] of release.entries.entries()) {
-    const key = object(db, 'entry', entry);
+    const key = publishedObjectKey(entry) ?? object(db, 'entry', entry);
     manifest.entryKeys.push(key);
-    const searchText=tokens([entry.title,entry.description,entry.blocks?.length?'':plain(entry.html),blockText(entry.blocks??[],entry,release),entry.categories.join(' '),entry.tags.join(' ')].join(' '));
-    const searchKey=keyOf({kind:'search',entryKey:key,text:searchText});
-    member.run(release.id, searchKey, entry.id, position);
-    if (entry.indexable && entry.visibility !== 'private' && indexed.run(searchKey).changes)
-      fts.run(searchKey, searchText);
+    const hasBlocks=publishedHasBlocks(entry);
+    catalog.push({key,summary:publishedMetadata(entry),hasBlocks});
+    const dependencyKey=hasBlocks?keyOf([release.settings,release.layouts,publicationDependencies(entry,release)]):'';
+    let searchKey=(sourceLookup?.get(key,dependencyKey) as {search_key:string}|undefined)?.search_key;
+    let searchText='';
+    if(!searchKey){
+      searchText=tokens([entry.title,entry.description,hasBlocks?'':plain(entry.html),hasBlocks?blockText(entry.blocks,entry,release):'',entry.categories.join(' '),entry.tags.join(' ')].join(' '));
+      searchKey=keyOf({kind:'search',entryKey:key,text:searchText});
+      if(hasSourceCache)sources.push({entryKey:key,dependencyKey,searchKey});
+    }
+    members.push({entryId:entry.id,position,searchKey,searchText,indexable:entry.indexable&&entry.visibility!=='private'});
+    media.push({entryId:entry.id,paths:entryMediaReferences(entry,release),private:entry.visibility==='private'});
   }
-  if (updateExisting) db.prepare('UPDATE releases SET data=? WHERE id=?').run(JSON.stringify(manifest), release.id);
-  else db.prepare('INSERT INTO releases VALUES(?,?,?)').run(release.id, JSON.stringify(manifest), release.createdAt);
-  indexReleaseMedia(db, release);
-  indexPublishedRevisions(db, release);
+  manifest.catalogKey=object(db,'catalog',catalog);
+  return {release,objects,members,sources,media,manifest:JSON.stringify(manifest),globalMedia:mediaReferencesIn([release.settings,referencedLayouts(undefined,release)])};
+}
+export function writeReleaseStorage(db: Database.Database, prepared:ReturnType<typeof prepareReleaseStorage>, updateExisting=false){
+  const {release,objects,members,sources,media,manifest,globalMedia}=prepared;
+  const insert=db.prepare('INSERT OR IGNORE INTO publication_objects(key,kind,data) VALUES(?,?,?)');
+  for(const [key,{kind,data}] of objects)insert.run(key,kind,data);
+  if(sources.length){const source=db.prepare('INSERT OR REPLACE INTO publication_search_sources VALUES(?,?,?)');for(const row of sources)source.run(row.entryKey,row.dependencyKey,row.searchKey);}
+  const member=db.prepare('INSERT INTO publication_members(release_id,object_key,entry_id,position) VALUES(?,?,?,?)'),indexed=db.prepare('INSERT OR IGNORE INTO publication_search_keys(key) VALUES(?)'),fts=db.prepare('INSERT INTO publication_fts(object_key,tokens) VALUES(?,?)');
+  for(const row of members){member.run(release.id,row.searchKey,row.entryId,row.position);if(row.indexable&&indexed.run(row.searchKey).changes)fts.run(row.searchKey,row.searchText);}
+  if(updateExisting)db.prepare('UPDATE releases SET data=? WHERE id=?').run(manifest,release.id);
+  else db.prepare('INSERT INTO releases VALUES(?,?,?)').run(release.id,manifest,release.createdAt);
+  const pub=db.prepare('INSERT OR IGNORE INTO public_media_paths VALUES(?,?)');
+  const refs=db.prepare("SELECT 1 FROM sqlite_master WHERE name='publication_entry_media'").get()?db.prepare('INSERT OR IGNORE INTO publication_entry_media VALUES(?,?,?)'):undefined;
+  for(const row of media){if(row.private)rememberPrivateMedia(db,row.paths);else for(const path of row.paths)pub.run(release.id,path);for(const path of row.paths)refs?.run(release.id,row.entryId,path);}
+  for(const path of globalMedia)pub.run(release.id,path);
+  indexPublishedRevisions(db,release);
+}
+export function storeRelease(db: Database.Database, release: Release, updateExisting = false) {
+  writeReleaseStorage(db,prepareReleaseStorage(db,release),updateExisting);
 }
 export { loadRelease } from './release-reader.ts';
 

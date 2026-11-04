@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 
 export const advertisementSlots = [
   { id: 'siteTop', label: '网页顶部' },

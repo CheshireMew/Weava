@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 export const publicationActionSchema = z.object({
   id: z.string().min(1),
   revision: z.number().int().positive(),

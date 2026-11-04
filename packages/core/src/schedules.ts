@@ -1,9 +1,10 @@
 import { WeavaError } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { now, uuid } from './storage.ts';
-import {preparePublication} from './publication.ts';
+import {preparePublication, commitPublication, assertPublicationCurrent, type PreparedPublication} from './publication.ts';
 import { runPublicationPlans } from './publication-plans.ts';
 import type {Release} from '@weava/contracts';
+import type {JobRunner} from './job-runner.ts';
 
 export interface PublicationSchedule {
   id: string;
@@ -25,13 +26,14 @@ export function schedules(site: Site, entryId?: string) {
 export function schedulePublication(site: Site, entryId: string, revision: number, dueAt: string, clock = Date.now()) {
   const time = Date.parse(dueAt);
   if (!Number.isFinite(time) || time <= clock) throw new WeavaError('定时发布时间需要晚于当前时间。');
+  const prepared=preparePublication(site,{ids:[entryId],revisions:{[entryId]:revision}});
   return site.store.raw.transaction(() => {
+    assertPublicationCurrent(site,prepared);
     const row = site.store.get('entry', entryId);
     if (!row || row.revision !== revision) throw new WeavaError('待定时发布的内容已变化，请重新载入。', 409);
     if (row.value.status === 'archived') throw new WeavaError('请先将归档内容恢复为草稿。');
     if (schedules(site).some((item) => item.value.entryId === entryId && ['scheduled', 'running'].includes(item.value.status)))
       throw new WeavaError('这份内容已有待执行的发布，请先取消原计划。', 409);
-    site.previewPublication({ ids: [entryId], revisions: { [entryId]: revision } });
     const value: PublicationSchedule = { id: uuid(), entryId, entryRevision: revision, dueAt: new Date(time).toISOString(), status: 'scheduled', attempts: 0, createdAt: now() };
     return site.store.put(scope, value.id, value, null, '安排定时发布');
   }).immediate();
@@ -53,45 +55,58 @@ export function retrySchedule(site: Site, id: string, revision: number, clock = 
     return site.store.put(scope, id, { ...row.value, status: 'scheduled', dueAt: new Date(clock).toISOString(), error: undefined }, revision, '重试定时发布');
   }).immediate();
 }
-export function runSchedules(site: Site, clock = Date.now(), onlyId?:string, reviewRevision?:number, baseReleaseId?:string|null) {
-  const completed: string[] = [], failed: string[] = [];
-  for (const queued of schedules(site).filter((row) => (!onlyId||row.id===onlyId)&&row.value.status === 'scheduled' && Date.parse(row.value.dueAt) <= clock).slice(0, 20)) {
-    try {
-      const committed = site.store.raw.transaction(() => {
-        const row = site.store.get(scope, queued.id);
-        if (!row || row.value.status !== 'scheduled') return;
-        if (site.store.raw.prepare("SELECT 1 FROM jobs WHERE operation='publish' AND status IN ('queued','running')").get()) return;
-        if(reviewRevision!==undefined&&(reviewRevision!==(site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n||baseReleaseId!==(site.store.state('release')??null)))return;
-        const running = site.store.put(scope, row.id, { ...row.value, status: 'running', attempts: row.value.attempts + 1 }, row.revision, '开始定时发布');
-        // Claim, publication pointer, result and completion are committed together.
-        // A stopped process rolls the transaction back, leaving the plan due for restart.
-        const release = site.publish({ ids: [row.value.entryId], versions: { [row.value.entryId]: row.value.entryRevision }, label: '定时发布' });
-        site.store.put(scope, row.id, { ...running.value, status: 'complete', releaseId: release.id, completedAt: new Date(clock).toISOString() }, running.revision, '定时发布完成');
-        return true;
-      }).immediate();
-      if (committed) completed.push(queued.id);
-    } catch (error: any) {
-      site.store.raw.transaction(() => {
-        const current = site.store.get(scope, queued.id);
-        if (current?.value.status === 'scheduled') {
-          site.store.put(scope, current.id, { ...current.value, status: 'failed', attempts: current.value.attempts + 1, error: error.message }, current.revision, '定时发布失败');
-          failed.push(current.id);
-        }
-      }).immediate();
-    }
-  }
-  return { completed, failed };
+const competingPublication=(site:Site,jobId='')=>!!site.store.raw.prepare("SELECT 1 FROM jobs WHERE operation='publish' AND status IN ('queued','running') AND id<>? LIMIT 1").get(jobId);
+function failSchedule(site:Site,id:string,revision:number,error:any){
+  if(error.status===409)return;
+  site.store.raw.transaction(()=>{const row=site.store.get(scope,id);if(row?.revision===revision&&row.value.status==='scheduled')site.store.put(scope,id,{...row.value,status:'failed',attempts:row.value.attempts+1,error:error.message},revision,'定时发布失败');}).immediate();
 }
-export async function runSchedulesAsync(site:Site,validate:(release:Release)=>Promise<void>,clock=Date.now()){
-  await runPublicationPlans(site, validate, clock);
+function commitSchedule(site:Site,row:NonNullable<ReturnType<Site['store']['get']>>,prepared:PreparedPublication,clock:number,jobId?:string){
+  try{assertPublicationCurrent(site,prepared);}catch(error:any){if(error.status===409)return null;throw error;}
+  return commitPublication(site,prepared,{jobId},release=>{
+    site.store.put(scope,row.id,{...row.value,status:'complete',attempts:row.value.attempts+1,releaseId:release.id,completedAt:new Date(clock).toISOString()},row.revision,'定时发布完成');
+  },()=>{
+    const current=site.store.get(scope,row.id);
+    if(current?.revision!==row.revision||current.value.status!=='scheduled'||competingPublication(site,jobId))throw new WeavaError('定时计划已变化，请等待下一次检查。',409);
+  });
+}
+function dueSchedules(site:Site,clock:number){
+  return (site.store.raw.prepare("SELECT id FROM records WHERE scope='publication-schedule' AND json_extract(data,'$.status')='scheduled' AND json_extract(data,'$.dueAt')<=? ORDER BY json_extract(data,'$.dueAt'),id LIMIT 20").all(new Date(clock).toISOString()) as {id:string}[]).map(row=>site.store.get(scope,row.id)!);
+}
+export function runSchedules(site: Site, clock = Date.now(), onlyId?:string, reviewRevision?:number|null, baseReleaseId?:string|null) {
   const completed:string[]=[],failed:string[]=[];
-  for(const queued of schedules(site).filter((row)=>row.value.status==='scheduled'&&Date.parse(row.value.dueAt)<=clock).slice(0,20)){
-    if(site.store.raw.prepare("SELECT 1 FROM jobs WHERE operation='publish' AND status IN ('queued','running')").get())break;
+  for(const row of dueSchedules(site,clock).filter(row=>!onlyId||row.id===onlyId)){
+    if(competingPublication(site))break;
+    if(reviewRevision!==undefined&&(reviewRevision!==(site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n||baseReleaseId!==(site.store.state('release')??null)))break;
     try{
-      const review=site.previewPublication({ids:[queued.value.entryId],versions:{[queued.value.entryId]:queued.value.entryRevision},label:'定时发布'});
-      await validate(preparePublication(site,review.options).release);
-      const result=runSchedules(site,clock,queued.id,review.options.reviewRevision,review.options.baseReleaseId);completed.push(...result.completed);failed.push(...result.failed);
-    }catch(error:any){site.store.raw.transaction(()=>{const current=site.store.get(scope,queued.id);if(current?.revision===queued.revision&&current.value.status==='scheduled'){site.store.put(scope,current.id,{...current.value,status:'failed',attempts:current.value.attempts+1,error:error.message},current.revision,'定时发布失败');failed.push(current.id);}}).immediate();}
+      const prepared=preparePublication(site,{ids:[row.value.entryId],versions:{[row.value.entryId]:row.value.entryRevision},label:'定时发布'});
+      if(commitSchedule(site,row,prepared,clock))completed.push(row.id);
+    }catch(error:any){failSchedule(site,row.id,row.revision,error);if(site.store.get(scope,row.id)?.value.status==='failed')failed.push(row.id);}
   }
   return {completed,failed};
+}
+export async function runScheduledPublication(site:Site,id:string,revision:number,validate:(release:Release)=>Promise<void>,clock=Date.now(),jobId?:string){
+  const row=site.store.get(scope,id);
+  if(!row||row.revision!==revision||row.value.status!=='scheduled'||Date.parse(row.value.dueAt)>clock||competingPublication(site,jobId))return null;
+  try{
+    const prepared=preparePublication(site,{ids:[row.value.entryId],versions:{[row.value.entryId]:row.value.entryRevision},label:'定时发布'});
+    await validate(prepared.release);
+    return commitSchedule(site,row,prepared,clock,jobId);
+  }catch(error:any){failSchedule(site,id,revision,error);if(error.status===409)return null;throw error;}
+}
+export async function runSchedulesAsync(site:Site,validate:(release:Release)=>Promise<void>,clock=Date.now()){
+  await runPublicationPlans(site,validate,clock);
+  const completed:string[]=[],failed:string[]=[];
+  for(const row of dueSchedules(site,clock)){
+    if(competingPublication(site))break;
+    try{if(await runScheduledPublication(site,row.id,row.revision,validate,clock))completed.push(row.id);}
+    catch{failed.push(row.id);}
+  }
+  return {completed,failed};
+}
+/** The live site's timer only selects and queues work. Preparation runs in the managed worker. */
+export function queueScheduledPublications(site:Site,jobs:Pick<JobRunner,'enqueue'>,clock=Date.now()){
+  if(competingPublication(site))return;
+  const row=site.store.raw.prepare("SELECT scope,id,revision FROM records WHERE scope IN ('publication-schedule','publication-plan') AND json_extract(data,'$.status')='scheduled' AND json_extract(data,'$.dueAt')<=? ORDER BY json_extract(data,'$.dueAt'),id LIMIT 1").get(new Date(clock).toISOString()) as {scope:string;id:string;revision:number}|undefined;
+  if(!row)return;
+  jobs.enqueue('publish',row.scope==='publication-plan'?{planId:row.id,planRevision:row.revision}:{scheduleId:row.id,scheduleRevision:row.revision});
 }

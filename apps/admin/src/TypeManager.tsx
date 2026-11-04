@@ -1,5 +1,6 @@
 import { Plus } from 'lucide-react';
 import { blockDefinitions, schemaTypes, type ContentType } from '@weava/contracts';
+import { schemaTypeLabels } from './admin-labels.ts';
 
 import { FieldDefinitions, TypeAdminLayout } from './Fields.tsx';
 
@@ -63,6 +64,7 @@ export default function TypeManager({
           {types.map((t) => (
             <button
               key={t.id}
+              aria-current={selected?.value.id === t.id ? 'true' : undefined}
               onClick={async () => {
                 try {
                   await managed.session.save();
@@ -73,7 +75,6 @@ export default function TypeManager({
               }}
             >
               {t.value.label}
-              <small>{t.id}</small>
             </button>
           ))}
         </nav>
@@ -88,8 +89,8 @@ export default function TypeManager({
                 }
               />
             </label>
-            <label>
-              标识
+            <details className="settings-disclosure"><summary>内部标识</summary><label>
+              类型标识
               <input
                 disabled={!!selected.revision}
                 value={selected.value.id}
@@ -97,7 +98,7 @@ export default function TypeManager({
                   setSelected({ ...selected, value: { ...selected.value, id: e.target.value } })
                 }
               />
-            </label>
+            </label></details>
             <label>
               默认网址前缀
               <input
@@ -200,7 +201,7 @@ export default function TypeManager({
               </select>
             </label>
             <label>
-              页面语义
+              搜索引擎中的页面类型
               <select
                 value={selected.value.schemaType ?? ''}
                 onChange={(event) =>
@@ -212,7 +213,7 @@ export default function TypeManager({
               >
                 <option value="">自动</option>
                 {schemaTypes.map((type) => (
-                  <option key={type}>{type}</option>
+                  <option key={type} value={type}>{schemaTypeLabels[type]}</option>
                 ))}
               </select>
             </label>

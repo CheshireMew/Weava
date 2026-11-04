@@ -1,7 +1,9 @@
 import sax from 'sax';
 import { load } from 'cheerio';
 import { basename, join } from 'node:path';
-import { mkdirSync, existsSync, readFileSync, writeFileSync,statSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync,statSync,openSync,readSync,closeSync,copyFileSync } from 'node:fs';
+import { StringDecoder } from 'node:string_decoder';
+import { digestFile } from './file-io.ts';
 import { entrySchema, WeavaError, type Entry, type Block, type Term, type ContentType } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { normalizePath,pathWithin } from './paths.ts';
@@ -9,10 +11,13 @@ import { digest, inside } from './storage.ts';
 import { plain, sanitize } from './documents.ts';
 import { importSite, type ImportOptions, type SiteExchange } from './exchange.ts';
 import { prepareMedia } from './media.ts';
+import { EntryWorkspace,StagedEntries } from './staged-entries.ts';
 
 interface Xml { name: string; text: string; attrs: Record<string, string>; children: Xml[] }
-function parseXml(source: string) {
-  if (Buffer.byteLength(source) > 128 * 1024 * 1024) throw new WeavaError('WXR 文件超过 128 MB，请在 WordPress 分批导出。');
+export type WxrInput=string|{file:string};
+const wxrDigest=(source:WxrInput)=>typeof source==='string'?digest(source):digestFile(source.file);
+function parseXml(source: WxrInput, acceptItem?: (node: Xml) => void) {
+  if ((typeof source==='string'?Buffer.byteLength(source):statSync(source.file).size) > 128 * 1024 * 1024) throw new WeavaError('WXR 文件超过 128 MB，请在 WordPress 分批导出。');
   const root: Xml = { name: '#document', text: '', attrs: {}, children: [] }, stack = [root];
   const parser = sax.parser(true, { xmlns: true, strictEntities: true });
   parser.onopentag = (tag) => {
@@ -20,11 +25,15 @@ function parseXml(source: string) {
     const node: Xml = { name: prefix + tag.local, text: '', children: [], attrs: Object.fromEntries(Object.values(tag.attributes).map((attr) => [attr.local, attr.value])) };
     stack.at(-1)!.children.push(node); stack.push(node);
   };
-  parser.onclosetag = () => { stack.pop(); };
+  parser.onclosetag = () => { const node=stack.pop()!; if(node.name==='item'&&stack.at(-1)?.name==='channel'&&acceptItem){acceptItem(node);stack.at(-1)!.children.pop();} };
   parser.ontext = parser.oncdata = (text) => { stack.at(-1)!.text += text; };
   parser.ondoctype = () => { throw new WeavaError('WXR 不需要 DTD，请使用 WordPress 的标准导出文件。'); };
   parser.onerror = (error) => { throw new WeavaError('WXR XML 不完整或格式无效：' + error.message); };
-  parser.write(source.replace(/^\ufeff/, '')).close();
+  if(typeof source==='string')parser.write(source.replace(/^\ufeff/, '')).close();
+  else{
+    const file=openSync(source.file,'r'),buffer=Buffer.allocUnsafe(65536),decoder=new StringDecoder('utf8');let first=true;
+    try{for(;;){const length=readSync(file,buffer,0,buffer.length,null);if(!length)break;let chunk=decoder.write(buffer.subarray(0,length));if(first){chunk=chunk.replace(/^\ufeff/,'');first=false;}parser.write(chunk);}parser.write(decoder.end()).close();}finally{closeSync(file);}
+  }
   const rss = root.children.find((node) => node.name === 'rss'), channel = rss?.children.find((node) => node.name === 'channel');
   if (!channel || !['1.0', '1.1', '1.2'].includes(text(channel, 'wp:wxr_version'))) throw new WeavaError('这不是受支持的 WordPress WXR 导出文件。');
   return channel;
@@ -37,6 +46,19 @@ interface Item {
   body: string; excerpt: string; creator: string; date?: string; modified?: string; password: boolean;
   media: string; meta: Record<string, string[]>; taxonomies: { kind: string; slug: string; label: string }[]; comments: Xml[];
 }
+  const date = (gmt: string, fallback = '') => {
+    const value = gmt && !gmt.startsWith('0000-') ? gmt.replace(' ', 'T') + 'Z' : fallback;
+    return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
+  };
+function itemFromXml(node:Xml): Item {
+    const meta: Record<string, string[]> = {};
+    for (const item of children(node, 'wp:postmeta')) (meta[text(item, 'wp:meta_key')] ??= []).push(text(item, 'wp:meta_value'));
+    return { id: text(node, 'wp:post_id'), type: text(node, 'wp:post_type') || 'post', title: titleText(text(node, 'title')), url: text(node, 'link'), slug: text(node, 'wp:post_name'),
+      parent: text(node, 'wp:post_parent'), status: text(node, 'wp:status'), body: text(node, 'content:encoded'), excerpt: text(node, 'excerpt:encoded'), creator: text(node, 'dc:creator'),
+      date: date(text(node, 'wp:post_date_gmt'), text(node, 'pubDate')), modified: date(text(node, 'wp:post_modified_gmt')), password: !!text(node, 'wp:post_password'),
+      media: text(node, 'wp:attachment_url'), meta, taxonomies: children(node, 'category').map((term) => ({ kind: term.attrs.domain ?? '', slug: term.attrs.nicename ?? '', label: titleText(term.text) })), comments: children(node, 'wp:comment') };
+}
+
 interface Conversion { id: string; title: string; native: string[]; compatible: string[]; unresolved: string[] }
 interface WpBlock { name: string; attrs: Record<string, any>; html: string; children: WpBlock[] }
 function parseBlocks(body: string): WpBlock[] {
@@ -67,26 +89,15 @@ export interface WxrOptions extends ImportOptions {
 }
 const revision = (site: Site) => (site.store.raw.prepare('SELECT COALESCE(MAX(revision),0) n FROM revisions').get() as any).n as number;
 const optionKey = (options: WxrOptions) => digest({ settings: !!options.settings, downloadMedia: !!options.downloadMedia, mediaDirectory: options.mediaDirectory ?? null, comments: options.comments !== false, mode: options.mode ?? 'create', revisions: options.revisions ?? {} });
-export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions = {}, mediaMap: Record<string, string> = {}) {
-  const known = site.store.get('import-report', digest(xml))?.value;
+export function convertWordPressWxr(site: Site, xml: WxrInput, options: WxrOptions = {}, mediaMap: Record<string, string> = {}, workspace?:EntryWorkspace) {
+  const fingerprint=wxrDigest(xml),known = site.store.get('import-report', fingerprint)?.value;
   mediaMap = { ...Object.fromEntries((known?.attachments ?? []).filter((asset: any) => asset.local).flatMap((asset: any) => [[asset.url, asset.local], [new URL(asset.url).pathname, asset.local]])), ...mediaMap };
-  const channel = parseXml(xml), sourceUrl = text(channel, 'wp:base_blog_url') || text(channel, 'link');
+  const items:Item[]=[];
+  const channel = parseXml(xml,node=>{const item=itemFromXml(node);items.push(workspace?workspace.record('item',item,['body','excerpt','meta','comments']):item);}), sourceUrl = text(channel, 'wp:base_blog_url') || text(channel, 'link');
   let origin: URL; try { origin = new URL(sourceUrl); if (!['https:', 'http:'].includes(origin.protocol)) throw new Error(); } catch { throw new WeavaError('WordPress 来源站点网址无效。'); }
   const namespace = digest(origin.href.replace(/\/$/, '')).slice(0, 12), entryId = (id: string) => 'wordpress:' + namespace + ':' + id;
   const warnings: string[] = [], skipped: { id: string; type: string; reason: string }[] = [], conversions: Conversion[] = [];
   const authors = new Map(children(channel, 'wp:author').map((node) => [text(node, 'wp:author_login'), text(node, 'wp:author_display_name')]));
-  const date = (gmt: string, fallback = '') => {
-    const value = gmt && !gmt.startsWith('0000-') ? gmt.replace(' ', 'T') + 'Z' : fallback;
-    return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : undefined;
-  };
-  const items: Item[] = children(channel, 'item').map((node) => {
-    const meta: Record<string, string[]> = {};
-    for (const item of children(node, 'wp:postmeta')) (meta[text(item, 'wp:meta_key')] ??= []).push(text(item, 'wp:meta_value'));
-    return { id: text(node, 'wp:post_id'), type: text(node, 'wp:post_type') || 'post', title: titleText(text(node, 'title')), url: text(node, 'link'), slug: text(node, 'wp:post_name'),
-      parent: text(node, 'wp:post_parent'), status: text(node, 'wp:status'), body: text(node, 'content:encoded'), excerpt: text(node, 'excerpt:encoded'), creator: text(node, 'dc:creator'),
-      date: date(text(node, 'wp:post_date_gmt'), text(node, 'pubDate')), modified: date(text(node, 'wp:post_modified_gmt')), password: !!text(node, 'wp:post_password'),
-      media: text(node, 'wp:attachment_url'), meta, taxonomies: children(node, 'category').map((term) => ({ kind: term.attrs.domain ?? '', slug: term.attrs.nicename ?? '', label: titleText(term.text) })), comments: children(node, 'wp:comment') };
-  });
   const seen = new Set<string>();
   for (const item of items) { if (!/^\d+$/.test(item.id) || seen.has(item.id)) throw new WeavaError('WordPress 内容编号缺失或重复：' + item.id); seen.add(item.id); }
   const systemTypes = new Set(['attachment', 'revision', 'nav_menu_item', 'wp_navigation', 'wp_template', 'wp_template_part', 'wp_block', 'custom_css', 'customize_changeset', 'wp_global_styles', 'wp_font_family', 'wp_font_face']);
@@ -129,6 +140,7 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
     }
     termIds.set(original.id, term.id); termMap.set(key, term);
   }
+  const itemsById=new Map(items.map(item=>[item.id,item])),contentById=new Map(content.map(item=>[item.id,item]));
   const typeIds = new Map<string, string>([['post', 'post']]);
   const types: ContentType[] = [];
   for (const item of content.filter((item) => item.type !== 'page')) if (!typeIds.has(item.type) || !types.some((type) => type.id === typeIds.get(item.type))) {
@@ -142,7 +154,7 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
   const fallbackPath = (item: Item, stack = new Set<string>()): string => {
     if (stack.has(item.id)) throw new WeavaError('WordPress 页面上级形成循环。');
     const slug = item.slug || 'item-' + item.id;
-    const parent = item.type === 'page' ? content.find((entry) => entry.id === item.parent && entry.type === 'page') : null;
+    const parent = item.type === 'page' ? (contentById.get(item.parent)?.type==='page'?contentById.get(item.parent):undefined) : null;
     return parent ? fallbackPath(parent, new Set(stack).add(item.id)) + slug + '/' : (item.type === 'page' ? '/' : item.type === 'post' ? '/posts/' : '/' + typeIds.get(item.type) + '/') + slug + '/';
   };
   for (const item of content) {
@@ -167,7 +179,7 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
     $('[srcset]').each((_, element) => { const node = $(element); node.attr('srcset', node.attr('srcset')!.split(',').map((part) => { const [url, ...size] = part.trim().split(/\s+/); return [rewrite(url), ...size].join(' '); }).join(', ')); });
     return sanitize($.html());
   };
-  const entries: Entry[] = content.map((item) => {
+  const convertEntry = (item:Item):Entry => {
     const conversion: Conversion = { id: entryId(item.id), title: item.title || '未命名内容 ' + item.id, native: [], compatible: [], unresolved: [] }; conversions.push(conversion);
     let blockNumber = 0;
     const block = (type: string, props: Record<string, any>, children?: Block[]): Block => ({ id: 'wp-' + item.id + '-' + ++blockNumber, type, props, ...(children ? { children } : {}) });
@@ -175,7 +187,7 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
       const html = rewriteHtml(part.html), $ = load(html, null, false), native = (result: Block) => { conversion.native.push(part.name); return [result]; };
       if (['core/group', 'core/column', 'core/columns', 'core/buttons'].includes(part.name) && part.children.length) return native(block(part.name === 'core/columns' ? 'columns' : 'container', part.name === 'core/columns' ? { columns: Math.min(4, part.children.length) } : {}, convert(part.children, references)));
       if (part.name === 'core/block' && part.attrs.ref) {
-        const reference = String(part.attrs.ref), target = items.find((entry) => entry.id === reference && entry.type === 'wp_block');
+        const reference = String(part.attrs.ref), target = (itemsById.get(reference)?.type==='wp_block'?itemsById.get(reference):undefined);
         if (target && !references.has(reference)) { conversion.native.push(part.name); return convert(parseBlocks(target.body), new Set(references).add(reference)); }
         conversion.unresolved.push('可复用区块 ' + reference + ' 不存在或形成循环'); return [];
       }
@@ -197,7 +209,7 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
     if (item.status === 'future') warnings.push(item.title + '：保留原计划时间为工作稿，导入后可重新安排发布。');
     const termIds = { categories: [] as string[], tags: [] as string[] };
     for (const tax of item.taxonomies) { const kind = tax.kind === 'post_tag' ? 'tag' : tax.kind, term = termMap.get(kind + ':' + tax.slug); if (term) termIds[kind === 'tag' ? 'tags' : 'categories'].push(term.id); else warnings.push(item.title + '：自定义分类 ' + tax.kind + ' 保存在来源资料中。'); }
-    const cover = items.find((asset) => asset.id === item.meta._thumbnail_id?.[0])?.media ?? '';
+    const cover = itemsById.get(item.meta._thumbnail_id?.[0])?.media ?? '';
     return entrySchema.parse({ id: entryId(item.id), kind: item.type === 'page' ? 'page' : 'content', type: item.type === 'page' ? 'post' : typeIds.get(item.type),
       title: conversion.title, path: paths.get(item.id), author: authors.get(item.creator) ?? item.creator, description: titleText(item.meta._yoast_wpseo_metadesc?.[0] || item.meta.rank_math_description?.[0] || item.excerpt),
       cover: cover ? rewrite(cover) : '', categories: termIds.categories.map((id) => [...termMap.values()].find((term) => term.id === id)!.label), tags: termIds.tags.map((id) => [...termMap.values()].find((term) => term.id === id)!.label), termIds,
@@ -206,8 +218,11 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
       compatibility: { wordpress: { unresolved: conversion.unresolved, reviewed: conversion.unresolved.length === 0 } },
       source: { system: 'wordpress', format: 'wxr', namespace, id: item.id, originalUrl: item.url, originalType: item.type, originalStatus: item.status, originalParent: item.parent, modifiedAt: item.modified, metadata: item.meta, taxonomies: item.taxonomies },
     });
-  });
-  const existingPaths = new Map(site.store.list('entry').filter((row) => !entries.some((entry) => entry.id === row.id)).map((row) => [row.value.path, row.id]));
+  };
+  const entries:Entry[]=workspace?new StagedEntries(workspace):[];
+  for(const item of content){const entry=convertEntry(item);if(entries instanceof StagedEntries)entries.append(entry);else entries.push(entry);}
+  const entryIds=new Set(entries.map(entry=>entry.id));
+  const existingPaths = new Map((site.store.raw.prepare("SELECT id,json_extract(summary,'$.path') path FROM entry_list").all() as {id:string;path:string}[]).filter(row=>!entryIds.has(row.id)).map(row=>[row.path,row.id]));
   for (const entry of entries) { if (existingPaths.has(entry.path)) throw new WeavaError('导入网址重复：' + entry.path, 409, { existingId: existingPaths.get(entry.path), importedId: entry.id }); existingPaths.set(entry.path, entry.id); }
   const attachments = items.filter((item) => item.type === 'attachment' && item.media).map((item) => ({ id: item.id, url: new URL(item.media, origin).href, title: item.title, caption: titleText(item.excerpt), alt: item.meta._wp_attachment_image_alt?.[0] ?? '', name: basename(new URL(item.media, origin).pathname) }));
   const comments = content.flatMap((item) => item.comments.filter((node) => ['comment', ''].includes(text(node, 'wp:comment_type'))).map((node) => ({
@@ -224,10 +239,10 @@ export function convertWordPressWxr(site: Site, xml: string, options: WxrOptions
     }
   }
   const value: SiteExchange = { version: 1, types, entries, terms: [...termMap.values()], redirects, ...(options.settings ? { settings: { ...site.settings().value, name: titleText(text(channel, 'title')) || site.settings().value.name, description: titleText(text(channel, 'description')), language: text(channel, 'language') || site.settings().value.language } } : {}) };
-  const report = { source: origin.href, fingerprint: digest(xml), totalItems: items.length, entries: entries.length, pages: entries.filter((entry) => entry.kind === 'page').length, content: entries.filter((entry) => entry.kind === 'content').length,
+  const report = { source: origin.href, fingerprint, totalItems: items.length, entries: entries.length, pages: entries.filter((entry) => entry.kind === 'page').length, content: entries.filter((entry) => entry.kind === 'content').length,
     types: types.map((type) => ({ id: type.id, label: type.label })), terms: termMap.size, attachments: attachments.map(({ id, url, name }) => ({ id, url, name, local: mediaMap[url] ?? null })),
     comments: options.comments === false ? 0 : comments.length, skipped, conversions, warnings: [...new Set(warnings)], reviewRequired: conversions.filter((row) => row.unresolved.length),
-    review: { fingerprint: digest(xml), revision: revision(site), releaseId: site.store.state('release') ?? null, options: optionKey(options) }, published: false,
+    review: { fingerprint, revision: revision(site), releaseId: site.store.state('release') ?? null, options: optionKey(options) }, published: false,
     notes: ['WXR 包含内容资料，主题、插件程序、菜单位置和服务器配置需要另行设置。', '原始 XML 会保存在站点的 imports 目录。未知来源功能需要检查后才能发布。', ...(options.downloadMedia || options.mediaDirectory ? [] : ['附件保留来源网址；本次不会下载附件。'])] };
   return { value, report, attachments, comments };
 }
@@ -237,10 +252,14 @@ function localAttachment(directory:string,url:URL) {
   if(!pathWithin(directory,path))throw new WeavaError('附件文件超出指定目录，请检查目录链接。');
   const stat=statSync(path);
   if(!stat.isFile()||stat.size>32*1024*1024)throw new WeavaError('附件需要是 32 MB 以内的普通文件。');
-  return readFileSync(path);
+  return path;
 }
-export async function importWordPressWxr(site: Site, xml: string, options: WxrOptions = {}, progress: (message: string) => void = () => {}) {
-  const initial = convertWordPressWxr(site, xml, options);
+export async function importWordPressWxr(site: Site, xml: WxrInput, options: WxrOptions = {}, progress: (message: string) => void = () => {}) {
+  const workspace=new EntryWorkspace(site.root);
+  try{return await importWxr(site,xml,options,progress,workspace);}finally{workspace.close();}
+}
+async function importWxr(site:Site,xml:WxrInput,options:WxrOptions,progress:(message:string)=>void,workspace:EntryWorkspace){
+  const initial = convertWordPressWxr(site, xml, options,{},workspace);
   const checkReview = () => {
     if (options.review && (options.review.fingerprint !== initial.report.fingerprint || options.review.revision !== revision(site) || options.review.releaseId !== (site.store.state('release') ?? null) || options.review.options !== optionKey(options)))
       throw new WeavaError('来源文件、导入选项或站点内容已变化，请重新预检。', 409);
@@ -270,10 +289,11 @@ export async function importWordPressWxr(site: Site, xml: string, options: WxrOp
     prepared.push({ ...row, value: { ...row.value, alt: row.value.alt ?? asset.alt, caption: row.value.caption ?? asset.caption } });
     mediaMap[asset.url] = row.value.url; mediaMap[url.href] = row.value.url; mediaMap[url.pathname] = row.value.url;
   }
-  const converted = convertWordPressWxr(site, xml, options, mediaMap);
+  if(Object.keys(mediaMap).length){initial.value.entries=[];initial.comments.length=0;workspace.reset();}
+  const converted = Object.keys(mediaMap).length ? convertWordPressWxr(site, xml, options, mediaMap,workspace) : initial;
   const archive = join(site.root, 'imports', 'wordpress-wxr', initial.report.fingerprint);
   mkdirSync(archive, { recursive: true });
-  const sourcePath = join(archive, 'source.xml'); if (!existsSync(sourcePath)) writeFileSync(sourcePath, xml);
+  const sourcePath = join(archive, 'source.xml'); if (!existsSync(sourcePath)){if(typeof xml==='string')writeFileSync(sourcePath,xml);else copyFileSync(xml.file,sourcePath);}
   const result = site.store.raw.transaction(() => {
     checkReview();
     const exchange = importSite(site, converted.value, { ...options, dryRun: false });

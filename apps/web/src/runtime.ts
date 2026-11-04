@@ -1,4 +1,4 @@
-import { Site, Analytics, Engagement, atomicJson, now, extension, runSchedulesAsync, JobRunner, TaskResults } from '@weava/core';
+import { Site, Analytics, Engagement, atomicJson, now, extension, queueScheduledPublications, JobRunner, TaskResults } from '@weava/core';
 import { join, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 const root = resolve(
@@ -54,6 +54,6 @@ process.once('SIGINT', shutdown);
 // Wait for extensions to register their renderers before processing overdue plans.
 void siteExtension.then((manager) => {
   let running=false;
-  const tick = async () => { if(running||stopping)return;running=true;try { await runSchedulesAsync(site,(release)=>manager.validateRelease(release)); } catch (error) { console.error('Scheduled publication failed:', error); }finally{running=false;} };
+  const tick = async () => { if(running||stopping)return;running=true;try { queueScheduledPublications(site,jobs); } catch (error) { console.error('Scheduled publication failed:', error); }finally{running=false;} };
   tick(); const timer = setInterval(tick, 5000); timer.unref();
 });

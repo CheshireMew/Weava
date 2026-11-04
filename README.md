@@ -2,12 +2,12 @@
 
 一个以内容为中心的通用建站框架。Astro 提供访客页面，React 提供管理后台，TypeScript 核心负责内容、修订、发布、搜索与维护。
 
-支持博客、官网、作品集、文档和资源目录。文章可以可视化编辑或使用 Markdown；页面使用区块组合。日常内容和设置通过数据库发布，无需重新构建程序。普通前台页面不加载 React 管理后台或 Lexical 编辑器。
+支持博客、官网、作品集、文档和资源目录。文章可以可视化编辑或使用 Markdown；关于本站和友情链接直接在网站设置中填写。日常内容和设置通过数据库发布，无需重新构建程序。普通前台页面不加载 React 管理后台或 Lexical 编辑器。
 
 ## 功能
 
 - 可视化与 Markdown 编辑、媒体和表格编辑、草稿自动保存、历史对比、冲突恢复、预览和定时发布。
-- 实际页面画布、模板、共享区域、区块组合、响应式布局、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。
+- 关于本站、友情链接、内容类型与字段、主题和扩展、中文搜索、SEO、RSS 与站点地图。后台不提供自定义页面搭建器，旧站页面和公开网址继续保留。
 - 公开与私密文章、媒体访问控制、图片派生尺寸、浏览统计与目录备份恢复。
 - Newsletter 主题、可折叠文章目录、点赞、带图片验证码和频率限制的评论、回复关系、站主回复和后台审核。
 - 单站主账户资料、改密、会话撤销、可选两步验证与一次性恢复码，以及停站后的本机恢复命令。
@@ -24,12 +24,14 @@
 git clone https://github.com/CheshireMew/Weava.git
 cd Weava
 powershell -NoProfile -File scripts/setup.ps1
-powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site init --demo --password-file D:\Tools\weava\my-password.txt --port 4322
+powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site init --demo --port 4322
 powershell -NoProfile -File scripts/run.ps1 build
 powershell -NoProfile -File scripts/run.ps1 --site E:\WeavaSites\my-site start
 ```
 
-密码文件需要先由站主准备，内容为至少 10 个字符的密码。程序只保存密码派生值。初始化不会自动发布到互联网。
+首次启动后，终端会显示一个 10 分钟内有效的一次性设置链接。打开链接，自己填写账户名和密码，完成后用新账户正常登录。程序没有通用初始密码，也不会生成一份需要寻找的密码文件。链接过期时可在本机运行 `owner setup-link` 重新生成；已有账户忘记密码时运行 `owner reset-link`，完整命令见[运行与恢复](docs/operations.md)。初始化不会自动发布到互联网。
+
+自动化初始化仍可加上 `--password-file D:\Tools\weava\my-password.txt`，文件由站主准备，密码至少 15 个字符。程序只保存密码派生值，不要把密码直接放进命令参数。
 
 打开 [本地后台](http://127.0.0.1:4322/admin/)，编辑并发布内容后可从 [网站首页](http://127.0.0.1:4322/) 查看。同一个站点只运行一份服务，端口占用时不会替换已有服务。
 

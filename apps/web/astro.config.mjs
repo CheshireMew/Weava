@@ -2,14 +2,18 @@ import { defineConfig } from 'astro/config';
 import node from '@astrojs/node';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
+import { adminDevelopmentPlugin } from './src/admin-development.ts';
 export default defineConfig({
   output: 'server',
   ...(process.env.WEAVA_BUILD_OUTPUT ? { outDir: join(process.env.WEAVA_BUILD_OUTPUT, 'web') } : {}),
   adapter: node({ mode: 'standalone' }),
   server: { port: 4322, host: '127.0.0.1' },
   vite: {
+    plugins: [adminDevelopmentPlugin()],
     resolve: {
       alias: {
+        '@weava/contracts/api-error': fileURLToPath(new URL('../../packages/contracts/src/api-error.ts', import.meta.url)),
+        '@weava/contracts/session-api': fileURLToPath(new URL('../../packages/contracts/src/session-api.ts', import.meta.url)),
         '@weava/contracts/api-client': fileURLToPath(new URL('../../packages/contracts/src/api-client.ts', import.meta.url)),
         '@weava/contracts/api': fileURLToPath(new URL('../../packages/contracts/src/admin-api.ts', import.meta.url)),
         '@weava/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),

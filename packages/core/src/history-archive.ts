@@ -6,13 +6,15 @@ import { WeavaError, type Entry } from '@weava/contracts';
 import { digest, inside, now, uuid, SCHEMA_VERSION, atomicJson } from './storage.ts';
 import { loadRelease, storeRelease } from './publication-store.ts';
 import {referencedLayouts} from './layouts.ts';
+import { digestFile, jsonLines } from './file-io.ts';
+import { indexRevisionMedia } from './media-reference-index.ts';
 
 export interface HistoryRetention { before: string; keepReleases?: number; keepRevisions?: number }
 interface Plan { options: Required<HistoryRetention>; releaseIds: string[]; revisions: number[]; privateMedia: string[]; protectedReleases: number; protectedRevisions: number; review: string }
 function objectKeys(data: string): string[] {
   const manifest = JSON.parse(data);
   if (manifest.storageVersion !== 2) return [];
-  return [...manifest.entryKeys, manifest.settingsKey, manifest.typesKey, manifest.redirectsKey, manifest.termsKey, manifest.layoutsKey].filter(Boolean);
+  return [...manifest.entryKeys, manifest.catalogKey, manifest.settingsKey, manifest.typesKey, manifest.redirectsKey, manifest.termsKey, manifest.layoutsKey].filter(Boolean);
 }
 export function planHistoryArchive(site: Site, input: HistoryRetention): Plan {
   const options = { before: input.before, keepReleases: input.keepReleases ?? 20, keepRevisions: input.keepRevisions ?? 20 };
@@ -36,11 +38,11 @@ export function planHistoryArchive(site: Site, input: HistoryRetention): Plan {
   const state = { options, releaseIds, revisions, current: site.store.state('release'), maxRevision: (site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any).n, releaseCount: releases.length };
   return { options, releaseIds, revisions, privateMedia: [...privateMedia], protectedReleases: releases.length-releaseIds.length, protectedRevisions: protectedRevisions.size, review: digest(state) };
 }
-const readLines = (path: string): any[] => readFileSync(path,'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+const readLines = jsonLines;
 function writeRows(path: string, rows: Iterable<unknown>) {
   const handle = openSync(path,'wx'); let count = 0;
   try { for (const row of rows) { writeSync(handle,JSON.stringify(row)+'\n'); count++; } } finally { closeSync(handle); }
-  return { count, hash: digest(readFileSync(path)) };
+  return { count, hash: digestFile(path) };
 }
 export function historyArchives(site: Site) { return site.store.list('history-archive').map((row) => ({id:row.id,...row.value,revision:row.revision})); }
 export function verifyHistoryArchive(site: Site, id: string) {
@@ -50,17 +52,17 @@ export function verifyHistoryArchive(site: Site, id: string) {
   if (digest(bytes) !== row.value.manifestHash) throw new WeavaError('归档清单校验失败。');
   const manifest = JSON.parse(bytes.toString('utf8'));
   if (manifest.version !== 1 || manifest.schemaVersion > SCHEMA_VERSION) throw new WeavaError('归档格式与当前程序不兼容。');
-  for (const file of manifest.files) if (digest(readFileSync(inside(folder,file.name))) !== file.hash) throw new WeavaError('归档校验失败：'+file.name);
+  for (const file of manifest.files) if (digestFile(inside(folder,file.name)) !== file.hash) throw new WeavaError('归档校验失败：'+file.name);
   return {folder,manifest};
 }
 export async function archiveHistory(site: Site, options: HistoryRetention, review: string) {
   const plan = planHistoryArchive(site,options); if (plan.review !== review) throw new WeavaError('历史或工作稿已经变化，请重新预检归档。',409);
   if (!plan.releaseIds.length && !plan.revisions.length) return { archived:false,releases:0,revisions:0 };
   const id = uuid(), folder = join(site.root,'archives','history',id); mkdirSync(folder,{recursive:true});
-  const keys = new Set<string>(), releases: any[] = [], revisions: any[] = [];
+  const keys = new Set<string>();
   const getRelease = site.store.raw.prepare('SELECT id,data,created_at FROM releases WHERE id=?'), getRevision = site.store.raw.prepare('SELECT revision,scope,id,data,created_at,label FROM revisions WHERE revision=?');
-  for (const id of plan.releaseIds) { const row = getRelease.get(id) as any; releases.push(row); objectKeys(row.data).forEach((key) => keys.add(key)); }
-  for (const revision of plan.revisions) revisions.push(getRevision.get(revision));
+  const releases=(function*(){for(const id of plan.releaseIds){const row=getRelease.get(id) as any;objectKeys(row.data).forEach(key=>keys.add(key));yield row;}})();
+  const revisions=(function*(){for(const revision of plan.revisions)yield getRevision.get(revision);})();
   const getObject = site.store.raw.prepare('SELECT key,kind,data FROM publication_objects WHERE key=?');
   const files = [
     ['releases.jsonl',releases],['revisions.jsonl',revisions],['objects.jsonl',(function*(){for(const key of keys) yield getObject.get(key);})()],
@@ -68,7 +70,7 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
   const manifests = files.map(([name,rows]) => ({name,...writeRows(join(folder,name),rows)}));
   const manifest = {version:1,schemaVersion:SCHEMA_VERSION,id,createdAt:now(),options:plan.options,files:manifests,review};
   atomicJson(join(folder,'manifest.json'),manifest);
-  for (const file of manifests) if (digest(readFileSync(join(folder,file.name))) !== file.hash) throw new WeavaError('归档写入校验失败。');
+  for (const file of manifests) if (digestFile(join(folder,file.name)) !== file.hash) throw new WeavaError('归档写入校验失败。');
   site.store.raw.transaction(() => {
     if (planHistoryArchive(site,options).review !== review) throw new WeavaError('历史或工作稿已经变化，已准备的归档继续保留，请重新预检。',409);
     const removeMember = site.store.raw.prepare('DELETE FROM publication_members WHERE release_id=?'), removeRelease = site.store.raw.prepare('DELETE FROM releases WHERE id=?'), removeRevision = site.store.raw.prepare('DELETE FROM revisions WHERE revision=?');
@@ -78,13 +80,13 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
     const removeObject = site.store.raw.prepare('DELETE FROM publication_objects WHERE key=?');
     for (const row of site.store.raw.prepare('SELECT key FROM publication_objects').all() as {key:string}[]) if (!used.has(row.key)) removeObject.run(row.key);
     site.store.raw.exec('DELETE FROM publication_fts WHERE object_key NOT IN (SELECT object_key FROM publication_members);DELETE FROM publication_search_keys WHERE key NOT IN (SELECT object_key FROM publication_members)');
-    site.store.put('history-archive',id,{createdAt:manifest.createdAt,releases:releases.length,revisions:revisions.length,path:folder,manifestHash:digest(readFileSync(join(folder,'manifest.json'))),privateMedia:plan.privateMedia},null,'归档历史');
+    site.store.put('history-archive',id,{createdAt:manifest.createdAt,releases:plan.releaseIds.length,revisions:plan.revisions.length,path:folder,manifestHash:digestFile(join(folder,'manifest.json')),privateMedia:plan.privateMedia},null,'归档历史');
   }).immediate();
-  return {archived:true,id,path:folder,releases:releases.length,revisions:revisions.length};
+  return {archived:true,id,path:folder,releases:plan.releaseIds.length,revisions:plan.revisions.length};
 }
 export function historyArchiveContents(site: Site,id: string) {
   const {folder} = verifyHistoryArchive(site,id);
-  return {id,releases:readLines(join(folder,'releases.jsonl')).map((row) => ({id:row.id,createdAt:row.created_at})),revisions:readLines(join(folder,'revisions.jsonl')).map((row) => ({revision:row.revision,id:row.id,scope:row.scope,createdAt:row.created_at,label:row.label}))};
+  return {id,releases:Array.from(readLines(join(folder,'releases.jsonl')),row=>({id:row.id,createdAt:row.created_at})),revisions:Array.from(readLines(join(folder,'revisions.jsonl')),row=>({revision:row.revision,id:row.id,scope:row.scope,createdAt:row.created_at,label:row.label}))};
 }
 export function restoreHistoryArchive(site: Site,id: string) {
   const {folder} = verifyHistoryArchive(site,id), releases = readLines(join(folder,'releases.jsonl')), revisions = readLines(join(folder,'revisions.jsonl')), objects = readLines(join(folder,'objects.jsonl'));
@@ -95,7 +97,7 @@ export function restoreHistoryArchive(site: Site,id: string) {
     for (const row of revisions) {
       const current = db.prepare('SELECT scope,id,data,created_at,label FROM revisions WHERE revision=?').get(row.revision) as any;
       if (current) { if (current.scope !== row.scope || current.id !== row.id || current.data !== row.data || current.created_at !== row.created_at || current.label !== row.label) throw new WeavaError('归档修订与当前修订冲突。',409); continue; }
-      db.prepare('INSERT INTO revisions(revision,scope,id,data,created_at,label) VALUES(?,?,?,?,?,?)').run(row.revision,row.scope,row.id,row.data,row.created_at,row.label); restoredRevisions++;
+      db.prepare('INSERT INTO revisions(revision,scope,id,data,created_at,label) VALUES(?,?,?,?,?,?)').run(row.revision,row.scope,row.id,row.data,row.created_at,row.label);if(row.scope==='entry')indexRevisionMedia(db,row.revision,JSON.parse(row.data)); restoredRevisions++;
     }
     for (const row of releases) {
       const current = db.prepare('SELECT data FROM releases WHERE id=?').get(row.id) as any;

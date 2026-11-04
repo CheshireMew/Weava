@@ -54,13 +54,13 @@ export function AnalyticsReportView({
         </article>
       </div>
       <div className="analytics-dashboard">
-        <AnalyticsSidebar model={view} />
-        <main className="analytics-main">
+        <section className="analytics-main" aria-label="统计报表">
           <AnalyticsTrends model={view} />
           <AnalyticsAudience model={view} />
           <AnalyticsGeography model={view} />
           <AnalyticsActions model={view} />
-        </main>
+        </section>
+        <AnalyticsSidebar model={view} />
       </div>
     </div>
   );

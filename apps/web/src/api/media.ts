@@ -11,6 +11,7 @@ import { mediaGroups, saveMediaGroup, moveMedia } from '@weava/core';
 import { imagePresets, saveImagePreset } from '@weava/core';
 
 import type { ApiServices, AdminHandlers } from './types.ts';
+import { beginMediaUpload,receiveMediaChunk,mediaUploadStatus,finishMediaUpload } from '../../../../packages/core/src/media-upload.ts';
 export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const { site, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
@@ -21,12 +22,16 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     },
     uploadMedia: async ({ body: data }, context) => {
       const { request } = context;
+      if('uploadId' in data)return finishMediaUpload(site,jobs,data.uploadId);
       return await execute(
         'media',
         stageMedia(site, Buffer.from(data.base64, 'base64'), String(data.name ?? '')),
         request.headers.get('Idempotency-Key') ?? undefined,
       );
     },
+    beginUpload:async({body},context)=>beginMediaUpload(site,body.name,body.size,context.request.headers.get('Idempotency-Key')??undefined),
+    uploadStatus:async({params})=>mediaUploadStatus(site,params.id),
+    uploadChunk:async({params,query},context)=>receiveMediaChunk(site,params.id,query.offset,context.request),
     mediaQuery: async ({}, context) => {
       const { url } = context;
       return queryMedia(site, url.searchParams);
@@ -36,7 +41,7 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     },
     mediaReferences: async ({}, context) => {
       const { url } = context;
-      return mediaReferences(site, url.searchParams.get('id') ?? '');
+      return jobs.query('media-references',{id:url.searchParams.get('id')??''});
     },
     archiveMedia: async ({ body: data }) => {
       return archiveMedia(site, data.items, !!data.archived);
@@ -78,6 +83,9 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     AdminHandlers,
     | 'media'
     | 'uploadMedia'
+    | 'beginUpload'
+    | 'uploadStatus'
+    | 'uploadChunk'
     | 'mediaQuery'
     | 'mediaInfo'
     | 'mediaReferences'

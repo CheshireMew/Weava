@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from 'playwright';
 import { strict as assert } from 'node:assert';
 import { join } from 'node:path';
 import { entrySchema } from '@weava/contracts';
+import { readBrowserDrafts } from './check-writing-recovery.ts';
 
 export async function checkEditing({ origin, api, page, context, output }: { origin: string; api: (action: string, value?: any) => Promise<any>; page: Page; context: BrowserContext; output: string }) {
   const evidence: Record<string, any> = {};
@@ -78,7 +79,7 @@ export async function checkEditing({ origin, api, page, context, output }: { ori
   await api('entry', { value: { ...base.value, title: '另一个窗口的标题' }, revision: base.revision });
   await page.getByLabel('内容标题').fill('保留本地标题'); await page.getByLabel('内容摘要').fill('本地窗口的摘要');
   await page.getByRole('dialog', { name: '解决保存冲突', exact: true }).waitFor();
-  assert(await page.evaluate(() => !!JSON.parse(localStorage.getItem('weava-drafts:v2') || '{"entries":{}}').entries.writer?.length));
+  assert.equal((await readBrowserDrafts(page, 'writer')).length, 1);
   await page.screenshot({ path: join(output, 'edit-conflict.png'), fullPage: true });
   // Reopen the browser's preserved draft after reloading, then resolve it against the current server version.
   await page.reload(); await openWriter('另一个窗口的标题');

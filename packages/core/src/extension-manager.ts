@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { existsSync, readFileSync, mkdirSync } from 'node:fs';
-import { z } from 'zod';
+import * as z from 'zod';
 import { fieldWidgetSchema, blockTypes, typeSchema, WeavaError, VERSION, validateBlockProps, type Block, type Entry, type Release } from '@weava/contracts';
 import type { Extension } from './extensions.ts';
 import type { Site } from './site.ts';

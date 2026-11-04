@@ -2,11 +2,10 @@ import { WeavaError, referenceMatches, fieldSchema, type FieldDefinition, type C
 import type { Site } from './site.ts';
 import { wordpressArchivePage, wordpressPagePath } from './wordpress-archives.ts';
 import type { Entry } from '@weava/contracts';
+import { queryPublicCatalog } from './public-query.ts';
 export function queryPublished(site: Site, input: ContentQuery = {}, search = false, releaseId?: string) {
-  const release = site.visibleRelease(false, releaseId), entries = release?.entries ?? [];
-  const hits = search && input.query?.trim() ? new Set(site.search(input.query, releaseId).map((item) => item.id)) : null;
-  return queryEntries(hits ? entries.filter((entry) => hits.has(entry.id)) : entries,
-    { ...input, ...(search ? { query: undefined } : { kind: input.kind ?? 'content' }) }, release?.types ?? [], release?.terms ?? []);
+  const release=site.visibleRelease(false,releaseId);
+  return release?queryPublicCatalog(site.store.raw,release,input,search):paginate([],input.page??1,input.pageSize??24);
 }
 export function queryDrafts(site: Site, input: ContentQuery & { status?: string; visibility?: string } = {}) {
   const page=input.page??1,pageSize=input.pageSize??24;paginate([],page,pageSize);

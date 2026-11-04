@@ -25,11 +25,11 @@ export function useContentLibrary(state: any, tab: string, setError: (message: s
     setFieldFilters({});
   }, [tab]);
   useEffect(() => {
-    if (!state || !['content', 'pages'].includes(tab)) return;
+    if (!state || tab !== 'content') return;
     let active = true;
     setLibraryLoading(true);
     const params = new URLSearchParams({
-      kind: tab === 'pages' ? 'page' : 'content',
+      kind: 'content',
       q: searchTerm,
       status,
       visibility,
@@ -39,7 +39,7 @@ export function useContentLibrary(state: any, tab: string, setError: (message: s
       sort:
         librarySort ||
         state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort ||
-        'title',
+        '-updatedAt',
       ...Object.fromEntries(
         Object.entries(fieldFilters)
           .filter(([, value]) => value !== '')
@@ -60,7 +60,7 @@ export function useContentLibrary(state: any, tab: string, setError: (message: s
       active = false;
     };
   }, [
-    state,
+    state?.types,
     tab,
     searchTerm,
     status,

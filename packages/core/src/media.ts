@@ -9,6 +9,16 @@ import { mediaGroupSchema, WeavaError } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { load } from 'cheerio';
 import { paginate } from './query.ts';
+import { copyFile } from 'node:fs/promises';
+import { openSync,closeSync,readSync } from 'node:fs';
+import { digestFile } from './file-io.ts';
+import { updateRevisionReferences } from './media-reference-index.ts';
+import { BoundedCache } from './cache.ts';
+const imageCaches=new WeakMap<object,{stamp:string;attributes:BoundedCache<string,any>;html:BoundedCache<string,string>}>();
+function imageCache(site:Site){
+  const stamp=site.store.state('media-version')??'0';let cache=imageCaches.get(site.store);
+  if(!cache||cache.stamp!==stamp){cache={stamp,attributes:new BoundedCache(2048,2*1024*1024),html:new BoundedCache(128,8*1024*1024)};imageCaches.set(site.store,cache);}return cache;
+}
 import { layouts, referencedLayouts } from './layouts.ts';
 export function mediaKind(url: string): 'image' | 'video' | 'audio' | 'file' {
   return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(url) ? 'image' : /\.(mp4|webm)$/i.test(url) ? 'video' : /\.mp3$/i.test(url) ? 'audio' : 'file';
@@ -71,17 +81,24 @@ export function mediaReferences(site: Site, id: string) {
   const media = site.store.get('media', id);
   if (!media) throw new WeavaError('媒体不存在。', 404);
   const urls = new Set([media.value.url, ...(media.value.derivatives ?? []).map((item: any) => item.url)].map(mediaIdentity));
-  const uses = (value: unknown) => [...mediaReferencesIn(value)].some((url) => urls.has(url));
-  const working = { settings: site.settings().value, types: site.store.list('type').map((row) => row.value), layouts: layouts(site).map((row) => row.value) };
-  const release = site.release();
-  const content = (entry: any) => [entry.cover, entry.fields, entry.blocks, entry.blocks?.length ? null : entry.document];
+  const paths=[...urls],marks=paths.map(()=>'?').join(','),db=site.store.raw;
+  db.transaction(()=>updateRevisionReferences(db))();
+  const affected=`WITH RECURSIVE affected(id) AS (
+    SELECT id FROM authored_media_refs WHERE scope='layout' AND path IN (${marks})
+    UNION SELECT edge.id FROM authored_layout_edges edge JOIN affected a ON a.id=edge.target WHERE edge.scope='layout'
+    UNION SELECT '@type:'||r.id FROM records r JOIN affected a ON a.id=COALESCE(json_extract(r.data,'$.template'),'article') WHERE r.scope='type'
+  ) `;
+  const global=!!db.prepare(affected+"SELECT 1 FROM authored_layout_edges WHERE scope='settings' AND target IN affected LIMIT 1").get(...paths);
+  const working=db.prepare(affected+`SELECT l.id,json_extract(l.summary,'$.title') title,json_extract(l.summary,'$.path') path FROM entry_list l WHERE ? OR l.id IN (SELECT id FROM authored_media_refs WHERE scope='entry' AND path IN (${marks})) OR l.id IN (SELECT id FROM authored_layout_edges WHERE scope='entry' AND target IN affected) ORDER BY l.id`).all(...paths,global?1:0,...paths) as {id:string;title:string;path:string}[];
+  const releaseId=site.store.state('release');
+  const publishedIds=releaseId?(db.prepare(`SELECT DISTINCT entry_id FROM publication_entry_media WHERE release_id=? AND path IN (${marks})`).all(releaseId,...paths) as {entry_id:string}[]):[];
+  const published=publishedIds.length?new Set(publishedIds.map(row=>row.entry_id)):null;
   return {
-    working: site.store.list('entry').filter((row) => uses([content(row.value), referencedLayouts(row.value, working)])).map((row) => ({ id: row.id, title: row.value.title, path: row.value.path })),
-    published: (release?.entries ?? []).filter((entry) => uses([content(entry), referencedLayouts(entry, release!)])).map(({ id, title, path }) => ({ id, title, path })),
-    layouts: site.store.list('layout').filter((row) => uses(row.value)).map((row) => ({ id: row.id, label: row.value.label })),
-    settings: uses(working.settings),
-    historicalRevisions: (site.store.raw.prepare("SELECT data FROM revisions WHERE scope='entry'").all() as {data:string}[])
-      .filter(row => [...entryMediaReferences(JSON.parse(row.data))].some(path => urls.has(path))).length,
+    working,
+    published:published?(site.release()?.entries??[]).filter(entry=>published.has(entry.id)).map(({id,title,path})=>({id,title,path})):[],
+    layouts:db.prepare(`SELECT r.id,json_extract(r.data,'$.label') label FROM records r WHERE r.scope='layout' AND r.id IN (SELECT id FROM authored_media_refs WHERE scope='layout' AND path IN (${marks})) ORDER BY r.id`).all(...paths) as {id:string;label:string}[],
+    settings:!!db.prepare(`SELECT 1 FROM authored_media_refs WHERE scope='settings' AND path IN (${marks}) LIMIT 1`).get(...paths),
+    historicalRevisions:(db.prepare(`SELECT COUNT(DISTINCT revision) n FROM revision_media_refs WHERE path IN (${marks})`).get(...paths) as {n:number}).n,
   };
 }
 export interface ImageCrop { left: number; top: number; width: number; height: number }
@@ -106,6 +123,7 @@ export async function cropMedia(site: Site, id: string, revision: number, crop: 
   return site.store.put('media', saved.id, { ...saved.value, alt: original.value.alt ?? '', caption: original.value.caption ?? '', parentId: original.id, crop }, saved.revision, '裁切副本');
 }
 export function imageAttributes(site: Site, src: string) {
+  const cache=imageCache(site),old=cache.attributes.get(src);if(old)return {...old};
   const id = /^\/media\/([a-f0-9]{24})\.[a-z]+$/i.exec(src)?.[1];
   const record = id ? site.store.get('media', id)?.value : null;
   if (!Array.isArray(record?.derivatives) || !record.derivatives.length) return { src };
@@ -113,16 +131,18 @@ export function imageAttributes(site: Site, src: string) {
     .filter((d: any) => d.url && d.width)
     .sort((a: any, b: any) => a.width - b.width);
   if (!variants.length) return { src };
-  return {
+  const result={
     src: (variants.find((v: any) => v.width >= 960) ?? variants.at(-1)).url,
     srcset: variants.map((v: any) => `${v.url} ${v.width}w`).join(', '),
     sizes: '(max-width: 720px) 100vw, 960px',
     width: record.width,
     height: record.height,
   };
+  cache.attributes.set(src,result,JSON.stringify(result).length*2);return {...result};
 }
 export function responsiveImages(site: Site, html: string) {
   if (!html.includes('/media/')) return html;
+  const cache=imageCache(site),key=digest(html),old=cache.html.get(key);if(old!==undefined)return old;
   const $ = load(html, null, false);
   $('img[src]').each((_i, el) => {
     const node = $(el);
@@ -130,7 +150,7 @@ export function responsiveImages(site: Site, html: string) {
       for (const [key, value] of Object.entries(imageAttributes(site, node.attr('src')!)))
         if (value !== undefined) node.attr(key, String(value));
   });
-  return $.html();
+  const result=$.html();return cache.html.set(key,result,result.length*2);
 }
 import { validateMediaFormat } from './media-format.ts';
 export function stageMedia(site: Site, data: Buffer, name: string) {
@@ -161,11 +181,20 @@ export function stageMedia(site: Site, data: Buffer, name: string) {
   if (!existsSync(path)) writeFileSync(path, data);
   return { path, name };
 }
-export async function prepareMedia(site: Site, data: Buffer, name: string) {
-  if (!data.length || data.length > 32 * 1024 * 1024)
+export function validateMediaFile(file:string,name:string){
+  const size=statSync(file).size;if(!size||size>32*1024*1024)throw new WeavaError('附件大小需要在 32 MB 以内。');
+  const fd=openSync(file,'r'),buffer=Buffer.allocUnsafe(65536),ext=extname(name).toLowerCase();
+  try{let first=true;for(;;){const count=readSync(fd,buffer,0,buffer.length,null);if(!count)break;
+    if(first||['.txt','.csv','.srt','.vtt'].includes(ext))validateMediaFormat(buffer.subarray(0,count),ext);
+    if(!['.txt','.csv','.srt','.vtt'].includes(ext))break;first=false;
+  }}finally{closeSync(fd);}return size;
+}
+export async function prepareMedia(site: Site, data: Buffer|string, name: string) {
+  const size=typeof data==='string'?validateMediaFile(data,name):data.length;
+  if (!size || size > 32 * 1024 * 1024)
     throw new WeavaError('附件大小需要在 32 MB 以内。');
-  validateMediaFormat(data,extname(name).toLowerCase());
-  const hash = digest(data),
+  if(typeof data!=='string')validateMediaFormat(data,extname(name).toLowerCase());
+  const hash = typeof data==='string'?digestFile(data):digest(data),
     id = hash.slice(0, 24);
   const existing = site.store.get('media', id);
   if (existing && [existing.value.url, ...(existing.value.derivatives ?? []).map((item: any) => item.url)].every((url) => existsSync(inside(site.root, url.slice(1))))) return existing;
@@ -182,7 +211,7 @@ export async function prepareMedia(site: Site, data: Buffer, name: string) {
   const file = existing?.value.url?.slice('/media/'.length) ?? id + ext,
     dir = join(site.root, 'media');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, file), data);
+  if(typeof data==='string'){if(data!==join(dir,file))await copyFile(data,join(dir,file));}else writeFileSync(join(dir, file), data);
   const derivatives: any[] = [];
   if (image) {
     const optimized = join(dir, 'optimized');
@@ -208,7 +237,7 @@ export async function prepareMedia(site: Site, data: Buffer, name: string) {
       id,
       name,
       url: '/media/' + file,
-      bytes: data.length,
+      bytes: size,
       hash,
       width: metadata.width,
       height: metadata.height,
@@ -218,7 +247,7 @@ export async function prepareMedia(site: Site, data: Buffer, name: string) {
     },
   };
 }
-export async function uploadMedia(site: Site, data: Buffer, name: string) {
+export async function uploadMedia(site: Site, data: Buffer|string, name: string) {
   const prepared = await prepareMedia(site, data, name);
   const existing = site.store.get('media', prepared.id);
   return site.store.put('media', prepared.id, prepared.value, existing?.revision ?? null, '上传');

@@ -1,7 +1,7 @@
 import { z, publicationPlanInputSchema, WeavaError, type PublishOptions, type Release } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { now } from './storage.ts';
-import { preparePublication } from './publication.ts';
+import { preparePublication, readPublicationCandidate, commitPublication, assertPublicationCurrent, savePublicationReview } from './publication.ts';
 const definition = publicationPlanInputSchema;
 export const publicationPlans = (site: Site) => site.store.list('publication-plan');
 export function planOptions(site: Site, plan: z.infer<typeof definition>): PublishOptions {
@@ -17,10 +17,12 @@ export function planOptions(site: Site, plan: z.infer<typeof definition>): Publi
 export function savePublicationPlan(site: Site, input: unknown, revision: number | null, clock = Date.now()) {
   const plan = definition.parse(input);
   if (plan.dueAt && (!Number.isFinite(Date.parse(plan.dueAt)) || Date.parse(plan.dueAt) <= clock)) throw new WeavaError('计划执行时间需要晚于当前时间。');
+  const prepared=preparePublication(site,planOptions(site,plan));
   return site.store.raw.transaction(() => {
+    assertPublicationCurrent(site,prepared);
     const current = site.store.get('publication-plan', plan.id);
     if (current && !['draft', 'scheduled', 'failed'].includes(current.value.status)) throw new WeavaError('这个计划已完成或取消，请新建计划。');
-    const review = site.previewPublication(planOptions(site, plan));
+    const review = prepared.changes;
     const actions = plan.actions.map((action) => ({ ...action, title: [...review.entries, ...review.removed].find((entry) => entry.id === action.id)?.title ?? site.release()?.entries.find((entry) => entry.id === action.id)?.title ?? action.id }));
     return site.store.put('publication-plan', plan.id, { ...plan, actions, status: plan.dueAt ? 'scheduled' : 'draft', attempts: current?.value.attempts ?? 0, createdAt: current?.value.createdAt ?? now() }, revision, '保存发布计划');
   }).immediate();
@@ -31,21 +33,27 @@ export function reviewPublicationPlan(site: Site, id: string, revision: number) 
   return { plan: row, review: site.previewPublication(planOptions(site, row.value)) };
 }
 export async function runPublicationPlan(site: Site, id: string, revision: number, validate: (release: Release) => Promise<void>, options?: PublishOptions, jobId?: string) {
-  const checked = reviewPublicationPlan(site, id, revision);
-  if (options && (options.baseReleaseId !== checked.review.options.baseReleaseId || options.reviewRevision !== checked.review.options.reviewRevision)) throw new WeavaError('计划预检已变化，请重新检查。', 409);
+  const row=site.store.get('publication-plan',id);
+  if(!row||row.revision!==revision||!['draft','scheduled','failed'].includes(row.value.status))throw new WeavaError('计划已变化，请重新载入。',409);
+  const expected=planOptions(site,row.value);
+  if(options){
+    if(options.baseReleaseId!==(site.store.state('release')??null)||options.reviewRevision!==(site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as {n:number|null}).n)throw new WeavaError('计划预检已变化，请重新检查。',409);
+    const canonical=(value:any):any=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])):value;
+    for(const key of ['scope','ids','versions','withdrawIds','withdrawRevisions','label'] as const)if(JSON.stringify(canonical(options[key]))!==JSON.stringify(canonical(expected[key])))throw new WeavaError('计划预检已变化，请重新检查。',409);
+  }
   try {
-    const candidate = preparePublication(site, checked.review.options).release;
-    await validate(candidate);
-    return site.store.raw.transaction(() => {
+    const prepared=options?readPublicationCandidate(site,options):preparePublication(site,expected);
+    await validate(prepared.release);
+    const release=commitPublication(site,prepared,{...options,jobId},release=>{
+      site.store.put('publication-plan',id,{...row.value,status:'complete',attempts:row.value.attempts+1,releaseId:release.id,completedAt:now(),error:undefined},revision,'发布计划完成');
+    },()=>{
       const current = site.store.get('publication-plan', id);
       if (current?.revision !== revision) throw new WeavaError('计划已变化，请重新检查。', 409);
-      const release = site.publish({ ...checked.review.options, jobId });
-      site.store.put('publication-plan', id, { ...current.value, status: 'complete', attempts: current.value.attempts + 1, releaseId: release.id, completedAt: now(), error: undefined }, current.revision, '发布计划完成');
-      return { releaseId: release.id, entries: release.entries.length };
-    }).immediate();
+    });
+    return {releaseId:release.id,entries:release.entries.length};
   } catch (error: any) {
     const current = site.store.get('publication-plan', id);
-    if (current?.revision === revision) site.store.put('publication-plan', id, { ...current.value, status: 'failed', attempts: current.value.attempts + 1, error: error.message }, revision, '发布计划失败');
+    if (error.status!==409&&current?.revision === revision) site.store.put('publication-plan', id, { ...current.value, status: 'failed', attempts: current.value.attempts + 1, error: error.message }, revision, '发布计划失败');
     throw error;
   }
 }

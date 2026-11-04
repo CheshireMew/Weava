@@ -21,7 +21,7 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();vi.useRealTimers();});
 async function renderAccount(){await act(async()=>root.render(<AccountPanel setError={setError} notify={notify} sessionGeneration={0}/>));}
-function input(label:string){const found=[...host.querySelectorAll('label')].find(node=>node.textContent?.startsWith(label));expect(found,label).toBeDefined();return found!.querySelector('input')!;}
+function input(label:string){const found=[...host.querySelectorAll('label')].find(node=>node.textContent?.startsWith(label));expect(found,label).toBeDefined();return found!.control as HTMLInputElement;}
 async function fill(label:string,value:string){await act(async()=>{const field=input(label);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(field,value);field.dispatchEvent(new Event('input',{bubbles:true}));});}
 function button(text:string){const found=[...host.querySelectorAll('button')].find(node=>node.textContent===text);expect(found,text).toBeDefined();return found!;}
 async function click(text:string){await act(async()=>button(text).click());}

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 import { safeContentUrl } from './urls.ts';
 
 export interface BlockControl {

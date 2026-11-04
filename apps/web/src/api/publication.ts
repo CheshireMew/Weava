@@ -19,9 +19,7 @@ export function publicationHandlers(
     jobs.enqueue(operation, payload, key);
   return {
     publication: async ({ body: data }) => {
-      const review = site.previewPublication(data ?? {});
-      await (await siteExtension).validateRelease(preparePublication(site, review.options).release);
-      return review;
+      return jobs.query('publication-review',data??{});
     },
     publish: async ({ body: data }, context) => {
       const { request } = context;
@@ -32,10 +30,7 @@ export function publicationHandlers(
       );
     },
     withdraw: async ({ body: data }) => {
-      const options = site.withdrawalOptions(data.id, data.revision);
-      if (options)
-        await (await siteExtension).validateRelease(preparePublication(site, options).release);
-      return site.withdraw(data.id, data.revision, !!data.archive, options);
+      return jobs.query('withdraw',data);
     },
     rollback: async ({ body: data }) => {
       return site.rollback(data.id);
@@ -45,7 +40,7 @@ export function publicationHandlers(
       return schedules(site, url.searchParams.get('entryId') ?? undefined);
     },
     schedule: async ({ body: data }) => {
-      return schedulePublication(site, data.id, data.revision, data.dueAt);
+      return jobs.query('schedule-create',data);
     },
     cancelSchedule: async ({ body: data }) => {
       return cancelSchedule(site, data.id, data.revision);
@@ -57,7 +52,7 @@ export function publicationHandlers(
       return publicationPlans(site);
     },
     savePlan: async ({ body: data }) => {
-      return savePublicationPlan(site, data.value, data.revision ?? null);
+      return jobs.query('plan-save',data);
     },
     planEntry: async ({}, context) => {
       const { url } = context;
@@ -72,16 +67,13 @@ export function publicationHandlers(
       };
     },
     previewPlan: async ({ body: data }) => {
-      const checked = reviewPublicationPlan(site, data.id, data.revision);
-      await (
-        await siteExtension
-      ).validateRelease(preparePublication(site, checked.review.options).release);
-      return checked;
+      return jobs.query('publication-plan-review',data);
     },
     runPlan: async ({ body: data }, context) => {
       const { request } = context;
       if (!data.options) throw new DomainError('请先检查发布计划。');
-      reviewPublicationPlan(site, data.id, data.revision);
+      const plan=site.store.get('publication-plan',data.id);
+      if(!plan||plan.revision!==data.revision||!['draft','scheduled','failed'].includes(plan.value.status))throw new DomainError('计划已变化，请重新载入。',409);
       return await execute(
         'publish',
         { planId: data.id, planRevision: data.revision, options: data.options },

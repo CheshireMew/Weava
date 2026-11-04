@@ -5,6 +5,9 @@ import type { Document, FieldDefinition } from '@weava/contracts';
 import { fieldIssues, WeavaError } from '@weava/contracts';
 import { createHash } from 'node:crypto';
 import { renderCode } from './code-blocks.ts';
+import { BoundedCache } from './cache.ts';
+const documentCache=new BoundedCache<string,string>(256,16*1024*1024);
+const outlineCache=new BoundedCache<string,{html:string;items:{id:string;title:string;level:number}[]}>(256,16*1024*1024);
 export const escape = (v: any) =>
   String(v ?? '').replace(
     /[&<>"']/g,
@@ -116,6 +119,7 @@ function lexicalNode(n: any): string {
   }
 }
 export function renderDocument(document: Document): string {
+  const key=createHash('sha256').update(JSON.stringify(document)).digest('hex'),cached=documentCache.get(key);if(cached!==undefined)return cached;
   const html = sanitize(
     document.format === 'markdown'
       ? md.render(document.source)
@@ -134,7 +138,7 @@ export function renderDocument(document: Document): string {
     counts.set(stem, n);
     h.attr('id', stem + (n > 1 ? '-' + n : ''));
   });
-  return $.html();
+  const result=$.html();return documentCache.set(key,result,result.length*2);
 }
 export function plain(html: string) {
   return load('<main>' + html + '</main>')('main')
@@ -143,6 +147,8 @@ export function plain(html: string) {
     .trim();
 }
 export function articleOutline(html: string) {
+  const key=createHash('sha256').update(html).digest('hex'),cached=outlineCache.get(key);
+  if(cached)return {html:cached.html,items:cached.items.map(item=>({...item}))};
   const $ = load(html, null, false);
   const seen = new Set<string>($('[id]').filter((_index, element) => !/^h[234]$/.test(element.tagName) || !$(element).text().trim()).map((_index, element) => $(element).attr('id')!).get());
   const items: { id: string; title: string; level: number }[] = [];
@@ -155,7 +161,8 @@ export function articleOutline(html: string) {
     seen.add(id); node.attr('id', id);
     items.push({ id, title, level: Number(element.tagName.slice(1)) });
   });
-  return { html: $.html(), items };
+  const result={html:$.html(),items};outlineCache.set(key,result,JSON.stringify(result).length*2);
+  return {html:result.html,items:items.map(item=>({...item}))};
 }
 export function tokens(text: string) {
   const lower = text.normalize('NFKC').toLowerCase();

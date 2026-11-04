@@ -35,6 +35,8 @@ const shared = {
   packages: 'external' as const,
   target: 'node24',
   alias: {
+    '@weava/contracts/api-error': join(root, 'packages/contracts/src/api-error.ts'),
+    '@weava/contracts/session-api': join(root, 'packages/contracts/src/session-api.ts'),
     '@weava/contracts/api-client': join(root, 'packages/contracts/src/api-client.ts'),
     '@weava/contracts/api': join(root, 'packages/contracts/src/admin-api.ts'),
     '@weava/core': join(root, 'packages/core/src/index.ts'),
@@ -46,6 +48,7 @@ await build({
   entryPoints: [join(root, 'packages/core/src/worker.ts')],
   outfile: join(runtimeOutput, 'worker.mjs'),
 });
+await build({...shared,entryPoints:[join(root,'packages/core/src/query-worker.ts')],outdir:runtimeOutput,splitting:true,outExtension:{'.js':'.mjs'}});
 await build({
   ...shared,
   entryPoints: [join(root, 'packages/cli/src/index.ts')],

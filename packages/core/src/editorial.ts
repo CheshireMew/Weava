@@ -1,6 +1,7 @@
 import { WeavaError, type Block, type Entry, type PublishedEntry, type Release } from '@weava/contracts';
 import { escape as e, plain, renderDocument } from './documents.ts';
 import { selectEntries } from './query.ts';
+import { releaseIndex, entryLabels, newestFirst } from './release-index.ts';
 const summaryText = (html: string) => plain(html.replace(/<button\b[^>]*\bdata-copy-code\b[^>]*>.*?<\/button>/gs, ''));
 
 export function entrySummary(entry: Entry, html?: string, renderPrefix?: (blocks: Block[]) => string) {
@@ -35,18 +36,31 @@ export function entrySummary(entry: Entry, html?: string, renderPrefix?: (blocks
   return [...summaryText(html ?? renderDocument(entry.document))].slice(0, 180).join('');
 }
 export function recommendedEntries(entry: Entry, release: Release, limit = 6) {
-  const candidates = release.entries.filter((item) => item.id !== entry.id && item.kind === 'content' && item.visibility !== 'private' && item.indexable);
-  const manual = [...new Set(entry.editorial?.relatedIds ?? [])].map((id) => candidates.find((item) => item.id === id)).filter((item): item is PublishedEntry => !!item);
-  const labels = (item: Entry) => [...(item.termIds?.tags ?? item.tags).map((id) => 'tag:' + id), ...(item.termIds?.categories ?? item.categories).map((id) => 'category:' + id)];
-  const own = new Set(labels(entry));
-  const frequency = new Map<string, number>();
-  for (const item of candidates) for (const label of new Set(labels(item))) frequency.set(label, (frequency.get(label) ?? 0) + 1);
-  const score = (item: Entry) => labels(item).reduce((total, label) => total + (own.has(label) ? (label.startsWith('tag:') ? 3 : 1.5) * Math.log(1 + candidates.length / (frequency.get(label) ?? 1)) : 0), 0);
-  const ranked = candidates.filter((item) => score(item) > 0 && !manual.some((chosen) => chosen.id === item.id))
-    .sort((a, b) => score(b) - score(a) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
-  const selected = [...manual, ...ranked], chosen = new Set(selected.map((item) => item.id));
-  const latest = candidates.filter((item) => !chosen.has(item.id)).sort((a, b) => String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
-  return [...selected, ...latest].slice(0, Math.max(0, limit));
+  const take = Math.max(0, limit), index = releaseIndex(release);
+  if (!take) return [];
+  const eligible = (item: PublishedEntry | undefined): item is PublishedEntry => !!item && item.id !== entry.id && item.kind === 'content' && item.visibility !== 'private' && item.indexable;
+  const manual = [...new Set(entry.editorial?.relatedIds ?? [])].map(id => index.byId.get(id)).filter(eligible);
+  const chosen = new Set(manual.map(item => item.id)), own = new Set(entryLabels(entry));
+  const self = index.byId.get(entry.id);
+  const count = index.recommendable.length - Number(!!self && self.kind === 'content' && self.visibility !== 'private' && self.indexable);
+  const scores = new Map<PublishedEntry, number>();
+  for (const label of own) {
+    const matching = index.byLabel.get(label) ?? [];
+    const frequency = matching.length - Number(matching.some(item => item.id === entry.id));
+    const weight = (label.startsWith('tag:') ? 3 : 1.5) * Math.log(1 + count / (frequency || 1));
+    for (const item of matching) if (item.id !== entry.id && !chosen.has(item.id)) {
+      const repeats = entryLabels(item).filter(value => value === label).length;
+      scores.set(item, (scores.get(item) ?? 0) + weight * repeats);
+    }
+  }
+  const ranked = [...scores].sort(([a, av], [b, bv]) => bv - av || newestFirst(a, b)).map(([item]) => item);
+  const selected = [...manual, ...ranked].slice(0, take);
+  for (const item of selected) chosen.add(item.id);
+  for (const item of index.recommendable) {
+    if (selected.length >= take) break;
+    if (item.id !== entry.id && !chosen.has(item.id)) { selected.push(item); chosen.add(item.id); }
+  }
+  return selected;
 }
 export function featuredEntries(entries: PublishedEntry[]) {
   return [...entries].sort((a, b) => Number(!!b.editorial?.featured) - Number(!!a.editorial?.featured) || (b.editorial?.weight ?? 0) - (a.editorial?.weight ?? 0) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));

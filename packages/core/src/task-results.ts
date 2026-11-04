@@ -10,7 +10,7 @@ export class TaskResults {
     for(const [key,item]of this.cache)if(!item.pending&&item.expires<=Date.now())this.cache.delete(key);
     while(this.cache.size>=this.maximum){const disposable=[...this.cache].find(([,item])=>!item.pending);if(!disposable)throw new WeavaError('报表请求较多，请稍后重试。',429);this.cache.delete(disposable[0]);}
     const item={expires:0,pending:true,value:Promise.resolve<any>(null)};
-    item.value=this.runner.wait(this.runner.enqueue(operation,payload).id).then(result=>{item.pending=false;item.expires=Date.now()+this.ttl;return result;},error=>{this.cache.delete(key);throw error;});
+    item.value=this.runner.query(operation,payload).then(result=>{item.pending=false;item.expires=Date.now()+this.ttl;return result;},error=>{this.cache.delete(key);throw error;});
     this.cache.set(key,item);return item.value;
   }
 }

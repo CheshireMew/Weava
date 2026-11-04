@@ -9,6 +9,8 @@ import { authorized, json, validateExtensionResponse } from '../../api/transport
 import type { AdminContext } from '../../api/types.ts';
 import { assertRequestOrigin,assertJsonRequest } from '../../../../../packages/core/src/request-safety.ts';
 import { ZodError } from 'zod';
+import { readMediaUploadRequest } from '../../../../../packages/core/src/legacy-media-upload.ts';
+import { anonymousSessionOperations } from '@weava/contracts/session-api';
 const dispatch = createAdminDispatcher(services);
 export const ALL: APIRoute = async (context) => {
   try {
@@ -31,9 +33,9 @@ export const ALL: APIRoute = async (context) => {
     assertRequestOrigin(context.request,requestContext.identity.protocol);
     const admin=route.startsWith('admin/v1/');
     const write = !['GET', 'HEAD'].includes(context.request.method);
-    if(admin && (!match || !['session','login'].includes(match.operation)) && !authorized(services,requestContext))
+    if(admin && (!match || !(anonymousSessionOperations as readonly string[]).includes(match.operation)) && !authorized(services,requestContext))
       throw new WeavaError('请先登录。',401);
-    if(admin && write) assertJsonRequest(context.request);
+    if(admin && write && match?.operation!=='uploadChunk') assertJsonRequest(context.request);
     const custom = await (
       await services.siteExtension
     ).route?.(context.request, services.site.visibleRelease());
@@ -44,14 +46,14 @@ export const ALL: APIRoute = async (context) => {
       );
     if (!match) return json({ error: '接口或请求方法不存在。' }, 404);
     const limit =
-      match.operation === 'login'
-        ? 4096
+      match.operation === 'login' ? 4096 : ['accountAccess','completeAccountAccess'].includes(match.operation)
+        ? 16384
         : match.operation === 'uploadMedia'
           ? 45 * 1024 * 1024
           : match.operation === 'importWxr'
             ? 192 * 1024 * 1024
             : 16 * 1024 * 1024;
-    const body = write ? await readJsonBody(context.request, limit) : undefined;
+    const body = match.operation==='uploadMedia' ? await readMediaUploadRequest(services.site,services.jobs,context.request) : write && match.operation!=='uploadChunk' ? await readJsonBody(context.request, limit) : undefined;
     return await dispatch(match.operation, match.params, body, requestContext);
   } catch (error: any) {
     if(error instanceof WeavaError){

@@ -16,14 +16,15 @@ import {
   saveContentView,
   saveCreationTemplate,
   createContent,
+  duplicateContent,
   structuredBody,
 } from '@weava/core';
 
 import { previewBulkEdit, applyBulkEdit } from '@weava/core';
 
 import type { ApiServices, AdminHandlers } from './types.ts';
-export function contentHandlers(services: Pick<ApiServices, 'site'>) {
-  const { site } = services;
+export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
+  const { site, jobs } = services;
 
   return {
     entries: async () => {
@@ -40,6 +41,8 @@ export function contentHandlers(services: Pick<ApiServices, 'site'>) {
     createEntry: async ({ body: data }) => {
       return createContent(site, data);
     },
+    duplicateEntry: async ({ body: data }) => duplicateContent(site, data.id, data.revision),
+    deleteEntry: async ({ body: data }) => jobs.query('entry-delete', data),
     getEntry: async ({ params }) => {
       const row = site.store.get('entry', params.id);
       if (!row) throw new DomainError('内容不存在。', 404);
@@ -127,6 +130,8 @@ export function contentHandlers(services: Pick<ApiServices, 'site'>) {
     | 'entries'
     | 'queryEntries'
     | 'createEntry'
+    | 'duplicateEntry'
+    | 'deleteEntry'
     | 'getEntry'
     | 'saveEntry'
     | 'checkEntry'

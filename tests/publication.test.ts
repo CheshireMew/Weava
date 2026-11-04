@@ -33,6 +33,15 @@ describe('publication boundaries and candidate validation', () => {
     const row = site.store.get('entry', 'one')!;
     site.saveEntry({ ...row.value, title: '预览后再次改稿' }, row.revision);
     expect(() => site.publish(next.options)).toThrow(/工作稿已变化/);
+    const config = site.settings();
+    site.saveSettings({ ...config.value, siteInfo: { friends: { enabled: true, path: '/friendlink/', links: [{ name: '朋友', url: 'https://example.com/', description: '介绍' }] } } }, config.revision);
+    const information = site.publish({ scope: 'settings' });
+    expect(information.entries.find(item => item.id === 'one')!.title).toBe('one');
+    expect(information.entries.find(item => item.path === '/friendlink/')!.html).toContain('https://example.com/');
+    expect(site.store.list('entry')).toHaveLength(1);
+    expect(site.store.get('entry', 'one')!.value.title).toBe('预览后再次改稿');
+    const article = site.publish({ ids: ['one'] });
+    expect(article.entries.find(item => item.path === '/friendlink/')!.html).toContain('朋友');
   });
   it('keeps the first settings-only publication empty and requires explicit new draft selection', () => {
     const site = create(); site.saveEntry(entry('one'), null);

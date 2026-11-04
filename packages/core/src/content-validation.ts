@@ -6,7 +6,8 @@ import { validateSeo } from './seo.ts';
 
 export type EntryValidationSite = Pick<Site, 'store' | 'fieldWidgets' | 'settings' | 'validateBlocks'>;
 export interface EntryCheck { valid: boolean; errors: FieldIssue[]; value?: Entry }
-export function checkEntry(site: EntryValidationSite, value: unknown, options: { required?: boolean; references?: Entry[] } = {}): EntryCheck {
+export type EntryReferences=Entry[]|ReadonlyMap<string,Entry>;
+export function checkEntry(site: EntryValidationSite, value: unknown, options: { required?: boolean; references?: EntryReferences } = {}): EntryCheck {
   const parsed = entrySchema.safeParse(value);
   if (!parsed.success) return { valid: false, errors: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message, code: issue.code })) };
   const input = parsed.data, errors: FieldIssue[] = [];
@@ -25,9 +26,9 @@ export function checkEntry(site: EntryValidationSite, value: unknown, options: {
       let fields = definition.fields;
       run('fields', () => { fields = effectiveFields(definition.fields, site.fieldWidgets); });
       input.fields = fieldDefaults(fields, input.fields);
-      const references = new Map((options.references ?? []).map((entry) => [entry.id, entry]));
+      const references = Array.isArray(options.references)?new Map(options.references.map(entry=>[entry.id,entry])):options.references;
       errors.push(...fieldIssues(fields, input.fields, { prefix: 'fields.', required: options.required,
-        reference: (id) => id === input.id ? input : references.get(id) ?? site.store.get('entry', id)?.value,
+        reference: (id) => id === input.id ? input : references?.get(id) ?? site.store.get('entry', id)?.value,
         requireReferences: options.required !== false }));
     }
   }

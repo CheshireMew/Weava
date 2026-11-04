@@ -15,11 +15,12 @@ import {
 import { resolve, join, relative, isAbsolute } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { WeavaError } from '@weava/contracts';
-import { storeRelease } from './publication-store.ts';
+import { storeRelease,loadRelease } from './publication-store.ts';
 import { acquireInstanceWriter, withInstanceMaintenance, type InstanceWriter } from './instance-access.ts';
 import { mediaPolicySchema, indexMediaRecord } from './media-policy.ts';
 import { listIndexSchema, migrateListRecords, indexListRecord } from './list-index.ts';
-export const SCHEMA_VERSION = 7;
+import { referenceSchema,migrateMediaReferences,indexAuthoredMedia,indexRevisionMedia,indexPublishedMedia } from './media-reference-index.ts';
+export const SCHEMA_VERSION = 11;
 export const records = sqliteTable('records', {
   scope: text().notNull(),
   id: text().notNull(),
@@ -149,6 +150,31 @@ export class Storage {
         CREATE TABLE IF NOT EXISTS owner_auth_failures(id TEXT PRIMARY KEY,failures INTEGER NOT NULL,expires INTEGER NOT NULL,blocked_until INTEGER NOT NULL);
         INSERT INTO schema_migrations VALUES(7,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
     }).immediate();
+    if (version.v < 8) this.raw.transaction(() => {
+      this.raw.exec(`CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
+        CREATE INDEX IF NOT EXISTS records_scheduled_due ON records(scope,json_extract(data,'$.status'),json_extract(data,'$.dueAt')) WHERE scope IN ('publication-schedule','publication-plan');
+        CREATE INDEX IF NOT EXISTS jobs_operation_status ON jobs(operation,status);
+        CREATE TABLE IF NOT EXISTS publication_candidates(id TEXT PRIMARY KEY,data TEXT NOT NULL,expires INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS publication_candidate_expiry ON publication_candidates(expires);
+        CREATE TABLE IF NOT EXISTS publication_search_sources(entry_key TEXT NOT NULL,dependency_key TEXT NOT NULL,search_key TEXT NOT NULL,PRIMARY KEY(entry_key,dependency_key));
+        INSERT INTO schema_migrations VALUES(8,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+    }).immediate();
+    if(version.v<9)this.raw.transaction(()=>{
+      this.raw.exec(`CREATE TABLE IF NOT EXISTS media_uploads(id TEXT PRIMARY KEY,name TEXT NOT NULL,size INTEGER NOT NULL,offset INTEGER NOT NULL,status TEXT NOT NULL,path TEXT NOT NULL,expires INTEGER NOT NULL,lease TEXT,lease_until INTEGER NOT NULL DEFAULT 0,job_id TEXT,idempotency TEXT UNIQUE);
+        CREATE INDEX IF NOT EXISTS media_upload_expiry ON media_uploads(status,expires);
+        INSERT INTO schema_migrations VALUES(9,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+    }).immediate();
+    if(version.v<10)this.raw.transaction(()=>{
+      referenceSchema(this.raw);migrateMediaReferences(this.raw);
+      let after=0;for(;;){const rows=this.raw.prepare('SELECT rowid n,data FROM releases WHERE rowid>? ORDER BY rowid LIMIT 8').all(after) as {n:number;data:string}[];if(!rows.length)break;for(const row of rows)indexPublishedMedia(this.raw,loadRelease(this.raw,row.data));after=rows.at(-1)!.n;}
+      this.raw.exec("INSERT INTO schema_migrations VALUES(10,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+    }).immediate();
+    if(version.v<11)this.raw.transaction(()=>{
+      this.raw.exec(`CREATE INDEX IF NOT EXISTS revision_data_bytes ON revisions(length(CAST(data AS BLOB)));
+        CREATE INDEX IF NOT EXISTS release_data_bytes ON releases(length(CAST(data AS BLOB)));`);
+      if(this.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='publication_objects'").get())this.raw.exec('CREATE INDEX IF NOT EXISTS publication_object_bytes ON publication_objects(kind,length(CAST(data AS BLOB)))');
+      this.raw.exec("INSERT INTO schema_migrations VALUES(11,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+    }).immediate();
     };
     if (previousVersion && previousVersion < SCHEMA_VERSION) this.maintain(initialize);
     else initialize();
@@ -212,6 +238,8 @@ export class Storage {
           .run(scope, id, revision, JSON.stringify(value), timestamp);
         indexMediaRecord(this.raw, scope, id, value);
         indexListRecord(this.raw, scope, id, value, revision, timestamp);
+        indexAuthoredMedia(this.raw,scope,id,value);if(scope==='entry')indexRevisionMedia(this.raw,revision,value);
+        if(scope==='media')this.setState('media-version',String(revision));
         return { id, revision, value, updatedAt: timestamp };
       })
       .immediate();

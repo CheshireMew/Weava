@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 
-import { ArrowUpRight, Menu, Loader2 } from 'lucide-react';
+import { Menu, Loader2 } from 'lucide-react';
 
 import { api } from './api.ts';
 
@@ -12,12 +12,12 @@ import { useEditSessions } from './EditSessions.tsx';
 
 import './style.css';
 
-import TypeManager from './TypeManager.tsx';
-import SettingsPanel from './SettingsPanel.tsx';
-import Operations from './Operations.tsx';
+const TypeManager=lazy(()=>import('./TypeManager.tsx'));
+const SettingsPanel=lazy(()=>import('./SettingsPanel.tsx'));
+const Operations=lazy(()=>import('./Operations.tsx'));
 import { AdminNavigation, tabs } from './AdminNavigation.tsx';
 import { adminPanel, panelUrl } from './admin-location.ts';
-import { useAdminSession } from './useAdminSession.ts';
+import type { AdminSession } from './useAdminSession.ts';
 import { LoginScreen } from './LoginScreen.tsx';
 import { Reauthentication } from './Reauthentication.tsx';
 import { useContentWorkspace } from './useContentWorkspace.ts';
@@ -34,24 +34,20 @@ const RedirectManager = lazy(() => import('./RedirectManager.tsx'));
 const PublicationPlans = lazy(() => import('./PublicationPlans.tsx'));
 const Comments = lazy(() => import('./Comments.tsx'));
 
-const LayoutManager = lazy(() => import('./LayoutManager.tsx'));
 const MediaManager = lazy(() => import('./MediaManager.tsx'));
 
-const TaxonomyManager = lazy(() => import('./TaxonomyManager.tsx'));
-
-export function App() {
+export interface AppProps {authentication:AdminSession;error:string;setError:(message:string)=>void}
+export function App({authentication,error,setError}:AppProps) {
   const editors = useEditSessions();
-  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 700px)').matches);
-  const [error, setError] = useState(''),
-    [toast, setToast] = useState(''),
+  const [compact, setCompact] = useState(() => window.matchMedia('(max-width: 900px)').matches);
+  const [toast, setToast] = useState(''),
     [tab, setTab] = useState(() => adminPanel(window.location.search)),
     [state, setState] = useState<any>(null),
     [logJob, setLogJob] = useState<string | null>(null),
     [menu, setMenu] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigationVersion=useRef(0);
-  const authentication = useAdminSession(setError),
-    { session } = authentication;
+  const { session } = authentication;
   function notify(message: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
@@ -80,8 +76,15 @@ export function App() {
     task,
   });
   const { record } = workspace;
+  const focusedWriting = tab === 'content' && record?.value.kind === 'content';
+  async function saveSiteSettings(value: any, revision: number) {
+    const row = await api('settings', { value, revision });
+    await refresh();
+    notify('设置已保存');
+    return row;
+  }
   useEffect(() => {
-    const media = window.matchMedia('(max-width: 700px)'),
+    const media = window.matchMedia('(max-width: 900px)'),
       update = () => {
         setCompact(media.matches);
         setMenu(false);
@@ -175,11 +178,11 @@ export function App() {
   );
   return (
     <FieldWidgetsProvider value={state?.fieldWidgets ?? {}}>
-      <div className="app">
+      <div className={'app' + (focusedWriting ? ' writing-focus' : '')}>
         <a className="skip-link" href="#main-content">
           跳到主要内容
         </a>
-        {compact ? (
+        {!focusedWriting && (compact ? (
           menu && (
             <Dialog
               className="sidebar mobile-sidebar"
@@ -191,9 +194,9 @@ export function App() {
           )
         ) : (
           <aside className="sidebar">{navigation}</aside>
-        )}
+        ))}
         <main className="main-shell" id="main-content" tabIndex={-1}>
-          <header className="topbar">
+          {compact && !focusedWriting && <header className="topbar">
             <button
               className="mobile-toggle"
               onClick={() => setMenu(!menu)}
@@ -208,11 +211,7 @@ export function App() {
               <span aria-hidden="true">/</span>
               <strong className="breadcrumb-current">{tabs.find((t) => t[0] === tab)?.[1]}</strong>
             </div>
-            <a href="/" target="_blank" className="view-site" aria-label="打开网站">
-              打开网站
-              <ArrowUpRight size={14} />
-            </a>
-          </header>
+          </header>}
           {error && (
             <div className="error-banner" role="alert">
               <span>{error}</span>
@@ -230,32 +229,11 @@ export function App() {
           {!state ? (
             <div className="loading-screen">正在载入…</div>
           ) : (
-            <>
-              {['content', 'pages'].includes(tab) && (
+            <Suspense fallback={<p role="status">正在载入…</p>}>
+              {tab === 'content' && (
                 <div className={'content-workspace' + (record ? ' has-record' : '')}>
-                  <ContentLibrary model={workspace} />
-                  <EntryEditor model={workspace} />
+                  {record ? <EntryEditor model={workspace} /> : <ContentLibrary model={workspace} />}
                 </div>
-              )}
-              {tab === 'layouts' && (
-                <Suspense fallback={<p>正在载入布局…</p>}>
-                  <LayoutManager
-                    catalog={state}
-                    refresh={refresh}
-                    publish={() => task('publish', { scope: 'layouts' })}
-                    onError={setError}
-                  />
-                </Suspense>
-              )}
-              {tab === 'terms' && (
-                <Suspense fallback={<p>正在载入分类…</p>}>
-                  <TaxonomyManager
-                    rows={state.terms ?? []}
-                    refresh={refresh}
-                    publish={() => task('publish', { scope: 'terms' })}
-                    onError={setError}
-                  />
-                </Suspense>
               )}
               {tab === 'types' && (
                 <TypeManager
@@ -278,8 +256,8 @@ export function App() {
                     onOpen={(id) => {
                       api(`entry/${encodeURIComponent(id)}`)
                         .then(async (row) => {
-                          if (await navigate(row.value.kind === 'page' ? 'pages' : 'content'))
-                            await workspace.select(id);
+                          if (row.value.kind === 'page') await navigate('appearance');
+                          else if (await navigate('content')) await workspace.select(id);
                         })
                         .catch((error) => setError(error.message));
                     }}
@@ -293,13 +271,12 @@ export function App() {
                   panels={state.extensionPanels ?? []}
                   layouts={state.layouts ?? []}
                   publish={() => task('publish', { scope: 'settings' })}
-                  save={async (value, revision) => {
-                    const row = await api('settings', { value, revision });
-                    await refresh();
-                    notify('设置工作稿已保存');
-                    return row;
-                  }}
+                  save={saveSiteSettings}
                   onError={setError}
+                  siteInfo={state.siteInfo}
+                  terms={state.terms ?? []}
+                  refresh={refresh}
+                  initialSection={new URLSearchParams(window.location.search).get('panel') === 'terms' ? 'navigation' : undefined}
                 />
               )}
               {tab === 'analytics' && <AnalyticsPanel onError={setError} />}
@@ -310,7 +287,8 @@ export function App() {
               )}
               {tab === 'comments' && (
                 <Suspense fallback={<p>加载中…</p>}>
-                  <Comments onError={setError} />
+                  <Comments settings={state.settings} saveSettings={saveSiteSettings}
+                    publishSettings={() => task('publish', { scope: 'settings' })} onError={setError} />
                 </Suspense>
               )}
               {tab === 'redirects' && (
@@ -338,7 +316,7 @@ export function App() {
                   openLogs={setLogJob}
                 />
               )}
-            </>
+            </Suspense>
           )}
         </main>
 

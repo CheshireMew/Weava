@@ -1,11 +1,13 @@
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
-import { WeavaError } from '@weava/contracts';
+import { WeavaError } from '../../contracts/src/errors.ts';
 import { normalizePath } from './paths.ts';
 import { AnalyticsGeo } from './analytics-geo.ts';
 import { deviceInfo, referral, type AnalyticsContext } from './analytics-dimensions.ts';
 import { analyticsReport, realtimeReport, visitorReport } from './analytics-reports.ts';
 import { acquireInstanceWriter, type InstanceWriter } from './instance-access.ts';
+import { analyticsIndex } from './analytics-index.ts';
+import { analyticsFacts } from './analytics-facts.ts';
 export interface HistoricalViewImport {
   sourceId: string;
   capturedAt: string;
@@ -22,6 +24,7 @@ export class Analytics {
     this.raw = new Database(join(root, 'analytics.sqlite'));
     this.raw.pragma('journal_mode=WAL');
     this.raw.pragma('busy_timeout=5000');
+    this.raw.pragma('cache_size=-32768');
     this.raw.exec(
       `CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,kind TEXT NOT NULL,ts TEXT NOT NULL,path TEXT NOT NULL,visitor TEXT NOT NULL,session TEXT NOT NULL,url TEXT NOT NULL,label TEXT NOT NULL,zone TEXT NOT NULL,referrer TEXT NOT NULL,release_id TEXT NOT NULL);CREATE INDEX IF NOT EXISTS event_date ON events(ts,path);CREATE TABLE IF NOT EXISTS legacy_sources(id TEXT PRIMARY KEY,path TEXT NOT NULL,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS historical_views(entry_id TEXT PRIMARY KEY,source_id TEXT NOT NULL,path TEXT NOT NULL,views INTEGER NOT NULL CHECK(views>=0),captured_at TEXT NOT NULL);`,
@@ -48,6 +51,8 @@ export class Analytics {
           UPDATE view_counts SET views=views-1 WHERE OLD.kind='view' AND path=OLD.path;
           INSERT INTO view_counts SELECT NEW.path,1 WHERE NEW.kind='view' ON CONFLICT(path) DO UPDATE SET views=views+1; END;`);
     }).immediate();
+    analyticsIndex(this.raw);
+    analyticsFacts(this.raw);
     } catch (error) { if (this.raw?.open) this.raw.close(); this.writer.release(); throw error; }
   }
   collect(value: any, agent: string, allowed: Set<string>, context: AnalyticsContext = {}) {
@@ -254,9 +259,7 @@ export class Analytics {
       page(row.path).historicalViews = row.views;
     for (const row of this.raw
       .prepare(
-        "SELECT path,COUNT(*) views FROM events WHERE kind='view'" +
-          (path ? ' AND path=?' : '') +
-          ' GROUP BY path',
+        'SELECT path,views FROM view_counts WHERE views>0' + (path ? ' AND path=?' : ''),
       )
       .all(...(path ? [path] : [])) as any[])
       page(row.path).recordedViews = row.views;

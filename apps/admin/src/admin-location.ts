@@ -1,6 +1,7 @@
-const panels = new Set(['content', 'pages', 'layouts', 'types', 'terms', 'media', 'comments', 'redirects', 'publication-plans', 'appearance', 'analytics', 'search-tools', 'operations', 'account']);
+const panels = new Set(['content', 'types', 'media', 'comments', 'redirects', 'publication-plans', 'appearance', 'analytics', 'search-tools', 'operations', 'account']);
 export function adminPanel(search: string) {
   const panel = new URLSearchParams(search).get('panel') ?? 'content';
+  if (panel === 'pages' || panel === 'layouts' || panel === 'terms') return 'appearance';
   return panels.has(panel) ? panel : 'content';
 }
 export function panelUrl(href: string, panel: string) {

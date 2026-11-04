@@ -3,7 +3,7 @@ import { normalizePath } from './paths.ts';
 import { privateMedia } from './media-policy.ts';
 
 import { loadRelease, searchRelease } from './publication-store.ts';
-import { preparePublication, publish } from './publication.ts';
+import { preparePublication, publish, savePublicationReview } from './publication.ts';
 
 import { visitBlocks } from './layouts.ts';
 
@@ -16,8 +16,10 @@ import {
   type PublishOptions,
 } from '@weava/contracts';
 import type { Site } from './site.ts';
+import { releaseIndex } from './release-index.ts';
 export class SiteReleases {
   private releaseCache = new Map<string, Release>();
+  private publicCache = new WeakMap<Release,Release>();
   constructor(
     private site: Pick<
       Site,
@@ -61,6 +63,7 @@ export class SiteReleases {
   visibleRelease(includePrivate = false, id?: string): Release | null {
     const release = this.site.release(id);
     if (!release || includePrivate) return release;
+    const cached=this.publicCache.get(release);if(cached)return cached;
     const hidden = new Set(
       release.entries.filter((e) => e.visibility === 'private').map((e) => e.path),
     );
@@ -86,11 +89,12 @@ export class SiteReleases {
           ...item,
           ...(item.children ? { children: navigation(item.children) } : {}),
         }));
-    return {
+    const visible:Release={
       ...release,
       entries: release.entries.filter((e) => e.visibility !== 'private'),
       settings: { ...release.settings, navigation: navigation(release.settings.navigation) },
     };
+    this.publicCache.set(release,visible);return visible;
   }
   isPrivateMedia(path: string) {
     return privateMedia(this.site.store.raw, path);
@@ -106,10 +110,10 @@ export class SiteReleases {
       path === '/' && parameter ? '/?' + parameter + '=' + url.searchParams.get(parameter) : path;
     const release = this.site.visibleRelease(includePrivate);
     const value = release?.redirects?.[queryKey];
-    if (!value || release?.entries.some((entry) => entry.path === queryKey)) return null;
-    if (value.entryId && !release?.entries.some((e) => e.id === value.entryId)) return null;
+    if (!value || release&&releaseIndex(release).byPath.has(queryKey)) return null;
+    if (value.entryId && release&&!releaseIndex(release).byId.has(value.entryId)) return null;
     const target = value.entryId
-      ? release!.entries.find((entry) => entry.id === value.entryId)!.path
+      ? releaseIndex(release!).byId.get(value.entryId)!.path
       : value.target;
     if (target === path && queryKey === path) return null;
     if (!includePrivate && target.startsWith('/media/') && this.site.isPrivateMedia(target))
@@ -121,17 +125,7 @@ export class SiteReleases {
     return destination.pathname + destination.search;
   }
   previewPublication(options: PublishOptions = {}) {
-    const { changes } = preparePublication(this.site, options);
-    return {
-      ...changes,
-      options: {
-        ...options,
-        baseReleaseId: changes.baseReleaseId,
-        reviewRevision: (
-          this.site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as any
-        ).n,
-      },
-    };
+    return savePublicationReview(this.site,options,preparePublication(this.site,options));
   }
   publish(options: PublishOptions = {}) {
     return publish(this.site, options);

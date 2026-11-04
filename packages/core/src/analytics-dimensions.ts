@@ -33,12 +33,12 @@ export function deviceInfo(agent: string, hints: any = {}) {
 const within = (host: string, domain: string) => host === domain || host.endsWith('.' + domain);
 export function referral(referrer: string, origin = '', campaign: any = {}) {
   let host = '';
-  try {
+  if(referrer)try {
     host = new URL(
       referrer.includes('://') ? referrer : 'https://' + referrer,
     ).hostname.toLowerCase();
   } catch {}
-  try {
+  if(origin&&host)try {
     if (host === new URL(origin).hostname.toLowerCase()) host = '';
   } catch {}
   const source = String(campaign?.source || '')

@@ -1,11 +1,14 @@
 import { EntrySettings } from './EntrySettings.tsx';
+import { EntryStatus } from './EntryStatus.tsx';
 import { EntryRecovery } from './EntryRecovery.tsx';
-import { lazy, Suspense } from 'react';
+import { EntryOptionsBar } from './EntryOptionsBar.tsx';
+import { Dialog } from './Dialog.tsx';
+import { lazy, Suspense, useState, useLayoutEffect, useRef } from 'react';
 
-import { FileText, ArrowLeft, Plus, Check, Loader2, History, Eye } from 'lucide-react';
+import { FileText, ArrowLeft, Plus, Loader2, Settings2, ChevronDown, MoreHorizontal, X } from 'lucide-react';
 
 import { api } from './api.ts';
-import { localDrafts } from './local-drafts.ts';
+import { drafts } from './draft-repository.ts';
 
 import { useSelectors } from './Selectors.tsx';
 
@@ -15,9 +18,7 @@ import type { ContentWorkspace } from './useContentWorkspace.ts';
 
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 
-const PageDesigner = lazy(() =>
-  import('./PageDesigner.tsx').then((module) => ({ default: module.PageDesigner })),
-);
+const ImportedContentEditor = lazy(() => import('./ImportedContentEditor.tsx').then(module => ({ default: module.ImportedContentEditor })));
 
 export function EntryEditor({ model }: { model: ContentWorkspace }) {
   const {
@@ -46,26 +47,47 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
     publish,
   } = model;
   const selectors = useSelectors();
+  const article = record?.value.kind === 'content';
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (!settingsOpen || article) return;
+    const settings = document.getElementById('entry-settings');
+    if (settings && settings.parentElement!.getBoundingClientRect().width <= 800)
+      settings.scrollIntoView({ block: 'start' });
+  }, [settingsOpen, record?.id]);
+  const publication = record ? model.items.find((row: any) => row.id === record.id) : null;
+  const titleInput = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const input = titleInput.current;
+    if (!input) return;
+    const resize = () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(input.parentElement!);
+    return () => observer.disconnect();
+  }, [record?.id, record?.value.title]);
   return (
-    <section className="editing-area">
+    <section className={'editing-area' + (article ? ' article-editor' : ' website-page-editor')} aria-label="内容编辑">
       {!record ? (
         <div className="empty-state">
           <div className="empty-mark" aria-hidden="true">
-            <FileText size={44} strokeWidth={1.4} />
+            <FileText size={36} strokeWidth={1.25} />
           </div>
-          <h2>{tab === 'pages' ? '组织你的页面。' : '从一个想法开始。'}</h2>
-          <p>选择现有内容，或创建新的开始。</p>
+          <h2>从一个想法开始</h2>
+          <p>选择一篇内容继续编辑，或写下新的想法。</p>
           <button className="primary" onClick={newEntry}>
             <Plus size={16} />
-            新建{tab === 'pages' ? '页面' : '内容'}
+            新建内容
           </button>
         </div>
       ) : (
         <>
-          <div className="editor-bar">
+          <div className="editor-chrome"><div className="editor-bar">
             <button
               className="editor-back"
               aria-label="返回内容列表"
+              title="返回内容列表"
               onClick={async () => {
                 try {
                   await persist();
@@ -79,16 +101,36 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               }}
             >
               <ArrowLeft size={16} />
-              返回列表
+              <span>返回列表</span>
             </button>
             <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
-              {saving ? <Loader2 size={14} className="spin" /> : <Check size={14} />}{' '}
+              {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
               {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
             </span>
-            <div>
+            <div className="editor-actions">
+              <div className="editor-tools">
+              {!article && <button className="editor-plain editor-settings-toggle" aria-label="内容设置" aria-expanded={settingsOpen} aria-controls="entry-settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(open => !open)}><Settings2 size={18} /><span>设置</span></button>}
+              <details className="action-menu editor-more"><summary aria-label="更多编辑操作">{article ? <MoreHorizontal size={20} /> : <>更多<ChevronDown size={14} aria-hidden="true" /></>}</summary><div className="action-menu-items">
+              {article && publication && <div className="editor-menu-status"><EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} /></div>}
+              <button
+                className="editor-check"
+                disabled={busy || saving}
+                onClick={async () => {
+                  try {
+                    const result = await api('entry/check', { value: session.record!.value });
+                    setContentCheck({ ...result, id: record.id });
+                    setSettingsOpen(true);
+                  } catch (error: any) {
+                    setError(error.message);
+                  }
+                }}
+              >
+                检查
+              </button>
               <button
                 title="历史版本"
                 aria-label="历史版本"
+                className="editor-plain"
                 onClick={async () => {
                   try {
                     await persist();
@@ -98,49 +140,31 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                   }
                 }}
               >
-                <History size={16} />
+                历史版本
               </button>
               <button
+                className="editor-plain"
                 onClick={async () => {
                   try {
-                    const row = await persist();
-                    if (!row) return;
-                    setPreview('/__preview/' + record.id + '?revision=' + row.revision);
-                  } catch (error: any) {
-                    setError(error.message);
-                  }
-                }}
-              >
-                <Eye size={16} />
-                预览
-              </button>
-              <button
-                onClick={() => {
-                  try {
-                    const copies = localDrafts(record.id);
+                    const copies = await drafts().read(record.id);
                     setRecoveryCopies(copies);
                     setRestoreLocal(copies[0]?.record ?? null);
-                    if (!copies.length) notify('没有本地副本。');
+                    if (!copies.length) notify('没有未保存的本地草稿。');
                   } catch (error: any) {
                     setDraftNotice(error.message);
                   }
                 }}
               >
-                本地副本
+                本地草稿
               </button>
-              <button
-                disabled={busy || saving}
-                onClick={async () => {
-                  try {
-                    const result = await api('entry/check', { value: session.record!.value });
-                    setContentCheck({ ...result, id: record.id });
-                  } catch (error: any) {
-                    setError(error.message);
-                  }
-                }}
-              >
-                检查
-              </button>
+              </div></details>
+              </div>
+              <button className="editor-preview" onClick={async () => {
+                try {
+                  const row = await persist();
+                  if (row) setPreview('/__preview/' + record.id + '?revision=' + row.revision);
+                } catch (error: any) { setError(error.message); }
+              }}>预览</button>
               <button
                 className="primary"
                 disabled={busy || saving}
@@ -150,86 +174,35 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               </button>
             </div>
           </div>
+          {article && <><EntryOptionsBar model={model} onMore={() => setSettingsOpen(true)} /><div className="editor-toolbar-slot" ref={setToolbarTarget} /></>}
+          </div>
           <EntryRecovery model={model} />
 
           <div
             className={
-              'editor-grid' +
-              (record.value.kind === 'page' || record.value.blocks.length > 0
-                ? ' page-editing'
-                : '')
+              'editor-grid' + (settingsOpen ? ' settings-open' : '')
             }
           >
             <div className="writing">
-              <input
-                className="title-input"
-                aria-label="内容标题"
-                value={record.value.title}
-                placeholder="标题"
-                onChange={(e) => update({ title: e.target.value })}
-              />
-              <textarea
-                className="description-input"
-                aria-label="内容摘要"
-                rows={2}
-                placeholder="用一两句话介绍这份内容…"
-                value={record.value.description}
-                onChange={(e) => update({ description: e.target.value })}
-              />
-              {record.value.kind === 'page' || record.value.blocks.length > 0 ? (
-                <Suspense fallback={<p>正在载入页面编辑…</p>}>
-                  <PageDesigner
-                    entryId={record.id}
-                    previewKey={JSON.stringify([
-                      record.value.template,
-                      record.value.title,
-                      record.value.description,
-                      record.value.fields,
-                    ])}
-                    value={record.value.blocks}
-                    onChange={(blocks) =>
-                      update({
-                        blocks,
-                        ...(!blocks.length
-                          ? { document: { version: 1, format: 'markdown', source: '' } as const }
-                          : {}),
-                      })
-                    }
-                    save={persist}
-                    onError={setError}
-                    catalog={{
-                      ...state,
-                      allowedBlocks:
-                        record.value.kind === 'content'
-                          ? state.types.find((row: any) => row.id === record.value.type)?.value
-                              .allowedBlocks
-                          : undefined,
-                    }}
-                    saveSnippet={
-                      record.value.kind === 'content'
-                        ? async (blocks) => {
-                            const label = window.prompt('组合名称');
-                            if (!label?.trim()) return;
-                            await api('layouts', {
-                              value: {
-                                id: 'snippet-' + crypto.randomUUID(),
-                                label,
-                                kind: 'pattern',
-                                appliesTo: 'content',
-                                blocks,
-                              },
-                              revision: null,
-                            });
-                            await refresh();
-                            notify('所选片段已保存为组合');
-                          }
-                        : undefined
-                    }
-                  />
-                </Suspense>
+              {article && record.value.cover && <figure className="article-cover"><img src={record.value.cover} alt="文章封面" /></figure>}
+              <div className="entry-title-row">
+                <textarea
+                  ref={titleInput}
+                  rows={1}
+                  className="title-input"
+                  aria-label="内容标题"
+                  value={record.value.title}
+                  placeholder="标题"
+                  onChange={(e) => update({ title: e.target.value })}
+                />
+                {!article && publication && <EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} />}
+              </div>
+              {record.value.blocks.length > 0 ? (
+                <Suspense fallback={<p>正在打开正文…</p>}><ImportedContentEditor key={record.id + ':' + editorEpoch} value={record.value.blocks} onChange={blocks => update({ blocks })} catalog={state} onError={setError} /></Suspense>
               ) : (
                 <Suspense fallback={<p>正在载入编辑器…</p>}>
                   <Editor
+                    toolbarTarget={article ? toolbarTarget : undefined}
                     key={record.id + ':' + editorEpoch}
                     value={record.value.document}
                     onChange={(document) => update({ document })}
@@ -253,7 +226,10 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                 />
               )}
             </div>
-            <EntrySettings model={model} />
+            {settingsOpen && (article ? <Dialog label="文章设置" className="modal article-options-dialog" onClose={() => setSettingsOpen(false)}><div className="article-options-heading"><h2>文章设置</h2><button type="button" aria-label="关闭文章设置" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div><EntrySettings model={model} mode="more" /></Dialog> : <Dialog label="内容设置" className="article-settings-dialog" onClose={() => setSettingsOpen(false)}><EntrySettings model={model} onClose={() => {
+              setSettingsOpen(false);
+              document.querySelector<HTMLButtonElement>('[aria-controls="entry-settings"]')?.focus();
+            }} /></Dialog>)}
           </div>
         </>
       )}

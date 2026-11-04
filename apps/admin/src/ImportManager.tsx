@@ -26,8 +26,8 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
       await refresh();
     } catch (error) { setError(error); setReport(null); } finally { setBusy(false); setProgress(''); }
   };
-  return <section className="form-card import-manager"><div className="panel-title"><h2>数据交换与 WordPress 导入</h2><button disabled={busy} onClick={() => api('export').then((data) => download(data, 'weava-site.json')).catch(setError)}>导出内容 JSON</button></div>
-    <p>选择 Weava JSON 或 WordPress 标准 WXR XML。导入完成后保存在工作稿中，需要另外发布；JSON 不包含媒体文件，完整备份可保存媒体。</p>
+  return <section className="form-card import-manager"><div className="panel-title"><h2>导入与导出</h2><button disabled={busy} onClick={() => api('export').then((data) => download(data, 'weava-site.json')).catch(setError)}>导出网站内容</button></div>
+    <p>支持从 Weava 或 WordPress 导出的文件。导入完成后保存在工作稿中，需要另外发布；JSON 不包含媒体文件，完整备份可保存媒体。</p>
     <label className="button">选择导入文件<input type="file" aria-label="选择导入文件" accept=".json,.xml" disabled={busy} onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setError(null); setReport(null); if (file.size > 128 * 1024 * 1024) { setError(new Error('文件超过 128 MB，请分批导出。')); return; } const text = await file.text(); setSource({ name: file.name, text, wxr: /^\s*(?:\ufeff)?</.test(text) }); }} /></label>
     {source && <p>{source.name}</p>}
     <div className="import-options">{[['同时导入站点设置', settings, setSettings], ['合并已有内容', merge, setMerge], ...(source?.wxr ? [['下载来源附件', media, setMedia], ['导入来源评论', comments, setComments]] : [])].map(([label, value, change]) => <label className="checkbox" key={String(label)}><input type="checkbox" disabled={busy} checked={Boolean(value)} onChange={(event) => { (change as (value: boolean) => void)(event.target.checked); setReport(null); }} />{label as string}</label>)}</div>

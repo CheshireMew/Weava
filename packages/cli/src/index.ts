@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { readOwnerPassword } from './owner-input.ts';
+import { checkedLocalOwnerLink, localOwnerStatus, announceOwnerAccess } from './owner-links.ts';
 import {
   Site,
   assertServiceStopped,
@@ -33,6 +34,8 @@ import { migrateWordPressRoutes } from '../../core/src/migrate-wordpress-routes.
 import { importWordPressWxr } from '../../core/src/wordpress-wxr.ts';
 import { compactDatabase } from '../../core/src/history-archive.ts';
 import { registerDiagnostics } from './diagnostics/index.ts';
+import { open as openFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { selectedProgram,defaultProgram,checkProgramUpgrade,applyProgramUpgrade,recoverProgramUpgrade,verifyProgram } from '../../core/src/programs.ts';
 const bundledProgram = import.meta.dirname.endsWith('runtime') && existsSync(join(import.meta.dirname,'..','program.json')) ? resolve(import.meta.dirname,'..') : null;
 const framework =
@@ -83,6 +86,22 @@ async function wait(job: any, enabled: boolean) {
   if (job.status !== 'complete') process.exitCode = 1;
   return job;
 }
+program.command('media-upload <file>').description('分块上传媒体；用 --upload-id 继续上次上传').option('--upload-id <id>').option('--wait').action(async(file,options)=>{
+  const path=resolve(file),handle=await openFile(path,'r');
+  try{
+    const info=await handle.stat();if(!info.isFile())throw new Error('请选择普通文件。');
+    let state=options.uploadId?await request('media/uploads/'+encodeURIComponent(options.uploadId)):await request('media/uploads',{name:basename(path),size:info.size});
+    if(state.size!==info.size||state.name!==basename(path))throw new Error('上传状态对应的文件名称或大小不同。');
+    output({uploadId:state.id,offset:state.offset,size:state.size});
+    const buffer=Buffer.allocUnsafe(state.chunkBytes);
+    while(state.offset<state.size){
+      const offset=state.offset,{bytesRead}=await handle.read(buffer,0,Math.min(buffer.length,state.size-offset),offset);if(!bytesRead)throw new Error('文件在上传期间发生变化。');
+      try{state=await request('media/uploads/'+encodeURIComponent(state.id)+'?offset='+offset,buffer.subarray(0,bytesRead));}
+      catch(error){const latest=await request('media/uploads/'+encodeURIComponent(state.id)).catch(()=>null);if(latest?.offset>offset){state=latest;continue;}throw error;}
+    }
+    output(await wait(await request('media',{uploadId:state.id}),!!options.wait));
+  }finally{await handle.close();}
+});
 program
   .command('init')
   .option('--password-file <file>')
@@ -156,6 +175,8 @@ for (const mode of ['dev', 'start'])
         process.exitCode = code ?? 1;
       });
       process.on('SIGINT', () => child.kill('SIGINT'));
+      void announceOwnerAccess(root(),port,program.opts().url,()=>child.exitCode===null&&!child.killed,text=>console.log(text))
+        .catch(()=>console.error('无法显示账户入口，请在本机运行 owner status 查看。'));
     });
 program.command('build').option('--output <path>','独立版本构建目录').action((opts) => {
   const child = spawn(process.execPath, ['--import', 'tsx', join(framework, 'scripts/build.ts')], {
@@ -382,6 +403,11 @@ program
     output(await request('import', { value: data, options: { mode: opts.merge ? 'merge' : 'create', dryRun: !!opts.dryRun, revisions: data.revisions } }));
   });
 const owner = program.command('owner');
+owner.command('setup-link').description('为尚未设置账户的站点生成一次性设置链接，10 分钟有效')
+  .action(async()=>output(await checkedLocalOwnerLink(root(),'initialize',program.opts().url)));
+owner.command('reset-link').description('从本机发放一次性账户重设链接；原账户在提交前保持不变')
+  .option('--reset-two-factor','明确允许同时清除丢失的两步验证；默认保留')
+  .action(async opts=>output(await checkedLocalOwnerLink(root(),'reset',program.opts().url,!!opts.resetTwoFactor)));
 owner
   .command('reset-password')
   .option('--password-file <file>', '不提供时在终端隐藏输入并确认密码')
@@ -411,7 +437,7 @@ owner.command('recover').description('停站后恢复站主账户，按选项处
     });
   });
 owner.command('status').description('在本机查看站主账户名和后台入口，不输出秘密')
-  .action(()=>{if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');const site=new Site(root());try{const value=site.auth.account('');output({initialized:site.ownerExists(),username:value.username,adminPath:value.adminPath,twoFactorEnabled:value.twoFactorEnabled});}finally{site.close();}});
+  .action(()=>output(localOwnerStatus(root())));
 owner.command('admin-path').description('停站后更改后台入口；旧地址返回 404')
   .requiredOption('--path <path>')
   .action(opts=>withInstanceMaintenance(root(),()=>{if(!existsSync(join(root(),'weava.sqlite')))throw new Error('站点未初始化。');const site=new Site(root());try{output(site.auth.setAdminPath(opts.path));}finally{site.close();}}));
@@ -436,7 +462,7 @@ migrate.command('wxr')
   .option('--merge-revisions <file>', '合并已有内容的当前修订号，格式与 JSON 导入相同')
   .action(async (opts) => {
     return withInstanceMaintenance(root(), async () => { const site = new Site(root());
-    try { output(await importWordPressWxr(site, readFileSync(resolve(opts.input), 'utf8'), { dryRun: !!opts.dryRun, settings: !!opts.settings, downloadMedia: !!opts.downloadMedia,
+    try { output(await importWordPressWxr(site, {file:resolve(opts.input)}, { dryRun: !!opts.dryRun, settings: !!opts.settings, downloadMedia: !!opts.downloadMedia,
       mediaDirectory: opts.mediaDir ? resolve(opts.mediaDir) : undefined, comments: opts.comments, ...(opts.mergeRevisions ? { mode: 'merge', revisions: JSON.parse(readFileSync(resolve(opts.mergeRevisions), 'utf8')) } : {}) })); }
     finally { site.close(); }
     });

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import * as z from 'zod';
 const validDatasetDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
 const date = z.string().refine(validDatasetDate, '需要有效的 YYYY-MM-DD 日期');
 const count = z.number().int().min(0), url = z.url().refine((value) => /^https?:\/\//.test(value));

@@ -6,10 +6,14 @@ import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile } from '
 import { WeavaError } from '@weava/contracts';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
+import { randomBytes } from 'node:crypto';
 import { assertRequestOrigin } from '../../../packages/core/src/request-safety.ts';
 import { requestIdentity } from '@weava/core';
 import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
+import { assetResponse } from '../../../packages/core/src/asset-response.ts';
+import { releaseIndex } from '../../../packages/core/src/release-index.ts';
 const compress = promisify(gzip);
+const developmentNonces = new WeakMap<Response, string>();
 const mime: Record<string, string> = {
   '.css': 'text/css',
   '.js': 'text/javascript',
@@ -44,6 +48,19 @@ const serve = defineMiddleware(async (context, next) => {
   const adminPath=site.auth.adminPath();
   if ((path==='/admin'||path.startsWith('/admin/')||site.auth.retiredAdminPaths().some(old=>path===old||path.startsWith(old+'/'))) && !isAdminPage(path,adminPath))
     return new Response('Not found',{status:404,headers:{'Cache-Control':'no-store'}});
+  if (import.meta.env.DEV && isAdminPage(path, adminPath)) {
+    const { adminDevelopmentHtml } = await import('./admin-development.ts');
+    const nonce = randomBytes(18).toString('base64');
+    const html = (await adminDevelopmentHtml(context.url.pathname + context.url.search))
+      .replace(/<script\b/g, `<script nonce="${nonce}"`);
+    const response = new Response(html, { headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow',
+    } });
+    developmentNonces.set(response, nonce);
+    return response;
+  }
   if(path.startsWith('/_admin/')&&!path.startsWith('/_admin/assets/'))return new Response('Not found',{status:404});
   if (isAdminPage(path,adminPath) || path.startsWith('/_admin/assets/')) {
     const framework = process.env.WEAVA_FRAMEWORK ?? resolve(process.cwd(), '../..');
@@ -52,6 +69,7 @@ const serve = defineMiddleware(async (context, next) => {
       ? inside(base, decodeURIComponent(path.slice(8)))
       : join(base, 'index.html');
     if (!existsSync(file)) return new Response('后台尚未构建，请运行 build。', { status: 503 });
+    if(path.startsWith('/_admin/assets/'))return assetResponse(file,context.request,mime[extname(file)]??'application/octet-stream');
     return new Response(readFileSync(file), {
       headers: {
         'Content-Type': mime[extname(file)] ?? 'text/html; charset=utf-8',
@@ -107,12 +125,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
   response.headers.set('X-Frame-Options','SAMEORIGIN');
   const admin=isAdminPage(context.url.pathname,site.auth.adminPath())||context.url.pathname.startsWith('/_admin/');
   if(admin)response.headers.set('Referrer-Policy','no-referrer');
-  if(admin)response.headers.set('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'");
+  if(admin) {
+    const nonce = developmentNonces.get(response);
+    const scripts = nonce ? `'self' 'nonce-${nonce}'` : "'self'";
+    const connections = import.meta.env.DEV ? `'self' ${context.url.protocol === 'https:' ? 'wss' : 'ws'}://${context.url.host}` : "'self'";
+    response.headers.set('Content-Security-Policy',`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src ${connections}; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'`);
+  }
   else if(!context.url.pathname.startsWith('/media/'))response.headers.set('Content-Security-Policy',(response.headers.get('Content-Security-Policy')??'')+"; frame-ancestors 'self'; base-uri 'self'");
-  if (context.request.method === 'GET' && site.visibleRelease()?.entries.some((entry) => entry.path === context.url.pathname)) {
+  const programAsset=context.url.pathname.startsWith('/_admin/assets/')||context.url.pathname.startsWith('/_astro/');
+  const published=!admin&&!programAsset&&context.request.method==='GET'&&response.headers.get('content-type')?.includes('text/html')?site.visibleRelease():null;
+  if (published && releaseIndex(published).byPath.has(context.url.pathname)) {
     try { analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status); } catch {}
   }
-  if (!context.url.pathname.startsWith('/_astro/')) {
+  if (!programAsset) {
     const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     vary.add('Cookie');
     response.headers.set('Vary', [...vary].join(', '));

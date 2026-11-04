@@ -3,16 +3,21 @@ import { createBackup, verifyBackup } from './backup.ts';
 import { uploadMedia, cropMedia } from './media.ts';
 import { inside } from './storage.ts';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync,existsSync } from 'node:fs';
+import { rename } from 'node:fs/promises';
 import { extension } from './extensions.ts';
 import { Analytics } from './analytics.ts';
 import { importWordPressWxr } from './wordpress-wxr.ts';
 import { archiveHistory, restoreHistoryArchive } from './history-archive.ts';
-import { preparePublication } from './publication.ts';
+import { readPublicationCandidate, commitPublication } from './publication.ts';
 import { runPublicationPlan } from './publication-plans.ts';
+import { runScheduledPublication } from './schedules.ts';
 import { imageVariant } from './image-variants.ts';
 import { WeavaError } from '@weava/contracts';
 const [root, id] = process.argv.slice(2);
+if(id==='--service'){
+  (await import('./task-service-worker.ts')).serveTasks(root);
+}else{
 const site = new Site(root);
 const job = site.job(id);
 let extensionAnalytics: Analytics | undefined;
@@ -29,10 +34,14 @@ try {
     extensionAnalytics = new Analytics(root);
     const manager=await extension(site, { analytics: extensionAnalytics }, { mode: 'worker' });
     if (job.payload.planId) result = await runPublicationPlan(site, job.payload.planId, job.payload.planRevision, (release) => manager.validateRelease(release), job.payload.options, id);
+    else if(job.payload.scheduleId){
+      const release=await runScheduledPublication(site,job.payload.scheduleId,job.payload.scheduleRevision,release=>manager.validateRelease(release),Date.now(),id);
+      result=release?{releaseId:release.id,entries:release.entries.length}:{skipped:true};
+    }
     else {
-    const review=site.previewPublication(job.payload);
-    await manager.validateRelease(preparePublication(site,review.options).release);
-    const release = site.publish({ ...review.options, jobId: id });
+    const prepared=readPublicationCandidate(site,job.payload);
+    await manager.validateRelease(prepared.release);
+    const release = commitPublication(site,prepared,{...job.payload,jobId:id});
     result = { releaseId: release.id, entries: release.entries.length };
     }
   } else if (job.operation.startsWith('analytics-')) {
@@ -43,7 +52,7 @@ try {
     else if(job.operation==='analytics-realtime')result=extensionAnalytics.realtime(params);
     else if(job.operation==='analytics-visitor')result=extensionAnalytics.visitor(job.payload.id,params,job.payload.timezone);
     else throw new Error('未知统计操作');
-  } else if (job.operation === 'preflight-wxr') result = await importWordPressWxr(site,readFileSync(inside(join(site.root,'imports'),job.payload.sourcePath),'utf8'),{...job.payload.options,dryRun:true});
+  } else if (job.operation === 'preflight-wxr') result = await importWordPressWxr(site,{file:inside(join(site.root,'imports'),job.payload.sourcePath)},{...job.payload.options,dryRun:true});
   else if (job.operation === 'backup')
     result = await createBackup(
       site,
@@ -51,15 +60,22 @@ try {
       job.payload.label,
     );
   else if (job.operation === 'verify') result = verifyBackup(job.payload.path);
-  else if (job.operation === 'media')
-    result = await uploadMedia(
-      site,
-      readFileSync(inside(join(site.root, 'media'), job.payload.path)),
-      job.payload.name,
-    );
+  else if (job.operation === 'media'){
+    const upload=job.payload.uploadId?site.store.raw.prepare('SELECT path,job_id FROM media_uploads WHERE id=?').get(job.payload.uploadId) as {path:string;job_id:string}|undefined:undefined;
+    if(job.payload.uploadId&&upload?.job_id!==id)throw new Error('上传任务与暂存文件不一致。');
+    const selected=job.payload.uploadId?inside(site.root,upload!.path):inside(join(site.root,'media'),job.payload.path);
+    const path=existsSync(selected)?selected:inside(site.root,job.payload.path);
+    result=await uploadMedia(site,path,job.payload.name);
+    if(upload){
+      const destination=inside(site.root,result.value.url.slice(1));
+      // Persist the recovery location before moving. An interrupted move can still use the staged path.
+      site.store.raw.prepare("UPDATE media_uploads SET status='complete',path=? WHERE id=?").run(result.value.url.slice(1),job.payload.uploadId);
+      if(path!==destination)await rename(path,destination);
+    }
+  }
   else if (job.operation === 'media-edit') result = await cropMedia(site, job.payload.id, job.payload.revision, job.payload.crop);
   else if (job.operation === 'media-variant') result = await imageVariant(site, job.payload);
-  else if (job.operation === 'import-wxr') result = await importWordPressWxr(site, readFileSync(inside(join(site.root, 'imports'), job.payload.sourcePath), 'utf8'), job.payload.options, (message) => site.updateJob(id, { message }));
+  else if (job.operation === 'import-wxr') result = await importWordPressWxr(site, {file:inside(join(site.root, 'imports'), job.payload.sourcePath)}, job.payload.options, (message) => site.updateJob(id, { message }));
   else if (job.operation === 'archive-history') result = await archiveHistory(site, job.payload.options, job.payload.review);
   else if (job.operation === 'restore-history') result = restoreHistoryArchive(site, job.payload.id);
   else throw new Error('未知任务：' + job.operation);
@@ -72,4 +88,5 @@ try {
 } finally {
   extensionAnalytics?.close();
   site.close();
+}
 }

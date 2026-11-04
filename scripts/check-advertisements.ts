@@ -131,6 +131,8 @@ try {
       ].every(([a, b]) => !!(document.querySelector(a)!.compareDocumentPosition(document.querySelector(b)!) & Node.DOCUMENT_POSITION_FOLLOWING));
     });
     assert(order, theme + ' advertisement order');
+    if (theme === 'newsletter') assert(await visitor.evaluate(() =>
+      document.querySelector('.nl-navigation')!.nextElementSibling === document.querySelector('[data-ad-slot="siteTop"]')!.parentElement));
     if (theme === 'newsletter') assert(!(await visitor.locator('.nl-toc').innerText()).includes('广告'));
     await visitor.screenshot({ path: join(output, theme + '-article-desktop.png'), fullPage: true });
     await visitor.setViewportSize({ width: 390, height: 844 });

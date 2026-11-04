@@ -10,7 +10,7 @@ export function AdvertisementSettings({
   return (
     <section className="form-card advertisement-settings">
       <h2>广告</h2>
-      <p>网页广告显示在页头导航下方、页脚上方；文章广告显示在文章内容前后。支持 HTML、CSS 和广告脚本，发布设置后生效。</p>
+      <p>网页顶部广告位于页头导航下方，网页底部广告位于页脚上方。支持 HTML、CSS 和广告脚本，发布设置后生效。</p>
       <div className="advertisement-editors">
         {advertisementSlots.map(({ id, label }) => {
           const slot = value?.[id] ?? { enabled: false, html: '' };

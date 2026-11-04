@@ -3,13 +3,16 @@ import { existsSync, createWriteStream } from 'node:fs';
 import { join } from 'node:path';
 import { WeavaError, type Job } from '@weava/contracts';
 import type { Site } from './site.ts';
+import { TaskService } from './task-service.ts';
 export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number }
 export class JobRunner {
   private children = new Map<string,ChildProcess>();
   private timer: ReturnType<typeof setInterval>;
   private stopped = false;
   private concurrency: number;
+  private service:TaskService;
   constructor(private site: Site, private options: JobRunnerOptions) {
+    this.service=new TaskService(site.root,options);
     this.concurrency = Math.max(1,Math.min(4,options.concurrency??2));
     this.timer=setInterval(()=>this.pump(),250); this.timer.unref();
   }
@@ -29,6 +32,8 @@ export class JobRunner {
   }
   pump() {
     if(this.stopped)return;
+    // An idle poll is a read, not a write-lock acquisition. SQLite can answer this through jobs_status.
+    if(!this.site.store.raw.prepare("SELECT 1 FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 LIMIT 1").get())return;
     for(;;){
       const claimed=this.site.store.raw.transaction(()=>{
         const active=this.site.store.raw.prepare("SELECT COUNT(*) n FROM jobs WHERE status='running'").get() as {n:number};
@@ -77,6 +82,7 @@ export class JobRunner {
       await new Promise(resolve=>setTimeout(resolve,100));
     }
   }
+  query(operation:string,payload:any){return this.service.run(operation,payload);}
   /** Running workers finish independently. Never close their instance leases or kill unrelated processes. */
-  stop() {this.stopped=true;clearInterval(this.timer);}
+  stop() {this.stopped=true;clearInterval(this.timer);this.service.stop();}
 }

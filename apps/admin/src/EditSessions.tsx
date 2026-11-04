@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { EditSession, type EditableRecord } from './edit-session.ts';
 import { Dialog } from './Dialog.tsx';
-interface Guard { label: string; dirty: () => boolean; save: () => Promise<any>; discard: () => void; session?: EditSession<any> }
+import { useAutosave, type AutosaveOptions } from './useAutosave.ts';
+interface Guard { label: string; dirty: () => boolean; save: () => Promise<any>; discard: () => void; session?: EditSession<any>; closeMessage?: string }
 const Context = createContext<{ register: (guard: Guard) => () => void; flush: () => Promise<void>; changed: () => void } | null>(null);
 export function EditSessionsProvider({ children }: { children: ReactNode }) {
   const guards = useRef(new Set<Guard>()), [,render] = useState(0);
@@ -21,7 +22,10 @@ export function EditSessionsProvider({ children }: { children: ReactNode }) {
   }
   const api = useRef({register,flush,changed}); api.current.flush = flush;
   useEffect(() => {
-    const leave = (event: BeforeUnloadEvent) => { if ([...guards.current].some(guard => guard.dirty())) { event.preventDefault(); event.returnValue=''; } };
+    const leave = (event: BeforeUnloadEvent) => {
+      const guard = [...guards.current].find(guard => guard.dirty());
+      if (guard) { event.preventDefault(); event.returnValue=guard.closeMessage ?? '修改没有保存，是否确认关闭'; }
+    };
     window.addEventListener('beforeunload',leave); return () => window.removeEventListener('beforeunload',leave);
   },[]);
   return <Context.Provider value={api.current}>{children}
@@ -30,11 +34,11 @@ export function EditSessionsProvider({ children }: { children: ReactNode }) {
   </Context.Provider>;
 }
 export function useEditSessions() { const value=useContext(Context); if (!value) throw new Error('Missing edit session provider'); return value; }
-export function useEditGuard(label: string, dirty: () => boolean, save: () => Promise<any>, discard: () => void, session?: EditSession<any>) {
+export function useEditGuard(label: string, dirty: () => boolean, save: () => Promise<any>, discard: () => void, session?: EditSession<any>, closeMessage?: string) {
   const manager=useEditSessions(), latest=useRef({dirty,save,discard}); latest.current={dirty,save,discard};
-  useEffect(()=>manager.register({label,dirty:()=>latest.current.dirty(),save:()=>latest.current.save(),discard:()=>latest.current.discard(),session}),[manager,label,session]);
+  useEffect(()=>manager.register({label,dirty:()=>latest.current.dirty(),save:()=>latest.current.save(),discard:()=>latest.current.discard(),session,closeMessage}),[manager,label,session,closeMessage]);
 }
-export function useManagedRecord<R extends EditableRecord>(initial: R | null, write: (record: R) => Promise<R>, label: string, options: { recovery?: boolean; discard?: () => void; saved?: (row: R, snapshot: R, unchanged: boolean) => void } = {}) {
+export function useManagedRecord<R extends EditableRecord>(initial: R | null, write: (record: R) => Promise<R>, label: string, options: { recovery?: boolean; closeMessage?: string; discard?: () => void; saved?: (row: R, snapshot: R, unchanged: boolean) => void; autosave?: boolean | AutosaveOptions<R> } = {}) {
   const manager=useEditSessions(),[,render]=useState(0),latest=useRef(write), latestOptions=useRef(options); latest.current=write; latestOptions.current=options;
   const ref=useRef<EditSession<R> | null>(null);
   if (!ref.current) {
@@ -42,6 +46,7 @@ export function useManagedRecord<R extends EditableRecord>(initial: R | null, wr
     ref.current=new EditSession(initial,row=>latest.current(row),()=>{render(value=>value+1);queueMicrotask(manager.changed);},storage,'weava-edit:v1:'+label,(...args)=>latestOptions.current.saved?.(...args));
   }
   const session=ref.current;
-  useEditGuard(label,()=>session.dirty,session.save,()=>{session.discard();options.discard?.();},options.recovery === false ? undefined : session);
-  return {record:session.record,setRecord:session.change,session};
+  useEditGuard(label,()=>session.dirty,session.save,()=>{session.discard();options.discard?.();},options.recovery === false ? undefined : session,options.closeMessage);
+  const autoSave = useAutosave(session, options.autosave);
+  return {record:session.record,setRecord:session.change,session,autoSave};
 }

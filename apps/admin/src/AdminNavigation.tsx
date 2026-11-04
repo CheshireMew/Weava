@@ -1,7 +1,6 @@
 import {
   FileText,
   X,
-  PanelsTopLeft,
   Images,
   Palette,
   ChartNoAxesCombined,
@@ -17,18 +16,15 @@ import {
 
 export const tabs = [
   ['content', '内容', FileText],
-  ['pages', '页面', PanelsTopLeft],
-  ['layouts', '布局', PanelsTopLeft],
   ['types', '内容类型', Shapes],
-  ['terms', '分类与标签', Shapes],
   ['media', '媒体', Images],
   ['comments', '评论', MessageSquare],
   ['redirects', '网址别名', ArrowUpRight],
-  ['publication-plans', '发布计划', Check],
-  ['appearance', '外观与导航', Palette],
+  ['publication-plans', '批量发布计划', Check],
+  ['appearance', '网站设置', Palette],
   ['analytics', '访问统计', ChartNoAxesCombined],
-  ['search-tools', '搜索与检查', Search],
-  ['operations', '运行与备份', Settings2],
+  ['search-tools', '网站检查', Search],
+  ['operations', '备份与维护', Settings2],
   ['account', '账户', UserRound],
 ] as const;
 export function AdminNavigation({
@@ -46,6 +42,12 @@ export function AdminNavigation({
   navigate: (tab: string) => Promise<boolean>;
   logout: () => Promise<void>;
 }) {
+  const group = (keys: string[]) => keys.map(key => tabs.find(tab => tab[0] === key)!);
+  const tools = group(['types', 'redirects', 'publication-plans', 'search-tools']);
+  const links = (items: (typeof tabs)[number][]) => items.map(([key, label, Icon]) => (
+    <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''}
+      key={key} onClick={() => navigate(key)}><Icon size={18} />{label}</button>
+  ));
   return (
     <>
       {compact && (
@@ -53,28 +55,21 @@ export function AdminNavigation({
           <X size={20} />
         </button>
       )}
-      <a className="app-brand" href="/admin/">
-        <span>w</span>Weava
-      </a>
-      <div className="site-name">{state?.settings.value.name ?? '你的网站'}</div>
+      <div className="site-identity">
+        <a className="app-brand" href="/admin/" aria-label="返回 Weava 后台">
+          <span className="brand-mark" aria-hidden="true">W</span><span title={state?.settings.value.name ?? '你的网站'}>{state?.settings.value.name ?? '你的网站'}</span>
+        </a>
+        <a href="/" target="_blank" rel="noreferrer" className="view-site" aria-label="查看网站" title="查看网站"><ArrowUpRight size={17} aria-hidden="true" /></a>
+      </div>
       <nav aria-label="网站管理">
-        {tabs.map(([key, label, Icon]) => (
-          <button
-            aria-current={tab === key ? 'page' : undefined}
-            className={tab === key ? 'active' : ''}
-            key={key}
-            onClick={() => navigate(key)}
-          >
-            <Icon size={18} />
-            {label}
-          </button>
-        ))}
+        <div className="nav-group">{links(group(['content', 'media', 'comments', 'analytics']))}</div>
+        <div className="nav-group">{links(group(['appearance', 'operations']))}</div>
+        <details className="nav-tools" open={tools.some(item => item[0] === tab) || undefined}>
+          <summary>更多管理</summary><div className="nav-group">{links(tools)}</div>
+        </details>
+        <div className="nav-group">{links(group(['account']))}</div>
       </nav>
       <div className="sidebar-bottom">
-        <a href="/" target="_blank">
-          查看网站
-          <ArrowUpRight size={16} />
-        </a>
         <button onClick={logout}>
           <LogOut size={16} />
           退出

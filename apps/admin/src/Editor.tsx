@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useSelectors, type SelectedMedia } from './Selectors.tsx';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
@@ -57,7 +58,6 @@ import type { Document } from '@weava/contracts';
 import {
   Bold,
   Italic,
-  Heading2,
   Quote,
   List,
   ListOrdered,
@@ -227,23 +227,37 @@ const table: Transformer = {
   },
 };
 const transformers = [table, image, ...TRANSFORMERS];
+function ToolbarOutlet({ target, children }: { target?: HTMLElement | null; children: ReactNode }) {
+  return target ? createPortal(children, target) : children;
+}
 function Toolbar({
   onMode,
   onMedia,
+  target,
 }: {
   onMode: (markdown: string) => void;
   onMedia: () => Promise<SelectedMedia | null>;
+  target?: HTMLElement | null;
 }) {
   const [editor] = useLexicalComposerContext();
   const selectors = useSelectors();
   const [codeLanguage, setCodeLanguage] = useState('text');
+  const [blockType, setBlockType] = useState('paragraph');
+  const blockSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const codeSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const linkSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const captureLink = (mode: 'link' | 'video') => { linkSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); setLink(link ? null : mode); };
   const [link, setLink] = useState<'link' | 'video' | null>(null),
     [url, setUrl] = useState('');
+  useEffect(() => editor.registerUpdateListener(({ editorState }) => editorState.read(() => {
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) return;
+    const type = selection.anchor.getNode().getTopLevelElement()?.getType();
+    setBlockType(type === 'heading' ? 'h2' : type === 'quote' || type === 'code' ? type : 'paragraph');
+  })), [editor]);
   function block(kind: string) {
     editor.update(() => {
+      if (blockSelection.current) { $setSelection(blockSelection.current); blockSelection.current = null; }
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) return;
       const seen = new Set<string>();
@@ -252,7 +266,9 @@ function Toolbar({
         if (top && 'getChildren' in top && !seen.has(top.getKey())) {
           seen.add(top.getKey());
           const replacement =
-            kind === 'h2'
+            kind === 'paragraph'
+              ? $createParagraphNode()
+              : kind === 'h2'
               ? $createHeadingNode('h2')
               : kind === 'quote'
                 ? $createQuoteNode()
@@ -269,15 +285,22 @@ function Toolbar({
     </button>
   );
   return (
-    <>
-      <div className="format-toolbar">
+    <ToolbarOutlet target={target}>
+      <div className="format-toolbar" role="toolbar" aria-label="正文格式">
+        {button('撤销', <Undo2 size={16} />, () => editor.dispatchCommand(UNDO_COMMAND, undefined))}
+        {button('重做', <Redo2 size={16} />, () => editor.dispatchCommand(REDO_COMMAND, undefined))}
+        <span className="toolbar-divider" aria-hidden="true" />
+        <select aria-label="段落格式" value={blockType} onMouseDown={() => { blockSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); }} onChange={event => block(event.target.value)}>
+          <option value="paragraph">正文</option><option value="h2">标题</option><option value="quote">引用</option><option value="code">代码</option>
+        </select>
+        <span className="toolbar-divider" aria-hidden="true" />
         {button('加粗', <Bold size={16} />, () =>
           editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold'),
         )}
         {button('斜体', <Italic size={16} />, () =>
           editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic'),
         )}
-        {button('标题', <Heading2 size={17} />, () => block('h2'))}
+        <span className="toolbar-divider" aria-hidden="true" />
         {button('引用', <Quote size={16} />, () => block('quote'))}
         {button('无序列表', <List size={17} />, () =>
           editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
@@ -286,7 +309,7 @@ function Toolbar({
           editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
         )}
         {button('代码', <Code size={17} />, () => block('code'))}
-        <select aria-label="代码语言" value={codeLanguage} onMouseDown={() => { codeSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); }} onChange={(event) => { const language = event.target.value; setCodeLanguage(language); editor.update(() => { if (codeSelection.current) $setSelection(codeSelection.current); const selection = $getSelection(); if ($isRangeSelection(selection)) for (const node of selection.getNodes()) { const top = node.getTopLevelElement(); if ($isCodeNode(top)) top.setLanguage(language); } }); }}>{['text','typescript','javascript','python','json','html','css','bash','sql','yaml'].map((language) => <option key={language}>{language}</option>)}</select>
+        {blockType === 'code' && <select aria-label="代码语言" value={codeLanguage} onMouseDown={() => { codeSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); }} onChange={(event) => { const language = event.target.value; setCodeLanguage(language); editor.update(() => { if (codeSelection.current) $setSelection(codeSelection.current); const selection = $getSelection(); if ($isRangeSelection(selection)) for (const node of selection.getNodes()) { const top = node.getTopLevelElement(); if ($isCodeNode(top)) top.setLanguage(language); } }); }}>{['text','typescript','javascript','python','json','html','css','bash','sql','yaml'].map((language) => <option key={language}>{language}</option>)}</select>}
         {button('链接', <Link size={16} />, () => captureLink('link'))}
         {button('插入视频', <Video size={17} />, () => captureLink('video'))}
         {button('表格', <Table size={16} />, () =>
@@ -305,9 +328,7 @@ function Toolbar({
               $insertNodes([new MediaNode(media.url, media.alt ?? media.name, media.kind, undefined, media.caption)]);
             });
         })}
-        <span className="toolbar-spacer" />
-        {button('撤销', <Undo2 size={16} />, () => editor.dispatchCommand(UNDO_COMMAND, undefined))}
-        {button('重做', <Redo2 size={16} />, () => editor.dispatchCommand(REDO_COMMAND, undefined))}
+        <span className="toolbar-divider" aria-hidden="true" />
         <button
           className="text-button"
           onClick={() =>
@@ -346,33 +367,38 @@ function Toolbar({
           }}>链接到内容</button>}
         </div>
       )}
-    </>
+    </ToolbarOutlet>
   );
+}
+function supportsVisualEditing(document: Document) {
+  return document.format === 'lexical' ||
+    (document.format === 'markdown' && !/(<\/?[a-z]|^::|\$\$|^\[\^)/m.test(document.source));
 }
 export function Editor({
   value,
   onChange,
   onMedia,
   onError,
+  toolbarTarget,
+  outputFormat = 'lexical',
 }: {
   value: Document;
   onChange: (value: Document) => void;
   onMedia: () => Promise<SelectedMedia | null>;
   onError: (message: string) => void;
+  toolbarTarget?: HTMLElement | null;
+  outputFormat?: 'lexical' | 'markdown';
 }) {
-  const [mode, setMode] = useState(value.format === 'lexical' ? 'visual' : 'source');
+  const [mode, setMode] = useState(() => supportsVisualEditing(value) ? 'visual' : 'source');
   const [seed, setSeed] = useState<Document>(value);
   if (mode === 'source')
     return (
       <div className="document-editor">
-        <div className="source-toolbar">
+        <ToolbarOutlet target={toolbarTarget}><div className="source-toolbar">
           <span>{value.format === 'html' ? '保留的来源 HTML' : 'Markdown'}</span>
           <button
             onClick={() => {
-              if (
-                value.format === 'html' ||
-                (value.format === 'markdown' && /(<\/?[a-z]|^::|\$\$|^\[\^)/m.test(value.source))
-              ) {
+              if (!supportsVisualEditing(value)) {
                 onError('包含不能无损转换的来源格式，继续使用源码模式可完整保留内容。');
                 return;
               }
@@ -382,7 +408,7 @@ export function Editor({
           >
             可视化编辑
           </button>
-        </div>
+        </div></ToolbarOutlet>
         <textarea
           className="markdown-editor"
           aria-label="正文源码"
@@ -432,17 +458,20 @@ export function Editor({
         }}
       >
         <Toolbar
+          target={toolbarTarget}
           onMode={(source) => {
             onChange({ version: 1, format: 'markdown', source });
             setMode('source');
           }}
           onMedia={onMedia}
         />
-        <RichTextPlugin
-          contentEditable={<ContentEditable className="visual-editor" aria-label="正文编辑器" />}
-          placeholder={<span className="editor-placeholder">写下你的内容…</span>}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
+        <div className="editor-canvas">
+          <RichTextPlugin
+            contentEditable={<ContentEditable className="visual-editor" aria-label="正文编辑器" />}
+            placeholder={<span className="editor-placeholder">写下你的内容…</span>}
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+        </div>
         <HistoryPlugin />
         <ListPlugin />
         <LinkPlugin />
@@ -450,9 +479,10 @@ export function Editor({
         <TableTools />
         <OnChangePlugin
           ignoreSelectionChange
-          onChange={(state) =>
-            onChange({ version: 1, format: 'lexical', source: state.toJSON() as any })
-          }
+          onChange={(state) => {
+            if (outputFormat === 'markdown') state.read(() => onChange({ version: 1, format: 'markdown', source: $convertToMarkdownString(transformers) }));
+            else onChange({ version: 1, format: 'lexical', source: state.toJSON() as any });
+          }}
         />
       </LexicalComposer>
     </div>
