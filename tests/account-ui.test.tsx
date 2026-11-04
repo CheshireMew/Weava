@@ -29,9 +29,10 @@ async function click(text:string){await act(async()=>button(text).click());}
 it('binds the authenticator QR and requires saving newly generated codes before returning to login',async()=>{
   const uri='otpauth://totp/Weava:owner?secret=DEMO&issuer=Weava';
   mocks.api.mockImplementation(async(path:string)=>path==='account'?structuredClone(account):path==='account/two-factor/begin'?{secret:'DEMO',uri}:path==='account/two-factor/confirm'?{recoveryCodes:['ONE','TWO']}:{});
-  await renderAccount();expect(button('设置两步验证').disabled).toBe(true);
+  await renderAccount();await click('两步验证');expect(button('设置两步验证').disabled).toBe(true);
   await fill('当前密码','violet river lantern 2026!');await click('设置两步验证');
   expect(mocks.qr).toHaveBeenCalledWith(uri,expect.objectContaining({width:208}));expect(host.querySelector('img')?.alt).toContain('验证器');
+  await click('账户资料');await click('两步验证');expect(host.querySelector('img')?.alt).toContain('验证器');
   await fill('6 位验证码','123456');await click('确认启用');
   expect(mocks.api).toHaveBeenCalledWith('account/two-factor/confirm',{password:'violet river lantern 2026!',code:'123456'});
   expect(host.textContent).toContain('等待验证器显示下一组数字');expect(button('重新登录').disabled).toBe(true);
@@ -44,15 +45,28 @@ it('binds the authenticator QR and requires saving newly generated codes before 
 it('requires fresh proof when renewing recovery codes and choosing which sessions to revoke',async()=>{
   const enabled={...account,twoFactorEnabled:true,recoveryCodesRemaining:1};
   mocks.api.mockImplementation(async(path:string)=>path==='account'?structuredClone(enabled):{recoveryCodes:['NEW-CODE']});
-  await renderAccount();expect(button('重新生成恢复码并退出全部登录').disabled).toBe(true);
+  await renderAccount();await click('两步验证');expect(button('重新生成恢复码并退出全部登录').disabled).toBe(true);
   await fill('当前密码','violet river lantern 2026!');await fill('验证码或恢复码','OLD-CODE');await click('重新生成恢复码并退出全部登录');
   expect(mocks.api).toHaveBeenCalledWith('account/two-factor/recovery-codes',{password:'violet river lantern 2026!',code:'OLD-CODE'});expect(host.textContent).toContain('NEW-CODE');
 });
 it('keeps entered credentials out of storage and clears proof after a sensitive action',async()=>{
-  const storage=vi.spyOn(Storage.prototype,'setItem');await renderAccount();await fill('当前密码','violet river lantern 2026!');await click('退出其他会话');
+  const storage=vi.spyOn(Storage.prototype,'setItem');await renderAccount();await click('登录会话');await fill('当前密码','violet river lantern 2026!');await click('退出其他会话');
   for(const field of host.querySelectorAll<HTMLInputElement>('input[pattern]'))expect(()=>new RegExp(field.pattern,'v')).not.toThrow();
   expect(mocks.api).toHaveBeenCalledWith('account/sessions/revoke',{password:'violet river lantern 2026!',code:undefined,id:'others'});
   expect(input('当前密码').value).toBe('');expect(storage).not.toHaveBeenCalled();
+});
+it('uses native section tabs and preserves unsaved account fields when switching sections',async()=>{
+  await renderAccount();
+  expect(host.querySelector('[role="tablist"]')?.classList.contains('library-status-tabs')).toBe(true);
+  expect([...host.querySelectorAll('[role="tab"]')].map(node=>node.textContent)).toEqual(['账户资料','两步验证','登录会话','账户记录']);
+  expect([...host.querySelectorAll('h2')].map(node=>node.textContent)).toEqual(['账户资料']);
+  await fill('显示名','新显示名');await fill('当前密码','violet river lantern 2026!');
+  await click('账户记录');expect(host.querySelector('input')).toBeNull();
+  await act(async()=>button('账户记录').dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true})));
+  expect(host.querySelector('[aria-selected="true"]')?.textContent).toBe('账户资料');
+  expect(document.activeElement).toBe(button('账户资料'));
+  expect(input('显示名').value).toBe('新显示名');expect(input('当前密码').value).toBe('violet river lantern 2026!');
+  expect(mocks.api).toHaveBeenCalledTimes(1);
 });
 it('shows the server wait and prevents immediate resubmission on the login screen',async()=>{
   vi.useFakeTimers();mocks.api.mockImplementation(async(path:string)=>{if(path==='session')return {authenticated:false,initialized:true,version:'test'};throw new ApiClientError('请稍后重试',429,{retryAt:Date.now()+2000},2);});

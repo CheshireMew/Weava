@@ -1360,6 +1360,10 @@ button.primary:active:not(:disabled), .icon-primary:active:not(:disabled) { back
 .job-logs pre { max-height: 55dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .job-log-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.account-section-navigation { display: flex; justify-content: center; margin-bottom: 28px; }
+.account-section-navigation .account-tabs { width: max-content; max-width: 100%; flex-wrap: nowrap; }
+.account-tabs button { flex-shrink: 0; }
+.account-proof { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
 .account-qr { display: block; max-width: 100%; height: auto; background: white; margin-block: 12px; }
 .account-events { padding-inline-start: 20px; max-height: 420px; overflow: auto; }
 .account-events li { padding-block: 10px; border-bottom: 1px solid var(--line); }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useId } from 'react';
 import QRCode from 'qrcode';
 import { api } from './api.ts';
 import type { ApiOutput } from '@weava/contracts/api';
@@ -13,7 +13,9 @@ const eventNames:Record<string,string>={
   'cli-token-rotated':'轮换 CLI 令牌','admin-path-changed':'更改后台入口',
 };
 const time=(value:string|null)=>value?new Date(value).toLocaleString():'暂无记录';
+const sections=[['profile','账户资料'],['two-factor','两步验证'],['sessions','登录会话'],['events','账户记录']] as const;
 export default function AccountPanel({setError,notify,sessionGeneration}:{setError:(message:string)=>void;notify:(message:string)=>void;sessionGeneration:number}) {
+  const id=useId(),[section,setSection]=useState<(typeof sections)[number][0]>('profile');
   const [account,setAccount]=useState<ApiOutput<'account'>|null>(null);
   const [loadError,setLoadError]=useState('');
   const [username,setUsername]=useState(''),[displayName,setDisplayName]=useState(''),[adminPath,setAdminPath]=useState('');
@@ -56,14 +58,18 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
   if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<p role="status">正在读取账户…</p>}</section>;
   const proof={password,code:code||undefined},blocked=busy||!!cooldown.seconds;
   const cannotProve=blocked||!password||(account.twoFactorEnabled&&!code);
-  return <div className="panel account-panel" aria-busy={busy}><div className="panel-title"><h1>账户</h1></div><div className="settings-panels">
-    <section className="form-card"><h2>验证身份</h2>
-      <p>修改账户、两步验证、登录入口或撤销凭据前，请在这里验证身份。</p>
+  const verification=<div className="account-proof">
       <PasswordField label="当前密码" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)}/>
       {account.twoFactorEnabled&&<label>验证码或恢复码<input autoComplete="one-time-code" value={code} onChange={event=>setCode(event.target.value)}/></label>}
       {!!cooldown.seconds&&<p role="status">请在 {cooldown.seconds} 秒后重试。</p>}
-    </section>
-    <section className="form-card"><h2>站主账户</h2><form onSubmit={event=>{event.preventDefault();act(async()=>{
+    </div>;
+  return <div className="panel account-panel" aria-busy={busy}><div className="panel-title"><h1>账户</h1></div>
+    <div className="account-section-navigation"><nav className="library-status-tabs account-tabs" role="tablist" aria-label="账户分区">{sections.map(([key,label],index)=><button key={key} role="tab" id={id+key} aria-selected={section===key} aria-controls={id+'panel'} tabIndex={section===key?0:-1} onClick={()=>setSection(key)} onKeyDown={event=>{
+      const next=event.key==='ArrowRight'?(index+1)%sections.length:event.key==='ArrowLeft'?(index+sections.length-1)%sections.length:event.key==='Home'?0:event.key==='End'?sections.length-1:-1;
+      if(next>=0){event.preventDefault();setSection(sections[next][0]);document.getElementById(id+sections[next][0])?.focus();}
+    }}>{label}</button>)}</nav></div>
+    <section className="panel-section" role="tabpanel" id={id+'panel'} aria-labelledby={id+section}>
+    {section==='profile'&&<section className="form-card"><h2>账户资料</h2><form onSubmit={event=>{event.preventDefault();act(async()=>{
       if(newPassword!==repeat)throw new Error('两次新密码不一致。');
       const result=await api('account',{...proof,username,displayName,newPassword:newPassword||undefined});
       if(result.loginRequired){window.location.reload();return;}await refresh();notify('账户资料已保存。');
@@ -73,11 +79,13 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
       <PasswordField label="新密码" minLength={15} maxLength={1024} autoComplete="new-password" value={newPassword} onChange={event=>setNewPassword(event.target.value)}/>
       <PasswordField label="确认新密码" autoComplete="new-password" value={repeat} onChange={event=>setRepeat(event.target.value)}/>
       <p>新密码至少 15 个字符，支持中文和空格。留空则保留原密码。修改账户名或密码会退出全部网页登录。</p>
+      {verification}
       <button className="primary" disabled={cannotProve}>保存账户</button>
-    </form></section>
-    <section className="form-card"><h2>两步验证</h2>
+    </form></section>}
+    {section==='two-factor'&&<section className="form-card"><h2>两步验证</h2>
       <p>{account.twoFactorEnabled?`已启用，还剩 ${account.recoveryCodesRemaining} 个恢复码。`:'使用验证器应用生成的 6 位验证码保护账户。'}</p>
       {account.twoFactorEnabled&&account.recoveryCodesRemaining<=2&&<p>恢复码即将用完，请重新生成并保存新的一组。</p>}
+      {verification}
       {account.twoFactorEnabled?<div className="account-actions">
         <button disabled={cannotProve} onClick={()=>act(async()=>{const result=await api('account/two-factor/recovery-codes',{password,code});setCodes(result.recoveryCodes);})}>重新生成恢复码并退出全部登录</button>
         <button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/two-factor/disable',{password,code});window.location.reload();})}>关闭两步验证</button>
@@ -87,12 +95,12 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
         <label>6 位验证码<input required pattern="[0-9]{6}" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={event=>setCode(event.target.value)}/></label>
         <button disabled={blocked||!password}>确认启用</button><button type="button" disabled={blocked} onClick={()=>{setSetup(null);setPassword('');setCode('');}}>取消</button>
       </form>:<button disabled={cannotProve} onClick={()=>act(async()=>{setSetup(await api('account/two-factor/begin',proof));},true)}>设置两步验证</button>}
-    </section>
-    <section className="form-card"><h2>登录会话</h2><button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:'others'});await refresh();notify('其他登录会话已撤销。');})}>退出其他会话</button>
+    </section>}
+    {section==='sessions'&&<section className="form-card"><h2>登录会话</h2>{verification}<button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:'others'});await refresh();notify('其他登录会话已撤销。');})}>退出其他会话</button>
       {account.sessions.map(session=><div className="account-session" key={session.id}><strong>{session.current?'当前会话':'登录会话'} · {session.browser} / {session.os}</strong><p>登录：{time(session.createdAt)}<br/>最近活动：{time(session.lastSeen)}<br/>到期：{time(session.expiresAt)}</p>{!session.current&&<button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:session.id});await refresh();})}>撤销此会话</button>}</div>)}
-    </section>
-    <section className="form-card"><h2>账户记录</h2><button disabled={busy} onClick={()=>act(async()=>{await refresh();})}>刷新记录</button>
+    </section>}
+    {section==='events'&&<section className="form-card"><h2>账户记录</h2><button disabled={busy} onClick={()=>act(async()=>{await refresh();})}>刷新记录</button>
       {account.events.length?<ol className="account-events">{account.events.map(event=><li key={event.id}><strong>{eventNames[event.event]??'账户操作'}</strong><span>{time(event.createdAt)} · {event.source==='cli'?'本机终端':'网页'}</span></li>)}</ol>:<p>暂无记录。</p>}
-    </section>
-  </div></div>;
+    </section>}
+  </section></div>;
 }
