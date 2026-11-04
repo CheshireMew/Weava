@@ -27,7 +27,7 @@ export function SourcesChart({ data, detail = false }: { data: AnalyticsReport; 
     ];
   })} />;
 }
-export function ReportContent({ report, data, query, detail = false }: { report: ReportName; data: AnalyticsReport; query: string; detail?: boolean }) {
+export function ReportContent({ report, data, query, detail = false, tableOnly = false }: { report: ReportName; data: AnalyticsReport; query: string; detail?: boolean; tableOnly?: boolean }) {
   const workspace = useContext(ReportWorkspace)!;
   const openVisitor = (id: string) => workspace.openVisitor(id, data);
   const { pageLink, pageColumns } = analyticsPresentation(data, openVisitor);
@@ -42,7 +42,7 @@ export function ReportContent({ report, data, query, detail = false }: { report:
       onSelect={value => filter(key, value)} />;
   }
   if (report === 'sources') return <>
-    {detail && <SourcesChart data={data} detail />}
+    {detail && !tableOnly && <SourcesChart data={data} detail />}
     <DataTable preview={!detail} size={detail ? 25 : 6} rows={data.sources} columns={[
       { key: 'name', label: '来源', render: v => <span className="analytics-source" title={v.host || v.name}>{v.name}<small>{channels[v.channel] || v.channel}</small></span> },
       ...(detail ? [{ key: 'sessions', label: '会话', numeric: true }, { key: 'visitors', label: '访客', numeric: true }] : []),

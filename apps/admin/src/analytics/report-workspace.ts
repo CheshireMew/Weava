@@ -3,9 +3,7 @@ import type { AnalyticsReport } from '@weava/contracts';
 import type { ReportName } from './report-navigation.ts';
 
 export const ReportWorkspace = createContext<{
-  data: AnalyticsReport; ranges: Record<string, string>; refresh: number;
-  setRange: (id: string, query: string) => void;
-  fetch: (query: string) => Promise<AnalyticsReport>;
+  data: AnalyticsReport; query: string;
   navigate: (report: ReportName | null, query?: string) => void;
   openVisitor: (id: string, data: AnalyticsReport) => void;
 } | null>(null);

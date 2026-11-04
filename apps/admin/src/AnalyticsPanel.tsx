@@ -1,64 +1,64 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import type { AnalyticsReport } from '@weava/contracts';
-import { api } from './api.ts';
-import { AnalyticsReportView } from './AnalyticsReportView.tsx';
+import { AnalyticsReportView, Delta } from './AnalyticsReportView.tsx';
+import { AnalyticsControls } from './analytics/AnalyticsControls.tsx';
 import { useAnalyticsReport } from './analytics/useAnalyticsReport.ts';
 import { ReportWorkspace, internalClick } from './analytics/report-workspace.ts';
-import { reportLocation, reports, reportUrl, type ReportName } from './analytics/report-navigation.ts';
+import { reportLocation, reportSection, sections, reportUrl, type AnalyticsSection, type ReportName } from './analytics/report-navigation.ts';
 import { AnalyticsDetail } from './analytics/AnalyticsDetail.tsx';
+import { AnalyticsExportContext } from './analytics/Card.tsx';
 import { VisitorDetails } from './analytics/VisitorDetails.tsx';
+import { number, duration } from './analytics/format.ts';
 import './AnalyticsPanel.css';
 
-export default function AnalyticsPanel({ onError }: { onError: (message: string) => void }) {
+type Location = ReturnType<typeof reportLocation>;
+export default function AnalyticsPanel({ onError, timezone = 'Asia/Shanghai' }: { onError: (message: string) => void; timezone?: string }) {
   const [route, setRoute] = useState(() => reportLocation(window.location.search));
-  const model = useAnalyticsReport('', !route.report);
-  const [ranges, setRanges] = useState<Record<string, string>>(() => {
-    try {
-      const stored = JSON.parse(sessionStorage.getItem('weava-analytics-ranges') || '{}');
-      const allowed = [...Object.keys(reports), 'source-ranking', 'search-trend', 'world'];
-      return Object.fromEntries(Object.entries(stored).filter(([key, query]) => {
-        if (!allowed.includes(key) || typeof query !== 'string') return false;
-        const p = new URLSearchParams(query), start = p.get('start') || '', end = p.get('end') || '';
-        return /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end) && start <= end;
-      })) as Record<string, string>;
-    } catch { return {}; }
-  }), [refresh, setRefresh] = useState(0);
-  useEffect(() => { try { sessionStorage.setItem('weava-analytics-ranges', JSON.stringify(ranges)); } catch {} }, [ranges]);
-  const cache = useRef(new Map<string, Promise<AnalyticsReport>>());
-  const [visitor, setVisitor] = useState<{ id: string; data: AnalyticsReport } | null>(null);
-  const fetch = useCallback((query: string) => {
-    const existing = cache.current.get(query);
-    if (existing) return existing;
-    const request = api(`analytics?${query}`).catch(error => { if (cache.current.get(query) === request) cache.current.delete(query); throw error; });
-    if (cache.current.size >= 32) cache.current.delete(cache.current.keys().next().value!);
-    cache.current.set(query, request);
-    return request;
-  }, []);
-  const navigate = useCallback((report: ReportName | null, query = '') => {
-    window.history.pushState(null, '', reportUrl(report, query));
-    setRoute({ report, query }); setVisitor(null);
-    document.querySelector('.analytics-panel')?.scrollTo({ top: 0 });
-  }, []);
   useEffect(() => {
-    const back = () => { setRoute(reportLocation(window.location.search)); setVisitor(null); };
+    const back = () => setRoute(reportLocation(window.location.search));
     window.addEventListener('popstate', back);
     return () => window.removeEventListener('popstate', back);
   }, []);
-  const refreshAll = () => { cache.current.clear(); setRefresh(value => value + 1); void model.load(); };
+  const navigate = (report: ReportName | null, query = route.query, section: AnalyticsSection = report ? reportSection(report) : route.section) => {
+    window.history.pushState(null, '', reportUrl(report, query, section));
+    setRoute({ report, query, section });
+    document.querySelector('.analytics-panel')?.scrollTo({ top: 0 });
+  };
+  return <AnalyticsWorkspace key={route.query} route={route} navigate={navigate} onError={onError} timezone={timezone} />;
+}
+function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Location; navigate: (report: ReportName | null, query?: string, section?: AnalyticsSection) => void; onError: (message: string) => void; timezone: string }) {
+  const model = useAnalyticsReport(route.query);
+  const [visitor, setVisitor] = useState<{ id: string; data: AnalyticsReport } | null>(null);
+  const id = useId(), { data, loading, error } = model;
+  const query = new URLSearchParams(route.query);
+  if (data) { query.set('start', data.range.start); query.set('end', data.range.end); }
+  const appliedQuery = query.toString();
+  const tabs = <nav className="analytics-tabs" role="tablist" aria-label="统计报表">{sections.map(([key, label], index) => <button key={key} role="tab" id={id + key} aria-selected={route.section === key} aria-controls={id + 'panel'} tabIndex={route.section === key ? 0 : -1} onClick={() => navigate(null, route.query, key)} onKeyDown={event => {
+    const next = event.key === 'ArrowRight' ? (index + 1) % sections.length : event.key === 'ArrowLeft' ? (index + sections.length - 1) % sections.length : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : -1;
+    if (next >= 0) { event.preventDefault(); navigate(null, route.query, sections[next][0]); document.getElementById(id + sections[next][0])?.focus(); }
+  }}>{label}</button>)}</nav>;
   return <div className="panel analytics-panel">
-    <header className="panel-title analytics-page-heading">
-      <div>{route.report && <a className="analytics-back" href={reportUrl(null)} onClick={event => internalClick(event, () => navigate(null))}><ArrowLeft size={14} />访问统计</a>}<h1>{route.report ? reports[route.report].title : '访问统计'}</h1></div>
-      {!route.report && <div className="analytics-actions"><a href={reportUrl('actions')} onClick={event => internalClick(event, () => navigate('actions'))}>链接与行为<ArrowLeft className="analytics-forward" size={13} /></a><button disabled={model.loading} onClick={refreshAll} aria-label="刷新统计"><RefreshCw size={15} className={model.loading ? 'spin' : ''} />刷新</button></div>}
-    </header>
-    {!model.data && model.loading && <p role="status" className="analytics-loading">正在读取统计…</p>}
-    {!model.data && model.error && <p role="alert" className="analytics-error">{model.error}<button onClick={() => model.load()}>重试</button></p>}
-    {model.data && <ReportWorkspace.Provider value={{ data: model.data, ranges, refresh, setRange: (id, query) => setRanges(old => ({ ...old, [id]: query })), fetch, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
-      {route.report ? <AnalyticsDetail key={route.report + '?' + route.query} report={route.report} query={route.query} onError={onError} /> : <>
-        {model.error && <p className="analytics-error" role="alert">{model.error}<button onClick={refreshAll}>重试</button></p>}
-        <AnalyticsReportView data={model.data} model={model} onError={onError} />
-      </>}
-      {visitor && <VisitorDetails key={visitor.id} visitor={visitor.id} setVisitor={() => setVisitor(null)} data={visitor.data} />}
-    </ReportWorkspace.Provider>}
+    <header className="panel-title"><h1>访问统计</h1><button disabled={loading} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading ? 'spin' : ''} />刷新</button></header>
+    <AnalyticsControls model={model} report={route.report} section={route.section} query={appliedQuery} timezone={timezone} onChange={query => navigate(route.report, query, route.section)} />
+    {data && !error && <div className="analytics-metrics">
+      {([['visitors', '访客'], ['views', '浏览量'], ['sessions', '会话'], ['clicks', '链接点击']] as const).map(([key, label]) => <article key={key}><span>{label}</span><strong>{number(data[key])}</strong><small>较上一时段 <Delta now={data[key]} before={data.previous[key]} /></small></article>)}
+      <article><span>平均可见停留</span><strong>{duration(data.averageActiveMs)}</strong><small>仅统计页面可见的时间</small></article>
+    </div>}
+    {tabs}
+    <section id={id + 'panel'} role="tabpanel" aria-labelledby={id + route.section} aria-busy={loading}>
+      {error && <p role="alert" className="analytics-error">{error}<button onClick={() => model.load()}>重试</button></p>}
+      {!data && loading && <p role="status" className="analytics-loading">正在读取统计…</p>}
+      {data && !error && <ReportWorkspace.Provider value={{ data, query: appliedQuery, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
+        <AnalyticsExportContext.Provider value={!loading ? appliedQuery : null}>
+          {route.report ? <>
+            <div className="analytics-report-heading"><a href={reportUrl(null, appliedQuery, route.section)} onClick={event => internalClick(event, () => navigate(null, appliedQuery, route.section))}><ArrowLeft size={14} />返回{sections.find(([key]) => key === route.section)?.[1]}</a></div>
+            <AnalyticsExportContext.Provider value={route.report === 'actions' ? appliedQuery : null}><AnalyticsDetail report={route.report} query={appliedQuery} model={model} onError={onError} /></AnalyticsExportContext.Provider>
+          </> : <AnalyticsReportView data={data} model={model} section={route.section} onError={onError} />}
+          <p className="analytics-comparison">{data.range.start} — {data.range.end}<span>对比 {data.range.previousStart} — {data.range.previousEnd} · {data.range.timezone}</span></p>
+        </AnalyticsExportContext.Provider>
+        {visitor && <VisitorDetails key={visitor.id} visitor={visitor.id} setVisitor={() => setVisitor(null)} data={visitor.data} />}
+      </ReportWorkspace.Provider>}
+    </section>
   </div>;
 }

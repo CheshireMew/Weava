@@ -286,7 +286,7 @@ export function App({authentication,error,setError}:AppProps) {
                   initialSection={new URLSearchParams(window.location.search).get('panel') === 'terms' ? 'navigation' : undefined}
                 />
               )}
-              {tab === 'analytics' && <AnalyticsPanel onError={setError} />}
+              {tab === 'analytics' && <AnalyticsPanel onError={setError} timezone={state.settings.value.timezone} />}
               {tab === 'comments' && (
                 <Suspense fallback={<p>加载中…</p>}>
                   <Comments settings={state.settings} saveSettings={saveSiteSettings}
