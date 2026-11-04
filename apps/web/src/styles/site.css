@@ -493,7 +493,8 @@ input::placeholder, textarea::placeholder { color: var(--site-muted, #526257); o
 .site-header nav .nav-children { top: 100%; max-width: min(320px, 85vw); }
 .site-header nav .nav-children .nav-children { top: 0; }
 .menu-button { display: none; }
-.hero h1, .article-heading h1, .card h3 { overflow-wrap: anywhere; text-wrap: balance; }
+.hero h1 { overflow-wrap: anywhere; text-wrap: balance; }
+.article-heading h1, .card h3 { overflow-wrap: anywhere; text-wrap: wrap; }
 .prose { max-width: 72ch; margin-inline: auto; overflow-wrap: anywhere; }
 .prose pre { overflow-x: auto; max-width: 100%; }
 .prose table { display: block; overflow-x: auto; max-width: 100%; }

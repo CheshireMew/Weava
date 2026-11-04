@@ -2,11 +2,12 @@ import type { Release,PublishedEntry } from '@weava/contracts';
 import type { Analytics } from './analytics.ts';
 import { releaseIndex } from './release-index.ts';
 import { featuredEntries } from './editorial.ts';
+import { entryCover } from './entry-cover.ts';
 const catalogs=new WeakMap<Release,ReturnType<typeof create>>();
 const covers=new WeakMap<PublishedEntry,string>();
 export function newsletterCover(entry:PublishedEntry){
   if(entry.cover)return entry.cover;let cover=covers.get(entry);
-  if(cover===undefined){cover=entry.html.match(/<img\b[^>]*\bsrc=["']([^"']+)/i)?.[1]??'';covers.set(entry,cover);}return cover;
+  if(cover===undefined){cover=entryCover(entry);covers.set(entry,cover);}return cover;
 }
 function create(release:Release){
   const posts=releaseIndex(release).posts.map(item=>Object.create(item,{cover:{enumerable:true,get:()=>newsletterCover(item)}}) as PublishedEntry);

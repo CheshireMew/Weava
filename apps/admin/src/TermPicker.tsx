@@ -22,6 +22,6 @@ export function TermPicker({ label, kind, terms, value, selectedIds, onChange, e
     </>;
   return <fieldset className="term-picker"><legend>{label}</legend>
     <div className="term-selection">{ids.map((id) => { const term = catalog.find((term) => term.id === id); return term && <button key={id} type="button" onClick={() => select(ids.filter((item) => item !== id))} aria-label={`移除${label} ${termTrail(term,catalog)}`}>{termTrail(term,catalog)} ×</button>; })}</div>
-    {expanded ? <div className="term-choices expanded">{choices}</div> : <details className="term-choices"><summary>选择{label}</summary>{choices}</details>}
+    <div className="term-choices expanded">{choices}</div>
   </fieldset>;
 }

@@ -1,0 +1,287 @@
+[
+  {
+    "file": "bulk-dialog-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "comment-reply-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "content-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "content-3824.png",
+    "width": 3824,
+    "height": 1860
+  },
+  {
+    "file": "content-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "content-empty-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "content-selected-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "editor-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "editor-3824.png",
+    "width": 3824,
+    "height": 1860
+  },
+  {
+    "file": "editor-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "editor-701.png",
+    "width": 701,
+    "height": 900
+  },
+  {
+    "file": "editor-long-title-701.png",
+    "width": 701,
+    "height": 900
+  },
+  {
+    "file": "editor-settings-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "history-dialog-701.png",
+    "width": 701,
+    "height": 900
+  },
+  {
+    "file": "layout-editor-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "login-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "login-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "login-error-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "media-details-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "media-details-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "media-groups-dialog-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "media-picker-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "media-picker-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "navigation-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-1-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-1-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-10-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-10-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-11-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-11-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-12-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-12-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-13-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-13-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-2-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-2-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-3-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-3-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-4-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-4-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-5-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-5-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-6-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-6-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-7-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-7-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-8-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-8-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-9-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-9-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-designer-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-designer-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "page-designer-expanded-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "page-designer-expanded-390.png",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "file": "settings-advertisements-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "settings-seo-1440.png",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "file": "taxonomy-selected-1440.png",
+    "width": 1440,
+    "height": 900
+  }
+]

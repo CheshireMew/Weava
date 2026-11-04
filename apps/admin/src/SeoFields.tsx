@@ -5,15 +5,15 @@ export function SeoFields({ value, onChange, section = 'all', expanded = false }
   const selectors = useSelectors();
   if (section === 'evidence') return null;
   const seo = value.seo ?? {}, set = (patch: Partial<NonNullable<Entry['seo']>>) => onChange({ seo: { ...seo, ...patch } });
-  const fields = <details className="settings-disclosure"><summary>单独修改搜索与分享内容</summary>
+  const fields = <div className="seo-fields">
     <label>搜索标题<input value={seo.title ?? ''} placeholder={value.title} onChange={event => set({ title: event.target.value || undefined })} /></label>
     <label>搜索摘要<textarea value={seo.description ?? ''} placeholder={value.description || '使用正文摘要'} onChange={event => set({ description: event.target.value || undefined })} /></label>
     <div className="site-logo"><span>分享图片</span>{(seo.image || value.cover) && <img src={seo.image || value.cover} alt={seo.imageAlt ?? ''} />}
       <button type="button" onClick={async () => { const media = await selectors.media('image'); if (media) set({ image: media.url, imageAlt: media.alt || media.name }); }}>选择图片</button>
       {seo.image && <button type="button" onClick={() => set({ image: undefined, imageAlt: undefined })}>使用文章封面</button>}
     </div>
-  </details>;
-  return expanded ? fields : <details className="seo-fields"><summary>搜索与分享</summary>{fields}</details>;
+  </div>;
+  return expanded ? fields : <section><h3>搜索与分享</h3>{fields}</section>;
 }
 export function SiteSeoFields({ value, onChange }: { value: Settings; onChange: (patch: Partial<Settings>) => void }) {
   const selectors = useSelectors(), seo = value.seo ?? {};

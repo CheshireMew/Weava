@@ -1,3 +1,4 @@
+import { Popover } from './Popover.tsx';
 import { Plus, Search, SlidersHorizontal } from 'lucide-react';
 import { type FieldDefinition } from '@weava/contracts';
 
@@ -73,7 +74,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
           />
         </div>
         <div className="library-filters">
-          <details className="library-extra-filters"><summary><SlidersHorizontal size={17} aria-hidden="true" />筛选</summary><div className="library-secondary-filters">
+          <Popover label="筛选内容" className="library-filter-popover" trigger={<><SlidersHorizontal size={17} aria-hidden="true" />筛选</>}><div className="library-secondary-filters">
           <select aria-label="更多内容状态" value={status} onChange={event => { setStatus(event.target.value); setLibraryPage(1); }}>
             <option value="all">全部状态</option><option value="published">已发布</option><option value="draft">草稿</option><option value="changed">有未发布修改</option><option value="archived">已归档</option>
           </select><select
@@ -141,10 +142,10 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
                   )}
                 </label>
               ))}
-          </div></details>
+          </div></Popover>
           {sortControl}
         </div>
-        {showSavedViews && <details className="library-views"><summary>常用筛选</summary><SavedViewControls
+        {showSavedViews && <Popover label="常用筛选" trigger="常用筛选"><SavedViewControls
           key={tab}
           views={state.contentViews ?? []}
           query={{
@@ -175,7 +176,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
             await refresh();
           }}
           onError={setError}
-        /></details>}
+        /></Popover>}
       </div>
       {showBulkEditing && bulkIds.length > 0 && (
         <button

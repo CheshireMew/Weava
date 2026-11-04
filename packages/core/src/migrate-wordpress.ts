@@ -10,6 +10,7 @@ import { renderDocument, plain } from './documents.ts';
 import { uploadMedia } from './media.ts';
 import { Analytics } from './analytics.ts';
 import { sourceContentHash } from './source-content.ts';
+import { entryMediaReferences } from './media-references.ts';
 
 const read = (path: string) => JSON.parse(readFileSync(path, 'utf8').replace(/^\ufeff/, ''));
 
@@ -188,9 +189,14 @@ export async function migrateWordPress(source: string, target: string, dryRun = 
     if (existing && existing !== entry.id) throw new WeavaError('WordPress 来源网址重复：' + entry.path);
     paths.set(entry.path, entry.id);
   }
+  // Export archives contain originals and WordPress size variants. Import only
+  // the actual destinations used by bodies, image links, covers and fields.
+  const referenced = new Set(entries.flatMap(entry => [...entryMediaReferences(entry)]));
+  for (const [hash, item] of media) if (!referenced.has(item.url)) media.delete(hash);
+  const retainedUrls = new Set([...media.values()].map(item => item.url));
   for (const [oldPath] of redirects) if (paths.has(oldPath)) redirects.delete(oldPath);
   for (const [from, to] of replacements)
-    if (from.startsWith('/wp-content/uploads/')) redirects.set(normalizePath(from), { target: to });
+    if (from.startsWith('/wp-content/uploads/') && retainedUrls.has(to)) redirects.set(normalizePath(from), { target: to });
   const unresolved: any[] = [];
   for (const entry of entries) {
     const $ = load(renderDocument(entry.document));

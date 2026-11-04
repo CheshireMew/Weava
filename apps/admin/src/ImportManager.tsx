@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Dialog } from './Dialog.tsx';
 import { api, waitJob } from './api.ts';
 
 const download = (value: any, name: string) => { const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = name; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
@@ -8,6 +9,7 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
   const [mediaDirectory,setMediaDirectory]=useState('');
   const [report, setReport] = useState<any>(null), [revisions, setRevisions] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState<any>(null);
+  const [details, setDetails] = useState<{ title: string; lines: string[] } | null>(null);
   const options = () => ({ settings, downloadMedia: media&&!mediaDirectory.trim(),mediaDirectory:media&&mediaDirectory.trim()?mediaDirectory.trim():undefined, comments, mode: merge ? 'merge' as const : 'create' as const, revisions });
   const jsonSource = () => { const data = JSON.parse(source!.text.replace(/^\ufeff/, '')); return settings ? data : { ...data, settings: undefined }; };
   const preview = async () => {
@@ -36,10 +38,12 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
     {progress && <p role="status">{progress}</p>}{error && <div role="alert"><p>{error.message}</p>{Array.isArray(error.details) && <ul>{error.details.map((detail: any, index: number) => <li key={index}>{detail.scope} {detail.id}：{detail.reason ?? detail.error}</li>)}</ul>}</div>}
     {report && <div className="import-report"><h3>{report.dryRun ? '预检结果' : '导入完成'}</h3>
       {source?.wxr ? <><p>文章及自定义内容 {report.content} · 页面 {report.pages} · 分类和标签 {report.terms} · 附件 {report.attachments.length} · 评论 {report.comments}</p><p>需检查来源功能的内容 {report.reviewRequired.length} · 保留在原始资料中的系统对象 {report.skipped.length}</p>
-        {report.reviewRequired.map((item: any) => <details key={item.id}><summary>{item.title}</summary><ul>{item.unresolved.map((reason: string) => <li key={reason}>{reason}</li>)}</ul></details>)}
-        {report.warnings.length > 0 && <details><summary>转换说明</summary><ul>{report.warnings.map((message: string) => <li key={message}>{message}</li>)}</ul></details>}
+        {report.reviewRequired.slice(0, 5).map((item: any) => <section key={item.id}><h4>{item.title}</h4><ul>{item.unresolved.slice(0, 3).map((reason: string) => <li key={reason}>{reason}</li>)}</ul>{item.unresolved.length > 3 && <button onClick={() => setDetails({ title: item.title, lines: item.unresolved })}>查看详情</button>}</section>)}
+        {report.reviewRequired.length > 5 && <button onClick={() => setDetails({ title: '需要检查的内容', lines: report.reviewRequired.flatMap((item: any) => item.unresolved.map((reason: string) => item.title + '：' + reason)) })}>查看全部 {report.reviewRequired.length} 项</button>}
+        {report.warnings.length > 0 && <section><h4>转换说明</h4><ul>{report.warnings.slice(0, 3).map((message: string) => <li key={message}>{message}</li>)}</ul>{report.warnings.length > 3 && <button onClick={() => setDetails({ title: '转换说明', lines: report.warnings })}>查看详情（{report.warnings.length} 条）</button>}</section>}
         {report.notes.map((note: string) => <p key={note}>{note}</p>)}{!report.dryRun && <p>已导入附件 {report.downloaded} · 新增评论 {report.importedComments}</p>}</> : <p>新增 {report.created.length} · 更新 {report.updated.length} · 相同内容 {report.unchanged.length}</p>}
       <button onClick={() => download(report, 'import-report.json')}>保存转换报告</button>
     </div>}
+    {details && <Dialog label={details.title} onClose={() => setDetails(null)}><div className="modal-title"><h2>{details.title}</h2><button onClick={() => setDetails(null)}>关闭</button></div><ul>{details.lines.map((line, index) => <li key={index}>{line}</li>)}</ul></Dialog>}
   </section>;
 }

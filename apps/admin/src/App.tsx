@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 
-import { Menu, Loader2 } from 'lucide-react';
+import { Menu, Loader2, Check } from 'lucide-react';
 
 import { api } from './api.ts';
 
@@ -24,12 +24,11 @@ import { ContentLibrary } from './ContentLibrary.tsx';
 import { EntryEditor } from './EntryEditor.tsx';
 import { ContentDialogs } from './ContentDialogs.tsx';
 import { usePublication } from './usePublication.ts';
+import { useSettingsApplication } from './useSettingsApplication.ts';
 import { PublicationDialog } from './PublicationDialog.tsx';
-const SearchTools = lazy(() => import('./SearchTools.tsx'));
 const AccountPanel = lazy(() => import('./AccountPanel.tsx'));
 const AnalyticsPanel = lazy(() => import('./AnalyticsPanel.tsx'));
 
-const RedirectManager = lazy(() => import('./RedirectManager.tsx'));
 const Comments = lazy(() => import('./Comments.tsx'));
 
 const MediaManager = lazy(() => import('./MediaManager.tsx'));
@@ -46,10 +45,10 @@ export function App({authentication,error,setError}:AppProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigationVersion=useRef(0);
   const { session } = authentication;
-  function notify(message: string) {
+  function notify(message: string, duration = 5000) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
-    toastTimer.current = setTimeout(() => setToast(''), 5000);
+    toastTimer.current = setTimeout(() => setToast(''), duration);
   }
   async function refresh(panel = tab, current = ()=>true) {
     const record = workspace.session.record;
@@ -74,9 +73,25 @@ export function App({authentication,error,setError}:AppProps) {
     task,
   });
   const { record } = workspace;
+  const siteLogo = state?.settings.value.logo;
+  useEffect(() => {
+    if (siteLogo === undefined) return;
+    let icon = document.head.querySelector<HTMLLinkElement>('link[data-weava-site-icon]');
+    if (!siteLogo) { icon?.remove(); return; }
+    if (!icon) {
+      icon = document.createElement('link'); icon.rel = 'icon'; icon.dataset.weavaSiteIcon = '';
+      document.head.append(icon);
+    }
+    icon.href = siteLogo;
+  }, [siteLogo]);
+  const settingsApplication = useSettingsApplication(refresh, () => notify('已保存并生效', 2600));
+  useEffect(() => {
+    if (state?.settingsPending || state?.termsPending) settingsApplication.resumePending();
+  }, [state?.settingsPending, state?.termsPending, settingsApplication]);
   const focusedWriting = tab === 'content' && record?.value.kind === 'content';
   async function saveSiteSettings(value: any, revision: number) {
     const row = await api('settings', { value, revision });
+    settingsApplication.request();
     await refresh();
     return row;
   }
@@ -96,7 +111,15 @@ export function App({authentication,error,setError}:AppProps) {
     [],
   );
   useEffect(() => {
-    if (session?.authenticated) refresh().catch((error) => setError(error.message));
+    if (!session?.authenticated) return;
+    let active = true;
+    const version = navigationVersion.current, selected = workspace.selection.current;
+    const entryId = tab === 'content' ? new URLSearchParams(window.location.search).get('entry') : null;
+    refresh().then(() => {
+      if (active && version === navigationVersion.current && selected === workspace.selection.current && entryId)
+        return workspace.select(entryId);
+    }).catch((error) => { if (active) setError(error.message); });
+    return () => { active = false; };
   }, [session]);
   const pendingSchedule = state?.schedules?.some((row: any) => row.value.status === 'scheduled');
   useEffect(() => {
@@ -253,8 +276,8 @@ export function App({authentication,error,setError}:AppProps) {
                   themes={state.themes ?? []}
                   panels={state.extensionPanels ?? []}
                   layouts={state.layouts ?? []}
-                  publish={() => task('publish', { scope: 'settings' }, true)}
-                  pendingApplication={state.settingsPending || state.termsPending}
+                  application={settingsApplication.state}
+                  applyTerms={settingsApplication.request}
                   save={saveSiteSettings}
                   onError={setError}
                   siteInfo={state.siteInfo}
@@ -264,23 +287,10 @@ export function App({authentication,error,setError}:AppProps) {
                 />
               )}
               {tab === 'analytics' && <AnalyticsPanel onError={setError} />}
-              {tab === 'search-tools' && (
-                <Suspense fallback={<p>正在载入检查…</p>}>
-                  <SearchTools />
-                </Suspense>
-              )}
               {tab === 'comments' && (
                 <Suspense fallback={<p>加载中…</p>}>
-                  <Comments settings={state.settings} saveSettings={saveSiteSettings} pendingApplication={state.settingsPending || state.termsPending}
-                    publishSettings={() => task('publish', { scope: 'settings' }, true)} onError={setError} />
-                </Suspense>
-              )}
-              {tab === 'redirects' && (
-                <Suspense fallback={<p>加载中…</p>}>
-                  <RedirectManager
-                    onError={setError}
-                    publish={() => task('publish', { scope: 'routes' })}
-                  />
+                  <Comments settings={state.settings} saveSettings={saveSiteSettings}
+                    application={settingsApplication.state} onError={setError} />
                 </Suspense>
               )}
               {tab === 'account' && <Suspense fallback={<p>正在读取账户…</p>}><AccountPanel sessionGeneration={authentication.sessionGeneration} setError={setError} notify={notify} /></Suspense>}
@@ -300,8 +310,8 @@ export function App({authentication,error,setError}:AppProps) {
         </main>
 
         {toast && (
-          <div className="toast" role="status">
-            {toast}
+          <div className="toast" role="status" aria-live="polite" aria-atomic="true">
+            <Check size={17} strokeWidth={2} aria-hidden="true" /><span>{toast}</span>
           </div>
         )}
         <PublicationDialog

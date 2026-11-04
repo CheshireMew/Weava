@@ -77,7 +77,7 @@ export function EntryOptionsBar({ model, onMore }: { model: ContentWorkspace; on
       {(open === 'category' || open === 'tag') && <TermPicker key={record.id + open} expanded label={labels[open]} kind={open} terms={(state.terms ?? []).map((row: any) => row.value)} value={open === 'category' ? value.categories : value.tags} selectedIds={open === 'category' ? value.termIds?.categories : value.termIds?.tags}
         onChange={(terms, ids) => update(open === 'category' ? { categories: terms, termIds: { categories: ids, tags: value.termIds?.tags ?? [] } } : { tags: terms, termIds: { tags: ids, categories: value.termIds?.categories ?? [] } })} />}
       {open === 'cover' && <section className="entry-cover-option"><h2>封面</h2>{value.cover && <img src={value.cover} alt="文章封面" />}<div><button type="button" onClick={chooseCover}>{value.cover ? '更换封面' : '选择封面'}</button>{value.cover && <button type="button" onClick={() => { update({ cover: '' }); close(true); }}>移除封面</button>}</div>
-        <details className="settings-disclosure"><summary>使用图片地址</summary><label>图片地址<input value={value.cover} onChange={event => update({ cover: event.target.value })} /></label></details></section>}
+        </section>}
       {open === 'publication' && <section className="entry-publication-option"><h2>发布选项</h2>
         <Toggle label="私密文章" checked={value.visibility === 'private'} onChange={checked => update({ visibility: checked ? 'private' : 'public' })} />
         <Toggle label="允许评论" checked={value.allowComments !== false} onChange={checked => update({ allowComments: checked })} />

@@ -15,6 +15,7 @@ export function Trend({
 }) {
   const [index, setIndex] = useState<number | null>(null),
     [hidden, setHidden] = useState<string[]>([]);
+  const [view, setView] = useState('chart');
   useEffect(() => {
     setIndex(null);
     setHidden([]);
@@ -40,6 +41,7 @@ export function Trend({
   };
   return (
     <div className="analytics-trend">
+      <div className="analytics-view-switch" role="group" aria-label="趋势显示方式">{[['chart', '图表'], ['data', '数据']].map(([key, label]) => <button key={key} aria-pressed={view === key} onClick={() => { setView(key); setIndex(null); }}>{label}</button>)}</div>
       <div className="analytics-legend">
         {series.map((s) => (
           <button
@@ -67,10 +69,10 @@ export function Trend({
         <p className="analytics-empty">所选范围内暂无访问记录。</p>
       ) : (
         <>
-          <svg
+          {view === 'chart' && <svg
             viewBox="0 0 820 240"
             role="img"
-            aria-label="访问趋势，详细数值见图下数据表"
+            aria-label="访问趋势，可切换到数据查看详细数值"
             onPointerMove={select}
             onPointerLeave={() => setIndex(null)}
           >
@@ -148,9 +150,8 @@ export function Trend({
                 </text>
               </g>
             )}
-          </svg>
-          <details className="analytics-chart-data">
-            <summary>查看每日数据</summary>
+          </svg>}
+          {view === 'data' && <div className="analytics-chart-data">
             <DataTable
               size={7}
               rows={dates.map((date, i) =>
@@ -164,7 +165,7 @@ export function Trend({
                 ...series.map((s) => ({ key: s.name, label: s.name, numeric: true })),
               ]}
             />
-          </details>
+          </div>}
         </>
       )}
     </div>

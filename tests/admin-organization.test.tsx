@@ -23,7 +23,7 @@ beforeEach(() => {
   localStorage.clear(); onError.mockClear(); publish.mockReset(); save.mockReset(); mocks.api.mockReset();
   settings = { id: 'site', revision: 1, updatedAt: '', value: structuredClone(defaultSettings) };
   save.mockImplementation(async (value, revision) => ({ ...settings, value, revision: revision + 1 }));
-  mocks.api.mockImplementation(async () => structuredClone(settings));
+  mocks.api.mockImplementation(async path => path === 'entries' ? [] : structuredClone(settings));
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); vi.useRealTimers(); });
 async function render(node: React.ReactNode) {
@@ -50,7 +50,7 @@ async function fill(text: string, value: string) {
 async function autosave() { await act(async () => { await vi.advanceTimersByTimeAsync(850); }); }
 
 it('keeps website edits across section switches and saves the full settings without duplicate comment controls', async () => {
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} onError={onError} />);
   await fill('名称', '我的网站'); await click('外观'); await click('基本信息');
   expect(field('名称').value).toBe('我的网站');
   await click('导航与分类');
@@ -64,7 +64,7 @@ it('keeps website edits across section switches and saves the full settings with
 
 it('edits friend links in settings, preserves values across tabs, and leaves unrelated legacy information untouched', async () => {
   const defaults = { about: { enabled: true, path: '/about/', text: '原介绍' }, friends: { enabled: true, path: '/friendlink/', links: [{ name: '原网站', url: 'https://old.example/', description: '原说明' }] } };
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} siteInfo={defaults} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} siteInfo={defaults} save={save} onError={onError} />);
   await click('友情链接');
   expect(field('网站名称').value).toBe('原网站');
   expect(save).not.toHaveBeenCalled();
@@ -76,7 +76,7 @@ it('edits friend links in settings, preserves values across tabs, and leaves unr
   expect(publish).not.toHaveBeenCalled(); expect(onError).not.toHaveBeenCalled();
 });
 
-it('saves pending term edits with website settings before applying them', async () => {
+it('automatically applies taxonomy edits without a separate publish action', async () => {
   const term = { id: 'writing', label: '写作', slug: 'writing', kind: 'category' as const };
   const sequence: string[] = [];
   mocks.api.mockImplementation(async (path, input) => {
@@ -85,71 +85,75 @@ it('saves pending term edits with website settings before applying them', async 
   });
   save.mockImplementation(async value => { sequence.push('settings'); return { ...settings, revision: 2, value }; });
   publish.mockImplementation(async () => { sequence.push('publish'); });
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} terms={[{ id: term.id, revision: 2, value: term }]} refresh={vi.fn(async () => {})} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} terms={[{ id: term.id, revision: 2, value: term }]} refresh={vi.fn(async () => {})} applyTerms={publish} save={save} onError={onError} />);
   await click('导航与分类');
   expect(host.querySelectorAll('h1')).toHaveLength(1);
   expect(host.textContent).not.toContain('发布分类和标签');
   expect(host.textContent).not.toContain('发布首页目录');
   await click('编辑分类 写作'); await fill('分类或标签名称', '写作与表达');
-  expect(host.querySelector('.taxonomy-edit-fields details')?.hasAttribute('open')).toBe(false);
+  expect(host.querySelector('dialog[open] .taxonomy-edit-fields details')).toBeNull();
+  expect(host.querySelector('dialog[open] [aria-label="上级分类"]')).not.toBeNull();
+  await click('完成');
+  expect(host.querySelector('dialog[open]')).toBeNull();
   await click('基本信息'); await fill('名称', '修改后的站名'); await click('导航与分类');
-  expect(field('分类或标签名称').value).toBe('写作与表达');
-  await click('保存并应用');
+  await autosave();
   expect(mocks.api).toHaveBeenCalledWith('terms', { value: { ...term, label: '写作与表达' }, revision: 2 });
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ name: '修改后的站名' }), 1);
-  expect(sequence).toEqual(['term', 'settings', 'publish']);
+  expect(sequence).toEqual(['term', 'publish', 'settings']);
   expect(publish).toHaveBeenCalledTimes(1); expect(onError).not.toHaveBeenCalled();
 });
 
 it('retains an unsuccessful term edit and stops publishing the integrated settings', async () => {
   const term = { id: 'writing', label: '写作', slug: 'writing', kind: 'category' as const };
   mocks.api.mockRejectedValue(new Error('分类已在其他窗口修改'));
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} terms={[{ id: term.id, revision: 2, value: term }]} initialSection="navigation" save={save} publish={publish} onError={onError} />);
-  await click('编辑分类 写作'); await fill('分类或标签名称', '新名称'); await click('保存并应用');
-  expect(onError).toHaveBeenCalledWith('分类已在其他窗口修改');
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} terms={[{ id: term.id, revision: 2, value: term }]} initialSection="navigation" applyTerms={publish} save={save} onError={onError} />);
+  await click('编辑分类 写作'); await fill('分类或标签名称', '新名称'); await autosave();
+  expect(host.textContent).toContain('分类已在其他窗口修改');
   expect(save).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
   expect(field('分类或标签名称').value).toBe('新名称');
 });
 
-it('automatically saves every advertising toggle and retains the HTML without applying drafts', async () => {
+it('automatically saves every advertising toggle and retains the HTML without manual save controls', async () => {
   const slots = ['siteTop', 'siteBottom', 'articleTop', 'articleBottom'] as const;
   settings.value.advertisements = Object.fromEntries(slots.map(id => [id, { enabled: true, html: '<div>' + id + '</div>' }]));
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} onError={onError} />);
   await click('广告');
   await act(async () => {
-    for (const input of host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) input.click();
+    for (const button of host.querySelectorAll<HTMLButtonElement>('[role="switch"][aria-label^="启用"]')) button.click();
   });
   await autosave();
   const stored = save.mock.calls[0][0];
   for (const id of slots) expect(stored.advertisements[id]).toEqual({ enabled: false, html: '<div>' + id + '</div>' });
   expect(publish).not.toHaveBeenCalled(); expect(onError).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain('保存并应用');
 });
 
 it('merges an independent category update when autosaving website settings', async () => {
   const remote = { ...settings, revision: 3, value: { ...settings.value, taxonomies: [{ id: 'writing', label: '新分类名', kind: 'category' as const }] } };
   save.mockRejectedValueOnce(Object.assign(new Error('版本已变化'), { status: 409 }));
   mocks.api.mockResolvedValue(remote);
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} onError={onError} />);
   await fill('名称', '我的新站名'); await autosave();
   expect(save.mock.calls[1]).toEqual([{ ...remote.value, name: '我的新站名' }, 3]);
-  expect(host.textContent).toContain('已自动保存');
+  expect(host.querySelector('.panel-title')?.textContent).toBe('网站设置');
+  expect(host.textContent).not.toContain('已保存并生效');
 });
 
 it('keeps both inputs intact when the same setting changed elsewhere', async () => {
   save.mockRejectedValueOnce(Object.assign(new Error('版本已变化'), { status: 409 }));
   mocks.api.mockResolvedValue({ ...settings, revision: 3, value: { ...settings.value, name: '其他窗口的名称' } });
-  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} publish={publish} onError={onError} />);
+  await render(<SettingsPanel row={settings} themes={[]} panels={[]} layouts={[]} save={save} onError={onError} />);
   await fill('名称', '当前输入'); await autosave();
   expect(save).toHaveBeenCalledTimes(1); expect(field('名称').value).toBe('当前输入');
   expect(host.textContent).toContain('同一项设置已在其他窗口修改'); expect(publish).not.toHaveBeenCalled();
 });
 
 it('retains comment changes and requests a reload when another page changed that same setting', async () => {
-  await render(<CommentSettings settings={settings} saveSettings={save} publishSettings={publish} onError={onError} />);
+  await render(<CommentSettings settings={settings} saveSettings={save} onError={onError} />);
   await act(async () => host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   mocks.api.mockResolvedValue({ ...settings, revision: 3, value: { ...settings.value, commentModeration: false } });
-  await click('发布评论设置');
-  expect(onError).toHaveBeenCalledWith(expect.stringContaining('其他页面修改'));
+  await autosave();
+  expect(host.textContent).toContain('其他页面修改');
   expect(save).not.toHaveBeenCalled(); expect(publish).not.toHaveBeenCalled();
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
 });
@@ -173,16 +177,24 @@ it('presents imported search results as readable rows with pagination rather tha
   expect(host.querySelector('tbody')?.textContent).toContain('https://example.com/20');
 });
 
-it('keeps each navigation destination in one place and opens the group for an active advanced page', async () => {
+it('keeps everyday navigation without hidden maintenance pages or a more-management group', async () => {
   const props = { compact: false, state: null, setMenu: vi.fn(), navigate: vi.fn(), logout: vi.fn() };
   await render(<AdminNavigation {...props} tab="content" />);
-  expect(host.querySelector('details')?.open).toBe(false);
+  expect(host.querySelector('details')).toBeNull();
   expect(host.textContent).not.toContain('网站页面');
   expect(host.textContent).not.toContain('模板与布局');
   expect([...host.querySelectorAll('button')].some(item => item.textContent === '分类与标签')).toBe(false);
-  expect([...host.querySelectorAll('button')].filter(item => item.textContent === '网址别名')).toHaveLength(1);
-  expect(button('网址别名').closest('details')).not.toBeNull();
-  await render(<AdminNavigation {...props} tab="redirects" />);
-  expect(host.querySelector('details')?.open).toBe(true);
-  expect(button('网址别名').getAttribute('aria-current')).toBe('page');
+  expect(host.textContent).not.toContain('网址别名');
+  expect(host.textContent).not.toContain('网站检查');
+  expect(host.textContent).not.toContain('更多管理');
+  expect(button('内容').getAttribute('aria-current')).toBe('page');
+  const identity = { settings: { value: { name: '我的网站', logo: '/media/site-logo.png' } } };
+  await render(<AdminNavigation {...props} state={identity} tab="content" />);
+  expect(host.querySelector('.app-brand img')?.getAttribute('src')).toBe('/media/site-logo.png');
+  expect(host.querySelector('.brand-mark')).toBeNull();
+  await render(<AdminNavigation {...props} state={{ settings: { value: { ...identity.settings.value, logo: '/media/new-logo.png' } } }} tab="content" />);
+  expect(host.querySelector('.app-brand img')?.getAttribute('src')).toBe('/media/new-logo.png');
+  await render(<AdminNavigation {...props} tab="content" />);
+  expect(host.querySelector('.app-brand img')).toBeNull();
+  expect(host.querySelector('.brand-mark')?.textContent).toBe('W');
 });

@@ -18,6 +18,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   const [picker, setPicker] = useState<Picker | null>(null), [q, setQ] = useState(''), [page, setPage] = useState(1);
   const [result, setResult] = useState<any>({ items: [], total: 0, pages: 0 }), [error, setError] = useState(''), [progress, setProgress] = useState('');
   const [loading, setLoading] = useState(false);
+  const [addressOpen, setAddressOpen] = useState(false), [address, setAddress] = useState(''), [addressError, setAddressError] = useState('');
   const [epoch, setEpoch] = useState(0);
   const searchTerm = useDebouncedValue(q);
   const [groups, setGroups] = useState<any[]>([]), [group, setGroup] = useState('');
@@ -27,10 +28,10 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   const open = (type: Picker['type'], kind?: string, reference?: ReferenceOptions, initialGroup?: string) => new Promise<any>((resolve) => {
     pending.current?.resolve(null);
     const next = { type, kind, reference, resolve };
-    pending.current = next; setPicker(next); setGroup(initialGroup ?? ''); setQ(''); setPage(1); setError(''); setLoading(true);
+    pending.current = next; setPicker(next); setAddressOpen(false); setGroup(initialGroup ?? ''); setQ(''); setPage(1); setError(''); setLoading(true);
     setResult({ items: [], total: 0, pages: 0 });
   });
-  const finish = (value: any) => { pending.current?.resolve(value); pending.current = null; setPicker(null); };
+  const finish = (value: any) => { pending.current?.resolve(value); pending.current = null; setAddressOpen(false); setPicker(null); };
   const params = () => new URLSearchParams({ q: searchTerm, page: String(page), pageSize: '18', ...(picker?.type === 'media' && group ? { group } : {}), ...(picker?.kind ? { kind: picker.kind } : {}),
     ...(picker?.reference?.referenceTypes ? { types: picker.reference.referenceTypes.join(',') } : {}),
     ...(picker?.reference?.referenceFilters ? { filters: JSON.stringify(picker.reference.referenceFilters) } : {}) });
@@ -56,11 +57,11 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   const title = picker?.type === 'media' ? '选择媒体' : '选择内容';
   return <Context.Provider value={{ media: (kind, groupId) => open('media', kind, undefined, groupId), content: (options) => open('content', undefined, options) }}>{children}
     {picker && <Dialog className="asset-dialog" label={title} onClose={() => finish(null)} dismissible={!progress}>
-      <div className="modal-title"><h2>{title}</h2><button disabled={!!progress} onClick={() => finish(null)}>关闭</button></div>
+      <div className="modal-title"><h2>{title}</h2><div className="dialog-actions">{picker.type === 'media' && <button disabled={!!progress} onClick={() => { setAddress(''); setAddressError(''); setAddressOpen(true); }}>粘贴网址</button>}<button disabled={!!progress} onClick={() => finish(null)}>关闭</button></div></div>
       <div className="selector-toolbar">
+        {picker.type === 'media' && <><button disabled={!!progress} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden accept={picker.kind === 'image' ? 'image/*' : undefined} onChange={(event) => { if (event.target.files?.[0]) void upload(event.target.files[0]); }} /></>}
         <input data-autofocus aria-label={picker.type === 'media' ? '搜索媒体' : '查找内容'} placeholder="搜索" value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} />
         {picker.type === 'media' && <select aria-label="选择器媒体分组" value={group} onChange={(event) => { setGroup(event.target.value); setPage(1); }}><option value="">全部分组</option><option value="__ungrouped__">未分组</option>{groups.filter((row) => !row.value.archived).map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
-        {picker.type === 'media' && <><button disabled={!!progress} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden accept={picker.kind === 'image' ? 'image/*' : undefined} onChange={(event) => { if (event.target.files?.[0]) void upload(event.target.files[0]); }} /></>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}{progress && <p role="status">{progress}</p>}
       {loading && <p role="status">正在查找…</p>}
@@ -72,6 +73,22 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
       </div>
       {!loading && !error && !result.total && <p role="status">{q ? '没有匹配的内容，请换个关键词。' : picker.type === 'media' ? '媒体库还是空的，可以上传第一个文件。' : '还没有可以引用的内容。'}</p>}
       {result.pages > 1 && <nav className="library-pagination" aria-label={title + '分页'}><button disabled={loading || page <= 1} onClick={() => setPage((page) => page - 1)}>上一页</button><span>{page} / {result.pages}</span><button disabled={loading || page >= result.pages} onClick={() => setPage((page) => page + 1)}>下一页</button></nav>}
+      {addressOpen && <Dialog label="粘贴媒体网址" onClose={() => setAddressOpen(false)}>
+        <form onSubmit={event => {
+          event.preventDefault();
+          const url = address.trim();
+          if (!/^https?:\/\//i.test(url) && !/^\/(?!\/)/.test(url)) { setAddressError('请填写完整的网址，或以 / 开头的站内地址。'); return; }
+          try {
+            const parsed = new URL(url, window.location.origin);
+            const kind = ['image', 'video', 'audio', 'file'].includes(picker.kind ?? '') ? picker.kind as SelectedMedia['kind'] : kindOf(parsed.pathname);
+            finish({ id: '', url, name: decodeURIComponent(parsed.pathname.split('/').pop() || parsed.hostname), kind });
+          } catch { setAddressError('这个网址无法识别，请检查后重试。'); }
+        }}>
+          <h2>粘贴媒体网址</h2><label>网址<input data-autofocus required aria-label="媒体网址" value={address} onChange={event => { setAddress(event.target.value); setAddressError(''); }} placeholder="https://" /></label>
+          {addressError && <p role="alert" className="error">{addressError}</p>}
+          <div className="dialog-actions"><button type="button" onClick={() => setAddressOpen(false)}>取消</button><button type="submit">使用此网址</button></div>
+        </form>
+      </Dialog>}
     </Dialog>}
   </Context.Provider>;
 }

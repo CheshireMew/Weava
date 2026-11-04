@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Site, Analytics, pageMetadata, metadataHead, composeMetadata, renderEntryTemplate, auditRelease, fetchAuditResponses, auditBasis, auditStatus, storeAudit, importSearchData, searchDataReport, pullSearchData, planSearchData, extension } from '@weava/core';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { load } from 'cheerio';
-import { entrySchema } from '@weava/contracts';
+import { entrySchema, defaultSettings, type Release } from '@weava/contracts';
 
 const root = 'D:/Tools/cache/weava/tests/seo-' + Date.now();
 const sites: Site[] = [];
@@ -13,6 +13,21 @@ const create = () => { const site = new Site(join(root, String(nextSite++))); si
   const settings = site.settings(); site.saveSettings({ ...settings.value, domain: 'https://example.test' }, settings.revision); return site; };
 const entry = (id: string, extra: any = {}) => entrySchema.parse({ id, kind: 'content', title: id, path: '/' + id + '/', status: 'published', document: { version: 1, format: 'markdown', source: '## 正文\n\n这是页面内容。' }, ...extra });
 afterEach(() => { sites.splice(0).forEach((site) => site.close()); });
+
+it('keeps the site icon in sync with the website logo and replaces imported legacy icons', () => {
+  const logo = '/media/site-logo.png?size=32&version=2';
+  const release = { settings: { ...defaultSettings, logo }, entries: [], types: [], terms: [] } as unknown as Release;
+  const meta = pageMetadata(undefined, release, new URL('https://example.test/search/'));
+  const head = load(metadataHead(meta));
+  expect(head('link[rel="icon"]').attr('href')).toBe(logo);
+  const legacy = '<html><head><link rel="icon" href="/old.ico"><link rel="shortcut icon" href="/older.ico"></head><body></body></html>';
+  const updated = load(composeMetadata(legacy, meta));
+  expect(updated('link[rel="icon"]')).toHaveLength(1);
+  expect(updated('link[rel="icon"]').attr('href')).toBe(logo);
+  expect(updated('link[rel="shortcut icon"]')).toHaveLength(0);
+  const cleared = load(composeMetadata(legacy, { ...meta, icon: '' }));
+  expect(cleared('link[rel="icon"], link[rel="shortcut icon"]')).toHaveLength(0);
+});
 
 describe('search metadata and evidence publication', () => {
   it('keeps pagination canonical, removes tracking and separates search/filter indexing', () => {

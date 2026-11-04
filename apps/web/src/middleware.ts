@@ -2,7 +2,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
 import { site, siteExtension, analytics } from './runtime.ts';
-import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile } from '@weava/core';
+import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile, siteIconHead } from '@weava/core';
 import { WeavaError } from '@weava/contracts';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
@@ -52,6 +52,7 @@ const serve = defineMiddleware(async (context, next) => {
     const { adminDevelopmentHtml } = await import('./admin-development.ts');
     const nonce = randomBytes(18).toString('base64');
     const html = (await adminDevelopmentHtml(context.url.pathname + context.url.search))
+      .replace('</head>', siteIconHead(site.settings().value.logo) + '</head>')
       .replace(/<script\b/g, `<script nonce="${nonce}"`);
     const response = new Response(html, { headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -70,7 +71,7 @@ const serve = defineMiddleware(async (context, next) => {
       : join(base, 'index.html');
     if (!existsSync(file)) return new Response('后台尚未构建，请运行 build。', { status: 503 });
     if(path.startsWith('/_admin/assets/'))return assetResponse(file,context.request,mime[extname(file)]??'application/octet-stream');
-    return new Response(readFileSync(file), {
+    return new Response(readFileSync(file, 'utf8').replace('</head>', siteIconHead(site.settings().value.logo) + '</head>'), {
       headers: {
         'Content-Type': mime[extname(file)] ?? 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',

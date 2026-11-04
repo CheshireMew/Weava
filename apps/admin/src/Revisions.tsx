@@ -7,10 +7,12 @@ const names: Record<string, string> = { title: '标题', description: '摘要', 
 const label = (path: string) => path.split('/').slice(1).map((key) => names[key] ?? key.replaceAll('~1', '/').replaceAll('~0', '~')).join(' / ');
 const display = (value: any) => value === undefined ? '（未设置）' : typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 function Value({ value, html, title }: { value: any; html?: string; title: string }) {
-  if (html !== undefined) return <div><div className="revision-prose" aria-label={title} onClick={(event) => { if ((event.target as Element).closest('a')) event.preventDefault(); }} dangerouslySetInnerHTML={{ __html: html }} /><details><summary>查看保存的源码</summary><pre>{display(value)}</pre></details></div>;
+  const [code, setCode] = useState(false);
+  const toggle = <button type="button" aria-label={title + '代码'} aria-pressed={code} onClick={() => setCode(value => !value)}>代码</button>;
+  if (html !== undefined) return <div>{toggle}{code ? <pre aria-label={title}>{display(value)}</pre> : <div className="revision-prose" aria-label={title} onClick={(event) => { if ((event.target as Element).closest('a')) event.preventDefault(); }} dangerouslySetInnerHTML={{ __html: html }} />}</div>;
   if (Array.isArray(value) && value.some((item) => item && typeof item.type === 'string' && item.props)) {
     const blocks = (items: any[]) => items.map((item) => <li key={item.id}><strong>{blockDefinitions[item.type]?.label ?? item.type}</strong><p>{Object.entries(item.props ?? {}).map(([key, content]) => typeof content === 'string' ? content : '').filter(Boolean).join(' · ')}</p>{item.children?.length > 0 && <ul>{blocks(item.children)}</ul>}</li>);
-    return <div className="revision-blocks"><ul>{blocks(value)}</ul><details><summary>查看保存的源码</summary><pre>{display(value)}</pre></details></div>;
+    return <div className="revision-blocks">{toggle}{code ? <pre aria-label={title}>{display(value)}</pre> : <ul>{blocks(value)}</ul>}</div>;
   }
   return <pre aria-label={title}>{display(value)}</pre>;
 }
@@ -38,12 +40,14 @@ export function RevisionDialog({ id, history, onClose, onRestore, onError }: { i
 export function MergeDialog({ plan, onSave, onRemote, onClose, onError }: { plan: any; onSave: (choices: Record<string, 'local' | 'remote'>) => Promise<any>; onRemote: () => void; onClose: () => void; onError: (message: string) => void }) {
   const [failure, setFailure] = useState('');
   const [choices, setChoices] = useState<Record<string, 'local' | 'remote'>>({}), [busy, setBusy] = useState(false);
-  useEffect(() => setChoices({}), [plan.remote.revision]);
+  const [original, setOriginal] = useState<any>(null);
+  useEffect(() => { setChoices({}); setOriginal(null); }, [plan.remote.revision]);
   return <Dialog className="modal revision-dialog" label="解决保存冲突" onClose={onClose} dismissible={!busy}><div className="modal-title"><h2>解决保存冲突</h2><button disabled={busy} onClick={onClose}>返回本地编辑</button></div>
     {failure && <p className="error" role="alert">{failure}</p>}
     <p>另一个窗口已经保存了修改。不同位置的改动会合并；同一位置的改动请逐项选择。本地内容会保留到处理完成。</p>
-    {plan.conflicts.map((conflict: any) => <section className="merge-conflict" key={conflict.path}><h3>{label(conflict.path)}</h3><details><summary>共同来源 #{plan.base.revision}</summary><pre>{display(conflict.base)}</pre></details><div className="revision-pair">{(['local', 'remote'] as const).map((side) => <div key={side}><label className="merge-choice"><input type="radio" name={conflict.path} aria-label={label(conflict.path) + (side === 'local' ? '保留本地' : '保留服务器')} checked={choices[conflict.path] === side} onChange={() => setChoices({ ...choices, [conflict.path]: side })} />{side === 'local' ? '本地修改' : '服务器修改'}</label><Value title={label(conflict.path) + side} value={conflict[side]} html={conflict[side + 'Html']} /></div>)}</div></section>)}
-    {plan.changes.length > 0 && <details open={!plan.conflicts.length}><summary>可合并的修改</summary><Changes changes={plan.changes} /></details>}
+    {plan.conflicts.map((conflict: any) => <section className="merge-conflict" key={conflict.path}><h3>{label(conflict.path)}</h3><button type="button" onClick={() => setOriginal(conflict)}>查看原版本</button><div className="revision-pair">{(['local', 'remote'] as const).map((side) => <div key={side}><label className="merge-choice"><input type="radio" name={conflict.path} aria-label={label(conflict.path) + (side === 'local' ? '保留本地' : '保留服务器')} checked={choices[conflict.path] === side} onChange={() => setChoices({ ...choices, [conflict.path]: side })} />{side === 'local' ? '本地修改' : '服务器修改'}</label><Value title={label(conflict.path) + side} value={conflict[side]} html={conflict[side + 'Html']} /></div>)}</div></section>)}
+    {plan.changes.length > 0 && <section><h3>可合并的修改</h3><Changes changes={plan.changes} /></section>}
+    {original && <Dialog label="原版本" onClose={() => setOriginal(null)}><div className="modal-title"><h2>{label(original.path)} · 原版本 #{plan.base.revision}</h2><button onClick={() => setOriginal(null)}>关闭</button></div><Value key={original.path} title={label(original.path) + '原版本'} value={original.base} html={original.baseHtml} /></Dialog>}
     {!plan.conflicts.length && <p>没有需要选择的冲突，可以直接保存合并结果。</p>}
     <div className="revision-actions"><button disabled={busy} onClick={onRemote}>采用服务器版本</button><button className="primary" disabled={busy || plan.conflicts.some((row: any) => !choices[row.path])} onClick={async () => { setBusy(true); setFailure(''); try { await onSave(choices); } catch (error: any) { setFailure(error.message); } finally { setBusy(false); } }}>保存合并结果</button></div>
   </Dialog>;

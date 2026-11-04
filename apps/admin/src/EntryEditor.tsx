@@ -1,3 +1,4 @@
+import { Popover } from './Popover.tsx';
 import { EntrySettings } from './EntrySettings.tsx';
 import { EntryStatus } from './EntryStatus.tsx';
 import { EntryRecovery } from './EntryRecovery.tsx';
@@ -110,9 +111,9 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
             <div className="editor-actions">
               <div className="editor-tools">
               {!article && <button className="editor-plain editor-settings-toggle" aria-label="内容设置" aria-expanded={settingsOpen} aria-controls="entry-settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(open => !open)}><Settings2 size={18} /><span>设置</span></button>}
-              <details className="action-menu editor-more"><summary aria-label="更多编辑操作">{article ? <MoreHorizontal size={20} /> : <>更多<ChevronDown size={14} aria-hidden="true" /></>}</summary><div className="action-menu-items">
+              <Popover label="更多编辑操作" menu className="editor-menu-popover" trigger={article ? <MoreHorizontal size={20} /> : <>更多<ChevronDown size={14} aria-hidden="true" /></>}><div className="action-menu-items">
               {article && publication && <div className="editor-menu-status"><EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} /></div>}
-              <button
+              <button role="menuitem"
                 className="editor-check"
                 disabled={busy || saving}
                 onClick={async () => {
@@ -127,7 +128,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               >
                 检查
               </button>
-              <button
+              <button role="menuitem"
                 title="历史版本"
                 aria-label="历史版本"
                 className="editor-plain"
@@ -142,7 +143,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               >
                 历史版本
               </button>
-              <button
+              <button role="menuitem"
                 className="editor-plain"
                 onClick={async () => {
                   try {
@@ -157,7 +158,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               >
                 本地草稿
               </button>
-              </div></details>
+              </div></Popover>
               </div>
               <button className="editor-preview" onClick={async () => {
                 try {

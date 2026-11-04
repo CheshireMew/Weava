@@ -9,6 +9,7 @@ import { recommendedEntries, renderDocumentNavigation } from './editorial.ts';
 import { renderCode } from './code-blocks.ts';
 import { wordpressArchivePage } from './wordpress-archives.ts';
 import { releaseIndex } from './release-index.ts';
+import { entryCover } from './entry-cover.ts';
 export interface RenderOptions {
   url?: URL; strict?: boolean; editable?: boolean; editBody?: boolean;
   editTemplate?: boolean;
@@ -83,7 +84,10 @@ export function renderFields(
   return rows.length ? `<dl class="content-fields">${rows.join('')}</dl>` : '';
 }
 export function cards(entries: PublishedEntry[], types:import('@weava/contracts').ContentType[] = []) {
-  return `<div class="cards">${entries.map((item) => `<a class="card" href="${e(item.path)}">${item.cover ? `<img src="${e(item.cover)}" alt="" loading="lazy" width="640" height="400">` : ''}<div><small>${e(item.categories.join(' · ') || types.find((type)=>type.id===item.type)?.label || '')}</small><h3>${e(item.title)}</h3><p>${e(item.description)}</p></div></a>`).join('')}</div>`;
+  return `<div class="cards">${entries.map((item) => {
+    const cover = entryCover(item);
+    return `<a class="card" href="${e(item.path)}">${cover ? `<img src="${e(cover)}" alt="" loading="lazy" width="640" height="400">` : ''}<div><small>${e(item.categories.join(' · ') || types.find((type)=>type.id===item.type)?.label || '')}</small><h3>${e(item.title)}</h3><p>${e(item.description)}</p></div></a>`;
+  }).join('')}</div>`;
 }
 export function renderBlocks(
   blocks: Block[],

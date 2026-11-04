@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Weava · 紧凑的内容目录</title>
+<style>
+:root{font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif;color:#282b31;background:#fff;font-size:14px;font-synthesis:none;--muted:#686862;--line:#e9e7e2;--red:#ab443b}
+*{box-sizing:border-box}body{margin:0;width:1440px;height:900px;overflow:hidden}button,input,select{font:inherit;color:inherit}button,a,input,select{outline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--red)}button{cursor:pointer}a{color:inherit;text-decoration:none}button{background:#fff;border:1px solid #d9d7d1;border-radius:4px;padding:9px 15px;line-height:20px}button:hover{background:#f6f4f0}button:disabled{opacity:.5;cursor:default}::selection{background:#f0d4d0;color:#562a25}input{caret-color:var(--red)}input::placeholder{color:#6b6b66}svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}.shell{display:grid;grid-template-columns:194px 1fr;height:900px}
+.rail{background:#f5f5f2;border-right:1px solid var(--line);padding:29px 16px 20px;display:flex;flex-direction:column}.brand{font-size:25px;font-weight:650;letter-spacing:-.035em;line-height:32px;padding-left:12px}.site{margin:8px 12px 27px;color:#66665f;font-size:12px}.nav{display:grid;gap:3px}.nav a{display:flex;align-items:center;gap:12px;height:36px;padding:0 12px;border-radius:4px;color:#4c4d48}.nav a:hover{background:#eeede8}.nav a.active{background:#f0e4e0;color:#8f342d;font-weight:650}.nav a.divider{margin-top:13px}.nav svg{width:17px;height:17px;stroke-width:1.6}.bottom{margin-top:auto;border-top:1px solid #dfded8;padding-top:13px;display:grid;gap:4px}.bottom a{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;color:#595b55}.main{padding:34px 36px 24px;min-width:0}.heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}.heading h1{font-size:28px;line-height:36px;letter-spacing:-.03em;margin:0;font-weight:650}.primary{display:inline-flex;align-items:center;gap:8px;color:#fff;background:var(--red);border-color:var(--red);font-weight:600}.primary:hover{background:#94382f}.tools{display:flex;align-items:center;gap:8px;padding-bottom:20px}.search{display:flex;align-items:center;gap:10px;border:1px solid #d9d7d1;border-radius:4px;height:38px;flex:1;max-width:416px;padding:0 12px;color:#6b6b66}.search input{font-size:14px;min-width:0;width:100%;border:0;outline:0;background:transparent}.tools select{height:38px;border:1px solid #d9d7d1;background:#fff;border-radius:4px;padding:0 30px 0 12px}.tools .sort{margin-left:auto}.table{width:100%;border-collapse:collapse;table-layout:fixed;text-align:left}.table th{height:42px;font-size:12px;color:#5e6059;font-weight:500;background:#f7f7f4;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.table th,.table td{padding:0 16px}.table th:first-child,.table td:first-child{padding-left:11px;padding-right:6px}.table td{height:61px;border-bottom:1px solid var(--line);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.table .check{width:38px}.table .status{width:165px}.table .type{width:103px}.table .date{width:135px}.table .title{font-weight:500}.table tbody tr:hover{background:#faf9f7}.table tbody tr.selected{background:#fbf0ed}.table tr.selected .title{color:#8f342d}.table input{appearance:auto;width:14px;height:14px;margin:0;accent-color:var(--red);vertical-align:middle}.state{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:#53554e}.state:before{content:"";width:5px;height:5px;background:#60665d;border-radius:50%}.state.draft:before{background:transparent;border:1px solid #777a71;width:6px;height:6px}.state.changed{color:#805d29}.state.changed:before{background:#a17b3a}.table time{font-variant-numeric:tabular-nums;color:#62635d;font-size:13px}.table .kind{color:#62635d}.foot{margin-top:20px;display:flex;align-items:center;justify-content:space-between;color:#686862;font-size:12px}.foot button{font-size:13px;padding:7px 12px}.pages{display:flex;align-items:center;gap:12px}
+</style>
+</head>
+<body>
+<svg aria-hidden="true" style="position:absolute;width:0;height:0"><defs>
+<symbol id="file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8zM14 3v6h5M8 13h8M8 17h6"/></symbol>
+<symbol id="panels" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+<symbol id="shapes" viewBox="0 0 24 24"><path d="m7 3 4 7H3z"/><circle cx="17" cy="7" r="4"/><rect x="4" y="14" width="7" height="7" rx="1"/><path d="m18 13 4 4-4 4-4-4z"/></symbol>
+<symbol id="image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m21 16-5-5-8 9"/></symbol>
+<symbol id="comment" viewBox="0 0 24 24"><path d="M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3z"/></symbol>
+<symbol id="arrow" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-4 2 2 0 0 1 1-4h2a3 3 0 0 0 3-3c0-4-4-7-9-7Z"/><path d="M7 9h.01M11 6h.01M16 7h.01M6 14h.01"/></symbol>
+<symbol id="chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15v-4M13 15V7M18 15V4"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+<symbol id="settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2" fill="#f5f5f2"/><circle cx="16" cy="12" r="2" fill="#f5f5f2"/><circle cx="8" cy="18" r="2" fill="#f5f5f2"/></symbol>
+<symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</defs></svg>
+<div class="shell">
+<aside class="rail"><a class="brand" href="#">Weava</a><div class="site">你的网站</div>
+<nav class="nav" aria-label="网站管理">
+<a class="active" href="#" aria-current="page"><svg><use href="#file"/></svg>内容</a><a href="#"><svg><use href="#panels"/></svg>页面</a><a href="#"><svg><use href="#panels"/></svg>布局</a>
+<a class="divider" href="#"><svg><use href="#shapes"/></svg>内容类型</a><a href="#"><svg><use href="#shapes"/></svg>分类与标签</a><a href="#"><svg><use href="#image"/></svg>媒体</a><a href="#"><svg><use href="#comment"/></svg>评论</a><a href="#"><svg><use href="#arrow"/></svg>网址别名</a><a href="#"><svg><use href="#check"/></svg>发布计划</a>
+<a class="divider" href="#"><svg><use href="#palette"/></svg>外观与导航</a><a href="#"><svg><use href="#chart"/></svg>访问统计</a><a href="#"><svg><use href="#search"/></svg>搜索与检查</a><a href="#"><svg><use href="#settings"/></svg>运行与备份</a><a class="divider" href="#"><svg><use href="#user"/></svg>账户</a>
+</nav><div class="bottom"><a href="#">查看网站<svg><use href="#arrow"/></svg></a><a href="#">退出</a></div></aside>
+<main class="main">
+<header class="heading"><h1>内容</h1><button class="primary"><svg><use href="#plus"/></svg>新建内容</button></header>
+<div class="tools"><label class="search"><svg><use href="#search"/></svg><input aria-label="搜索内容" placeholder="搜索标题或摘要"></label><select aria-label="内容状态"><option>全部状态</option><option>已发布</option><option>有未发布修改</option><option>草稿</option></select><select aria-label="内容类型"><option>全部类型</option><option>文章</option></select><select aria-label="内容可见性"><option>全部可见性</option><option>公开</option><option>私密</option></select><select class="sort" aria-label="排序"><option>最近修改</option><option>标题升序</option></select></div>
+<table class="table" aria-label="内容目录"><colgroup><col class="check"><col><col class="status"><col class="type"><col class="date"></colgroup>
+<thead><tr><th><input type="checkbox" aria-label="全选内容"></th><th>标题</th><th>状态</th><th>类型</th><th>修改时间</th></tr></thead>
+<tbody>
+<tr class="selected"><td><input type="checkbox" aria-label="选择思维模型文章"></td><td class="title"><a href="#">10 个提升你思维层级的思维模型</a></td><td><span class="state changed">有未发布修改</span></td><td class="kind">文章</td><td><time>11月1日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择英语单词文章"></td><td class="title"><a href="#">12 个英语单词，凭什么能装下你的亿万身家？</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>11月1日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择保持好奇文章"></td><td class="title"><a href="#">保持好奇，是一种长期主义</a></td><td><span class="state draft">草稿</span></td><td class="kind">文章</td><td><time>10月31日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择写作文章"></td><td class="title"><a href="#">关于写作、生活与自我生长</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>10月30日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择周末手记"></td><td class="title"><a href="#">周末手记：慢一点，也没有关系</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>10月28日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择知识体系文章"></td><td class="title"><a href="#">如何建立自己的知识体系</a></td><td><span class="state draft">草稿</span></td><td class="kind">文章</td><td><time>10月27日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择生活文章"></td><td class="title"><a href="#">把日子过成喜欢的样子</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>10月25日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择想法文章"></td><td class="title"><a href="#">每一个想法，都值得被认真记录</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>10月23日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择留白文章"></td><td class="title"><a href="#">生活需要一点留白</a></td><td><span class="state draft">草稿</span></td><td class="kind">文章</td><td><time>10月21日</time></td></tr>
+<tr><td><input type="checkbox" aria-label="选择时间文章"></td><td class="title"><a href="#">让时间成为朋友</a></td><td><span class="state">已发布</span></td><td class="kind">文章</td><td><time>10月19日</time></td></tr>
+</tbody></table>
+<footer class="foot"><span>按最近修改排序</span><div class="pages"><button disabled>上一页</button><span>1</span><button>下一页</button></div></footer>
+</main></div>
+</body></html>

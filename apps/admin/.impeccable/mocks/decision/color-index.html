@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Weava · 内容</title>
+<style>
+:root{--paper:#fcfcfa;--ink:#233445;--blue:#275d84;--rail:#edf2f4;--line:#dce3e5;--muted:#596d7d;--green:#dde8d6;--amber:#f3ddb1}
+*{box-sizing:border-box}html,body{margin:0;width:1440px;height:900px;overflow:hidden}body{font-family:"Microsoft YaHei UI","Microsoft YaHei",Arial,sans-serif;color:var(--ink);background:var(--paper);font-size:14px;-webkit-font-smoothing:antialiased}button,input,select{font:inherit;color:inherit}button,a,input,select{outline-offset:4px}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--blue)}button{cursor:pointer}a{color:inherit;text-decoration:none}svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}::selection{background:#d5e6f1;color:var(--ink)}input{caret-color:var(--blue)}
+.shell{display:grid;grid-template-columns:230px 1fr;height:900px}.sidebar{background:var(--rail);padding:34px 20px 20px;border-right:1px solid #d7e1e6;display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;padding-left:13px;font-family:Georgia,serif;font-size:30px;font-weight:700;letter-spacing:-1.3px;color:var(--blue)}.brandmark{width:30px;height:30px;stroke-width:2.1}.site-link{display:flex;align-items:center;justify-content:space-between;margin:19px 12px 29px;color:#536c7c;font-size:12px}.site-link svg{width:14px;height:14px}.navigation{display:flex;flex-direction:column;gap:17px}.nav-group{display:flex;flex-direction:column;gap:2px}.nav-group+.nav-group{border-top:1px solid #d8e2e7;padding-top:17px}.nav-item{display:flex;align-items:center;gap:13px;height:35px;padding:0 14px;border-radius:5px;font-size:14px;color:#3e5668}.nav-item.active{background:var(--blue);color:white;font-weight:600}.nav-item:hover{background:#dfe8ee}.nav-item.active:hover{background:#214f70}.bottom{margin-top:auto;display:flex;align-items:center;justify-content:space-between;padding:18px 12px 0;border-top:1px solid #d8e2e7;color:#536b7c;font-size:12px}.bottom a{display:flex;gap:7px;align-items:center}.bottom svg{width:15px;height:15px}
+main{padding:49px 48px 0 46px}.heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:40px}h1{font-size:34px;line-height:1.25;letter-spacing:-.03em;font-weight:650;margin:0}.primary{display:flex;align-items:center;gap:9px;background:var(--blue);color:white;border:0;border-radius:5px;height:44px;padding:0 19px;font-weight:600;box-shadow:0 3px 7px #23344512}.primary:hover{background:#204f71}.primary svg{width:17px;height:17px}
+.tools{display:flex;align-items:center;gap:10px;margin-bottom:25px}.search{height:42px;display:flex;align-items:center;gap:10px;border:1px solid #cdd8de;border-radius:5px;padding:0 13px;width:350px;background:white}.search svg{color:#5d7688;width:17px;height:17px}.search input{border:0;outline:none;background:none;min-width:0;flex:1;font-size:13px}.search input::placeholder{color:#627585;opacity:1}select{height:42px;background:white;border:1px solid #cdd8de;border-radius:5px;padding:0 30px 0 13px;font-size:13px}.sort{margin-left:auto}.table-wrap{border-top:1px solid #bccbd4}table{border-collapse:collapse;width:100%;table-layout:fixed;text-align:left}col.check-col{width:44px}col.state-col{width:152px}col.type-col{width:104px}col.date-col{width:134px}col.open-col{width:30px}thead{background:#f0f4f5;color:#586e7e}th{height:46px;font-weight:500;font-size:12px}td{height:66px;border-bottom:1px solid #e0e6e8}th:first-child,td:first-child{text-align:center;padding-left:0}input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--blue);vertical-align:middle}.title{font-size:15px;font-weight:500;color:#233445;padding-right:20px}.title a{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.title a:hover{color:var(--blue);text-decoration:underline;text-underline-offset:4px}.state{display:inline-flex;align-items:center;gap:7px;min-width:76px;padding:6px 8px;font-size:12px;line-height:16px;border-radius:3px;color:#354b2b;background:var(--green)}.state:before{content:"";width:5px;height:12px;border-radius:1px;background:#65814e}.state.changed{color:#75501f;background:var(--amber)}.state.changed:before{background:#a4772d}.state.draft{color:#566a7a;background:#e9eef1}.state.draft:before{background:#778b99}.type{font-size:13px;color:#566b7b}.date{font-size:13px;color:#566b7b;font-variant-numeric:tabular-nums}.row-arrow{width:16px;height:16px;color:#728999}tbody tr:hover{background:#f3f6f7}.directory-footer{display:flex;justify-content:flex-end;align-items:center;gap:9px;padding-top:22px}.page-button{height:33px;padding:0 12px;border:1px solid #cfdadf;border-radius:4px;background:white;font-size:12px}.page-button:disabled{color:#8495a2;background:#f6f8f7;cursor:default}.page-number{display:grid;place-items:center;width:33px;height:33px;background:#e4edf3;color:var(--blue);border-radius:4px;font-size:12px;font-weight:600}
+</style>
+</head>
+<body>
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>
+<symbol id="file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 12h6M9 16h6"/></symbol>
+<symbol id="panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></symbol>
+<symbol id="shapes" viewBox="0 0 24 24"><path d="m7 3 5 8H2z"/><rect x="3" y="15" width="6" height="6" rx="1"/><circle cx="17" cy="17" r="4"/></symbol>
+<symbol id="tag" viewBox="0 0 24 24"><path d="M3 3h7l11 11-7 7L3 10z"/><circle cx="7" cy="7" r="1"/></symbol>
+<symbol id="image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
+<symbol id="comment" viewBox="0 0 24 24"><path d="M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3zM7 8h10M7 12h7"/></symbol>
+<symbol id="arrow" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+<symbol id="palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c3 0 1-4 3-4h2a4 4 0 0 0 4-4A10 10 0 0 0 12 3Z"/><circle cx="7" cy="10" r=".5"/><circle cx="11" cy="7" r=".5"/><circle cx="16" cy="8" r=".5"/><circle cx="7" cy="15" r=".5"/></symbol>
+<symbol id="chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15l4-6 4 3 5-7"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+<symbol id="settings" viewBox="0 0 24 24"><path d="M3 6h7m4 0h7M3 18h11m4 0h3M10 3v6M14 15v6"/><circle cx="12" cy="6" r="2"/><circle cx="16" cy="18" r="2"/></symbol>
+<symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+<symbol id="logout" viewBox="0 0 24 24"><path d="M10 4H4v16h6M9 12h12m-4-4 4 4-4 4"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+<symbol id="chevron" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+</defs></svg>
+<div class="shell">
+<aside class="sidebar">
+<a class="brand" href="#"><svg class="brandmark" viewBox="0 0 30 30"><path d="m3 7 5 17 7-13 7 13 5-17M3 7l12 4L27 7"/></svg>Weava</a>
+<a class="site-link" href="#">查看网站<svg><use href="#arrow"/></svg></a>
+<nav class="navigation" aria-label="网站管理">
+<div class="nav-group">
+<a class="nav-item active" href="#" aria-current="page"><svg><use href="#file"/></svg>内容</a>
+<a class="nav-item" href="#"><svg><use href="#panel"/></svg>页面</a>
+<a class="nav-item" href="#"><svg><use href="#panel"/></svg>布局</a>
+</div><div class="nav-group">
+<a class="nav-item" href="#"><svg><use href="#shapes"/></svg>内容类型</a>
+<a class="nav-item" href="#"><svg><use href="#tag"/></svg>分类与标签</a>
+<a class="nav-item" href="#"><svg><use href="#image"/></svg>媒体</a>
+<a class="nav-item" href="#"><svg><use href="#comment"/></svg>评论</a>
+<a class="nav-item" href="#"><svg><use href="#arrow"/></svg>网址别名</a>
+<a class="nav-item" href="#"><svg><use href="#check"/></svg>发布计划</a>
+</div><div class="nav-group">
+<a class="nav-item" href="#"><svg><use href="#palette"/></svg>外观与导航</a>
+<a class="nav-item" href="#"><svg><use href="#chart"/></svg>访问统计</a>
+<a class="nav-item" href="#"><svg><use href="#search"/></svg>搜索与检查</a>
+<a class="nav-item" href="#"><svg><use href="#settings"/></svg>运行与备份</a>
+</div><div class="nav-group"><a class="nav-item" href="#"><svg><use href="#user"/></svg>账户</a></div>
+</nav>
+<div class="bottom"><span>Weava</span><a href="#"><svg><use href="#logout"/></svg>退出</a></div>
+</aside>
+<main>
+<header class="heading"><h1>内容</h1><button class="primary"><svg><use href="#plus"/></svg>新建内容</button></header>
+<section aria-label="内容目录">
+<div class="tools"><label class="search"><svg><use href="#search"/></svg><input aria-label="搜索内容" placeholder="搜索标题或摘要"></label><select aria-label="内容状态"><option>全部状态</option><option>已发布</option><option>有未发布修改</option><option>草稿</option><option>已归档</option></select><select aria-label="内容类型"><option>全部类型</option><option>文章</option></select><select aria-label="内容可见性"><option>全部可见性</option><option>公开</option><option>私密</option></select><select class="sort" aria-label="内容排序"><option>最近修改</option><option>标题升序</option><option>最近发布</option></select></div>
+<div class="table-wrap"><table><colgroup><col class="check-col"><col><col class="state-col"><col class="type-col"><col class="date-col"><col class="open-col"></colgroup>
+<thead><tr><th><input type="checkbox" aria-label="全选内容"></th><th>标题</th><th>状态</th><th>类型</th><th>修改时间</th><th></th></tr></thead>
+<tbody>
+<tr><td><input type="checkbox" aria-label="选择 10 个提升你思维层级的思维模型"></td><td class="title"><a href="#">10 个提升你思维层级的思维模型</a></td><td><span class="state changed">已修改</span></td><td class="type">文章</td><td class="date">11月 1日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 12 个英语单词，凭什么能装下你的亿万身家？"></td><td class="title"><a href="#">12 个英语单词，凭什么能装下你的亿万身家？</a></td><td><span class="state">已发布</span></td><td class="type">文章</td><td class="date">10月 31日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 保持好奇，是一种长期主义"></td><td class="title"><a href="#">保持好奇，是一种长期主义</a></td><td><span class="state draft">草稿</span></td><td class="type">文章</td><td class="date">10月 30日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 关于写作、生活与自我生长"></td><td class="title"><a href="#">关于写作、生活与自我生长</a></td><td><span class="state">已发布</span></td><td class="type">文章</td><td class="date">10月 28日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 周末手记：慢一点，也没有关系"></td><td class="title"><a href="#">周末手记：慢一点，也没有关系</a></td><td><span class="state">已发布</span></td><td class="type">文章</td><td class="date">10月 26日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 如何建立自己的知识体系"></td><td class="title"><a href="#">如何建立自己的知识体系</a></td><td><span class="state changed">已修改</span></td><td class="type">文章</td><td class="date">10月 24日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 把日子过成喜欢的样子"></td><td class="title"><a href="#">把日子过成喜欢的样子</a></td><td><span class="state">已发布</span></td><td class="type">文章</td><td class="date">10月 22日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 每一个想法，都值得被认真记录"></td><td class="title"><a href="#">每一个想法，都值得被认真记录</a></td><td><span class="state draft">草稿</span></td><td class="type">文章</td><td class="date">10月 20日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+<tr><td><input type="checkbox" aria-label="选择 生活需要一点留白"></td><td class="title"><a href="#">生活需要一点留白</a></td><td><span class="state">已发布</span></td><td class="type">文章</td><td class="date">10月 18日</td><td><svg class="row-arrow"><use href="#chevron"/></svg></td></tr>
+</tbody></table></div>
+<nav class="directory-footer" aria-label="内容列表分页"><button class="page-button" disabled>上一页</button><span class="page-number" aria-current="page">1</span><button class="page-button">下一页</button></nav>
+</section>
+</main>
+</div>
+</body>
+</html>

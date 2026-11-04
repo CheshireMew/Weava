@@ -5,6 +5,7 @@ import { useSelectors } from './Selectors.tsx';
 import { uploadFile } from './upload-file.ts';
 import { MediaGroups } from './MediaGroups.tsx';
 import { useManagedRecord } from './EditSessions.tsx';
+import { Dialog } from './Dialog.tsx';
 import { AutosaveStatus } from './AutosaveStatus.tsx';
 
 export default function MediaManager({ onError, onOpen }: { onError: (message: string) => void; onOpen: (id: string) => void }) {
@@ -21,6 +22,7 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
   const selected = managed.record, setSelected = managed.setRecord;
   const [references, setReferences] = useState<any>(null), [progress, setProgress] = useState('');
   const [crop, setCrop] = useState({ left: 0, top: 0, width: 100, height: 100 }), [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [cropping, setCropping] = useState(false), [cropError, setCropError] = useState('');
   const searchTerm = useDebouncedValue(query);
   const [groups, setGroups] = useState<any[]>([]), [group, setGroup] = useState(''), [moveTo, setMoveTo] = useState(''), [managingGroups, setManagingGroups] = useState(false);
   useEffect(() => { let active = true; api('media/groups').then((rows) => { if (active) setGroups(rows); }).catch((error) => onError(error.message)); return () => { active = false; }; }, [epoch]);
@@ -32,7 +34,7 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
     return () => { active = false; };
   }, [searchTerm, kind, page, archived, group, epoch]);
   useEffect(() => {
-    setReferences(null); setCrop({ left: 0, top: 0, width: 100, height: 100 });
+    setCropping(false); setReferences(null); setCrop({ left: 0, top: 0, width: 100, height: 100 });
     if (!selected) return;
     if (window.matchMedia('(max-width: 900px)').matches) details.current?.scrollIntoView({ block: 'start' });
     let active = true; api(`media/references?id=${encodeURIComponent(selected.id)}`).then((value) => { if (active) setReferences(value); }).catch((error) => onError(error.message));
@@ -66,9 +68,11 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
       {isImage && <section><h3>图片焦点</h3><div className="image-focus" role="slider" aria-label="图片焦点" tabIndex={0} aria-valuetext={'横向 ' + (selected.value.focalPoint?.x ?? 50) + '%，纵向 ' + (selected.value.focalPoint?.y ?? 50) + '%'} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setSelected({ ...selected, value: { ...selected.value, focalPoint: point(event) } }); }} onPointerMove={event => { if (event.buttons === 1) setSelected({ ...selected, value: { ...selected.value, focalPoint: point(event) } }); }} onKeyDown={event => { if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); const focus = { x: 50, y: 50, ...selected.value.focalPoint }; const axis = ['ArrowLeft','ArrowRight'].includes(event.key) ? 'x' : 'y'; focus[axis] = Math.max(0, Math.min(100, focus[axis] + (['ArrowRight','ArrowDown'].includes(event.key) ? 5 : -5))); setSelected({ ...selected, value: { ...selected.value, focalPoint: focus } }); }}>
         <img src={selected.value.url} alt="点击图片选择裁切时保留的位置" draggable={false} /><span style={{ left: (selected.value.focalPoint?.x ?? 50) + '%', top: (selected.value.focalPoint?.y ?? 50) + '%' }} />
       </div></section>}
-      {isImage && <details><summary>裁切图片</summary><div className="crop-surface" onPointerDown={(event) => { const start = point(event); setAnchor(start); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (!anchor) return; const end = point(event); setCrop({ left: Math.min(anchor.x, end.x), top: Math.min(anchor.y, end.y), width: Math.max(.1, Math.abs(end.x - anchor.x)), height: Math.max(.1, Math.abs(end.y - anchor.y)) }); }} onPointerUp={() => setAnchor(null)} onPointerCancel={() => setAnchor(null)} onLostPointerCapture={() => setAnchor(null)}><img src={selected.value.url} alt="裁切预览" draggable={false} /><span style={{ left: crop.left + '%', top: crop.top + '%', width: crop.width + '%', height: crop.height + '%' }} /></div>
-        <button disabled={!!progress || crop.width === 100 && crop.height === 100} onClick={async () => { try { const row = await save(); const job = await api('media/crop', { id: row.id, revision: row.revision, crop }); const complete = await waitJob(job, (job) => setProgress(job.message)); managed.session.adopt(complete.result); refresh(); } catch(error: any) { onError(error.message); } finally { setProgress(''); } }}>保存裁切图片</button>{progress && <p role="status">{progress}</p>}
-      </details>}
+      {isImage && <button disabled={!!progress} onClick={() => { setCrop({ left: 0, top: 0, width: 100, height: 100 }); setCropError(''); setCropping(true); }}>裁切图片</button>}
+      {isImage && cropping && <Dialog label="裁切图片" className="modal crop-dialog" onClose={() => setCropping(false)} dismissible={!progress}><div className="modal-title"><h2>裁切图片</h2><button disabled={!!progress} onClick={() => setCropping(false)}>关闭</button></div><p>在图片上拖动，框选要保留的区域。</p><div className="crop-surface" onPointerDown={(event) => { const start = point(event); setAnchor(start); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (!anchor) return; const end = point(event); setCrop({ left: Math.min(anchor.x, end.x), top: Math.min(anchor.y, end.y), width: Math.max(.1, Math.abs(end.x - anchor.x)), height: Math.max(.1, Math.abs(end.y - anchor.y)) }); }} onPointerUp={() => setAnchor(null)} onPointerCancel={() => setAnchor(null)} onLostPointerCapture={() => setAnchor(null)}><img src={selected.value.url} alt="裁切预览" draggable={false} /><span style={{ left: crop.left + '%', top: crop.top + '%', width: crop.width + '%', height: crop.height + '%' }} /></div>
+        <button disabled={!!progress || crop.width === 100 && crop.height === 100} onClick={async () => { setProgress('正在保存裁切…'); setCropError(''); try { const row = await save(); const job = await api('media/crop', { id: row.id, revision: row.revision, crop }); const complete = await waitJob(job, (job) => setProgress(job.message)); managed.session.adopt(complete.result); setCropping(false); refresh(); } catch(error: any) { setCropError(error.message); onError(error.message); } finally { setProgress(''); } }}>保存裁切图片</button>{progress && <p role="status">{progress}</p>}
+        {cropError && <p role="alert" className="error">{cropError}</p>}
+      </Dialog>}
       {references && <section><h3>引用位置</h3>{references.working.map((entry: any) => <button key={entry.id} onClick={() => onOpen(entry.id)}>{entry.title}</button>)}{!references.working.length && <p>当前工作稿未引用</p>}{references.layouts.map((layout: any) => <p key={layout.id}>布局：{layout.label}</p>)}{references.settings && <p>网站设置</p>}<p>公开内容 {references.published.length} · 历史修订 {references.historicalRevisions}</p></section>}
     </aside>}</div>
   </div>;

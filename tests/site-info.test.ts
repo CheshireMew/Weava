@@ -48,6 +48,9 @@ it('reads legacy information into simple settings without writing or converting 
 it('routes retired page and layout screens to settings and does not create builder links', () => {
   expect(adminPanel('?panel=pages')).toBe('appearance'); expect(adminPanel('?panel=layouts')).toBe('appearance');
   expect(adminPanel('?panel=terms')).toBe('appearance');
+  expect(adminPanel('?panel=redirects')).toBe('content'); expect(adminPanel('?panel=search-tools')).toBe('content');
+  expect(() => panelUrl('http://localhost/admin/', 'redirects')).toThrow();
+  expect(() => panelUrl('http://localhost/admin/', 'search-tools')).toThrow();
   expect(() => panelUrl('http://localhost/admin/', 'pages')).toThrow();
   expect(() => panelUrl('http://localhost/admin/', 'layouts')).toThrow();
 });

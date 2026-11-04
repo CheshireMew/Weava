@@ -1,3 +1,4 @@
+import { useId, useState } from 'react';
 import { AnalyticsSidebar } from './analytics/AnalyticsSidebar.tsx';
 import { AnalyticsTrends } from './analytics/AnalyticsTrends.tsx';
 import { AnalyticsAudience } from './analytics/AnalyticsAudience.tsx';
@@ -19,6 +20,9 @@ export function AnalyticsReportView({
   openVisitor: (id: string) => void;
   onError: (message: string) => void;
 }) {
+  const [section, setSection] = useState('overview');
+  const id = useId();
+  const tabs = [['overview', '概览'], ['sources', '来源'], ['visitors', '访客'], ['devices', '设备'], ['actions', '行为']];
   const { loading } = model,
     zone = data.range.timezone,
     view = { ...model, data, openVisitor, onError };
@@ -53,15 +57,20 @@ export function AnalyticsReportView({
           <small>仅统计页面可见的时间</small>
         </article>
       </div>
-      <div className="analytics-dashboard">
-        <section className="analytics-main" aria-label="统计报表">
-          <AnalyticsTrends model={view} />
-          <AnalyticsAudience model={view} />
-          <details className="settings-disclosure"><summary>地区详情</summary><AnalyticsGeography model={view} /></details>
-          <details className="settings-disclosure"><summary>点击、推广与爬虫详情</summary><AnalyticsActions model={view} /></details>
-        </section>
-        <AnalyticsSidebar model={view} />
+      <div className="analytics-tabs" role="tablist" aria-label="统计报表">
+        {tabs.map(([key, label]) => <button key={key} id={id + key} role="tab" aria-selected={section === key} aria-controls={id + 'panel'} tabIndex={section === key ? 0 : -1} onClick={() => setSection(key)} onKeyDown={event => {
+          const index = tabs.findIndex(([tab]) => tab === key);
+          const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : -1;
+          if (next >= 0) { event.preventDefault(); setSection(tabs[next][0]); document.getElementById(id + tabs[next][0])?.focus(); }
+        }}>{label}</button>)}
       </div>
+      <section id={id + 'panel'} role="tabpanel" aria-labelledby={id + section}>
+        {section === 'overview' && <div className="analytics-dashboard"><div className="analytics-main"><AnalyticsTrends model={view} /><AnalyticsAudience model={view} /></div><AnalyticsSidebar model={view} /></div>}
+        {section === 'sources' && <div className="analytics-main"><AnalyticsAudience model={view} section="sources" /><AnalyticsTrends model={view} section="sources" /><div className="analytics-dashboard"><div className="analytics-main"><AnalyticsGeography model={view} /></div><AnalyticsSidebar model={view} section="countries" /></div></div>}
+        {section === 'visitors' && <div className="analytics-main"><AnalyticsAudience model={view} section="visitors" /></div>}
+        {section === 'devices' && <AnalyticsSidebar model={view} section="devices" />}
+        {section === 'actions' && <div className="analytics-main"><AnalyticsActions model={view} /></div>}
+      </section>
     </div>
   );
 }

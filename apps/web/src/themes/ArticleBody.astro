@@ -1,0 +1,18 @@
+---
+import { load } from 'cheerio';
+
+interface Props { html: string; }
+const { html } = Astro.props;
+const edit = Astro.slots.has('edit') ? await Astro.slots.render('edit') : '';
+const actions = Astro.slots.has('actions') ? await Astro.slots.render('actions') : '';
+const $ = load(html, {}, false);
+const meta = $('.article-heading > .meta').first();
+if (meta.length) {
+  meta.append(edit);
+  meta.wrap('<div class="nl-article-byline"></div>');
+  meta.parent().append(actions);
+} else if (edit.trim() || actions.trim()) {
+  $.root().prepend(edit + actions);
+}
+---
+<article class="prose nl-prose" data-article-body set:html={$.html()} />

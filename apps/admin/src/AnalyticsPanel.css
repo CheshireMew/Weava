@@ -24,16 +24,20 @@
   cursor: default;
 }
 .analytics-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
   margin-bottom: 20px;
 }
 .analytics-presets {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 10px;
+  margin: 0;
 }
 .analytics-presets button {
-  padding: 5px 12px;
+  padding: 5px 10px;
   min-height: 34px;
   background: var(--surface-soft);
 }
@@ -44,21 +48,16 @@
   gap: 8px;
 }
 .analytics-date-inputs input[type='date'] {
-  width: 153px;
-}
-.analytics-date-inputs input:not([type='date']) {
-  width: 190px;
-  flex: 1 1 160px;
-  max-width: 320px;
+  width: 145px;
 }
 .analytics-date-inputs select {
-  width: 145px;
+  width: 130px;
 }
 .analytics-filter-tags {
   display: flex;
+  flex-basis: 100%;
   flex-wrap: wrap;
   gap: 6px;
-  padding-top: 10px;
 }
 .analytics-filter-tags button {
   background: var(--accent-soft);
@@ -547,11 +546,6 @@
     min-width: 0;
     width: 130px;
   }
-  .analytics-date-inputs input:not([type='date']) {
-    max-width: none;
-    width: 100%;
-    flex-basis: 100%;
-  }
   .analytics-date-inputs select {
     flex: 1;
   }
@@ -588,3 +582,12 @@
     min-height: 38px;
   }
 }
+
+.analytics-tabs { display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.analytics-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 20px; background: transparent; color: var(--ink-muted); }
+.analytics-tabs button[aria-selected='true'] { color: var(--accent); border-bottom-color: var(--accent); }
+.analytics-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.analytics-view-switch { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 10px; }
+.analytics-view-switch button { min-height: 30px; padding: 4px 12px; border: 0; background: transparent; color: var(--ink-muted); }
+.analytics-view-switch button[aria-pressed='true'] { color: var(--ink); background: var(--surface-secondary); }
+@media (max-width: 700px) { .analytics-section-grid { grid-template-columns: minmax(0, 1fr); } .analytics-tabs button { padding-inline: 14px; } }

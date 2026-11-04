@@ -1,5 +1,6 @@
 import { useState, lazy, Suspense } from 'react';
 import { api } from './api.ts';
+import { Dialog } from './Dialog.tsx';
 import { PanelSections } from './PanelSections.tsx';
 import { operationLabels, jobStatusLabels } from './admin-labels.ts';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
@@ -15,18 +16,16 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
 }) {
   const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
+  const [dialog, setDialog] = useState<'location' | 'verify' | null>(null), [nextPath, setNextPath] = useState('');
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
   return <div className="panel operations-panel">
     <div className="panel-title"><h1>备份与维护</h1><button onClick={refresh}>刷新</button></div>
     <PanelSections label="备份与维护分类" sections={[
       { id: 'backup', label: '备份', content: <section className="form-card settings-form">
         <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
-        <details className="settings-disclosure"><summary>备份保存位置</summary><label>文件夹<input value={path} onChange={event => setPath(event.target.value)} /></label></details>
+        <div className="backup-location"><span>保存位置：{path}</span><button onClick={() => { setNextPath(path); setDialog('location'); }}>更改位置</button></div>
         <button className="primary" disabled={!path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
-        <details className="settings-disclosure"><summary>检查已有备份</summary>
-          <label>备份所在文件夹<input value={verify} onChange={event => setVerify(event.target.value)} /></label>
-          <button disabled={!verify.trim()} onClick={() => task('verify', { path: verify })}>检查备份是否完整</button>
-        </details>
+        <button onClick={() => setDialog('verify')}>检查已有备份</button>
       </section> },
       { id: 'import', label: '导入与导出', content: <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense> },
       { id: 'publication', label: '发布记录', content: <>
@@ -59,12 +58,24 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
             <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · 媒体 {size(usage.media.bytes)}</p>
             <p>{usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本 · {usage.backups.length} 份已记录备份</p>
             <p>未被内容或历史引用的媒体：{usage.unreferenced.count} 个，{size(usage.unreferenced.bytes)}。文件继续保留。</p>
-            {!!usage.backups.length && <details className="settings-disclosure"><summary>备份位置</summary>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</details>}
+            {!!usage.backups.length && <section className="backup-locations"><h3>备份位置</h3>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</section>}
           </>}
         </section>
         <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>
 
       </> },
     ]} />
+    {dialog && <Dialog label={dialog === 'location' ? '更改备份位置' : '检查已有备份'} onClose={() => setDialog(null)}>
+      <div className="modal-title"><h2>{dialog === 'location' ? '更改备份位置' : '检查已有备份'}</h2><button onClick={() => setDialog(null)}>关闭</button></div>
+      <form onSubmit={event => {
+        event.preventDefault();
+        if (dialog === 'location') { setPath(nextPath.trim()); try { localStorage.setItem('weava-backup-path', nextPath.trim()); } catch {} }
+        else task('verify', { path: verify.trim() });
+        setDialog(null);
+      }}>
+        <label>{dialog === 'location' ? '文件夹' : '备份所在文件夹'}<input data-autofocus required value={dialog === 'location' ? nextPath : verify} onChange={event => dialog === 'location' ? setNextPath(event.target.value) : setVerify(event.target.value)} /></label>
+        <div className="dialog-actions"><button type="button" onClick={() => setDialog(null)}>取消</button><button disabled={!(dialog === 'location' ? nextPath : verify).trim()}>{dialog === 'location' ? '使用此位置' : '检查备份是否完整'}</button></div>
+      </form>
+    </Dialog>}
   </div>;
 }

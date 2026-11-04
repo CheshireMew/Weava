@@ -3,6 +3,7 @@ import type { Site } from './site.ts';
 import { wordpressArchivePage, wordpressPagePath } from './wordpress-archives.ts';
 import type { Entry } from '@weava/contracts';
 import { queryPublicCatalog } from './public-query.ts';
+import { entryCover } from './entry-cover.ts';
 export function queryPublished(site: Site, input: ContentQuery = {}, search = false, releaseId?: string) {
   const release=site.visibleRelease(false,releaseId);
   return release?queryPublicCatalog(site.store.raw,release,input,search):paginate([],input.page??1,input.pageSize??24);
@@ -36,6 +37,10 @@ export function queryDrafts(site: Site, input: ContentQuery & { status?: string;
   const selected=site.store.raw.prepare('SELECT l.id,l.revision,l.summary,l.fields,l.updated_at,p.revision published_revision '+from+' ORDER BY '+orders[input.sort??'date']+',l.id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;summary:string;fields:string;updated_at:string;published_revision:number|null}[];
   return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:selected.map(row=>{
     const value=JSON.parse(row.summary),fields=JSON.parse(row.fields),columns=types.find(type=>type.id===value.type)?.admin?.columns??[];
+    if (!value.cover && value.kind === 'content') {
+      const entry = site.store.get('entry', row.id);
+      if (entry) value.cover = entryCover(entry.value);
+    }
     return {id:row.id,revision:row.revision,updatedAt:row.updated_at,published:row.published_revision!==null,hasChanges:row.published_revision!==row.revision,value:{...value,fields:Object.fromEntries(columns.filter(key=>Object.hasOwn(fields,key)).map(key=>[key,fields[key]]))}};
   })};
 }

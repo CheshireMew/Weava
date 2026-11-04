@@ -4,13 +4,13 @@ import { useManagedRecord } from './EditSessions.tsx';
 import { sameEditableValue } from './edit-session.ts';
 import { api } from './api.ts';
 import { AutosaveStatus } from './AutosaveStatus.tsx';
+import type { AutosaveState } from './useAutosave.ts';
 
 export interface SiteSettingProps {
   settings: Revision<Settings>;
   saveSettings: (value: Settings, revision: number) => Promise<Revision<Settings>>;
-  publishSettings: () => Promise<any>;
   onError: (message: string) => void;
-  pendingApplication?: boolean;
+  application?: AutosaveState;
 }
 function useSiteSetting({ settings, saveSettings }: SiteSettingProps, label: string, field: 'taxonomies' | 'commentModeration') {
   const baseline = useRef(settings);
@@ -31,14 +31,11 @@ function useSiteSetting({ settings, saveSettings }: SiteSettingProps, label: str
 
 export function CommentSettings(props: SiteSettingProps) {
   const managed = useSiteSetting(props, '评论设置', 'commentModeration');
-  return <details className="settings-disclosure"><summary>评论设置</summary>
-    <AutosaveStatus state={managed.autoSave} label="评论设置" savedText={props.pendingApplication ? '已自动保存，待应用到网站' : '已自动保存'} />
+  const state = ['error', 'saving', 'incomplete', 'pending'].flatMap(phase => [managed.autoSave, props.application].filter(state => state?.phase === phase))[0] ?? managed.autoSave;
+  return <div className="comment-settings">
+    {['error', 'incomplete'].includes(state.phase) && <AutosaveStatus state={state} label="评论设置" />}
     <label className="checkbox"><input type="checkbox"
       checked={managed.record!.value.commentModeration !== false}
       onChange={event => managed.setRecord(row => ({ ...row!, value: { ...row!.value, commentModeration: event.target.checked } }))} />新评论需要审核</label>
-    <button onClick={async () => {
-      try { await managed.autoSave.flush(); await props.publishSettings(); }
-      catch (error: any) { props.onError(error.message); }
-    }}>发布评论设置</button>
-  </details>;
+  </div>;
 }

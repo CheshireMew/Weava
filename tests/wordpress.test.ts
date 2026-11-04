@@ -11,6 +11,10 @@ it('imports WordPress Markdown, paths, covers and privacy without duplicating or
   mkdirSync(join(source,'articles'),{ recursive:true });
   const image = await sharp({ create:{ width:20,height:20,channels:3,background:'#315c4c' } }).png().toBuffer();
   writeFileSync(join(source,'media/photo.png'),image);
+  const full = await sharp({ create:{ width:80,height:80,channels:3,background:'#315c4c' } }).png().toBuffer();
+  const thumbnail = await sharp({ create:{ width:10,height:10,channels:3,background:'#315c4c' } }).png().toBuffer();
+  writeFileSync(join(source,'media/full.png'),full);
+  writeFileSync(join(source,'media/thumbnail.png'),thumbnail);
   const body = '## 原文\n\n![封面](https://blog.example.com/wp-content/uploads/photo.png){.alignnone}\n\n[https://blog.example.com](https://blog.example.com)\n\n```text\n[https://blog.example.com](https://blog.example.com)\n```';
   writeFileSync(join(source,'articles/1.md'),body);
   writeFileSync(join(source,'articles/2.md'),'私密内容');
@@ -23,12 +27,19 @@ it('imports WordPress Markdown, paths, covers and privacy without duplicating or
   const json = (file:string,value:unknown) => writeFileSync(join(source,file),JSON.stringify(value));
   json('wordpress-source.json',{ schema:'wordpress-source-export-v1',options:{ home:'https://blog.example.com',blogname:'博客',blogdescription:'内容',WPLANG:'zh_CN',timezone_string:'Asia/Shanghai' } });
   json('articles.json',[article('1','publish'),article('2','private')]);
-  json('media-url-map.json',[{ source_url:'https://blog.example.com/wp-content/uploads/photo.png',original_urls:[],local_path:'media/photo.png',status:'verified',sha256:digest(image) }]);
+  json('media-url-map.json',[
+    { source_url:'https://blog.example.com/wp-content/uploads/photo.png',original_urls:[],local_path:'media/photo.png',status:'verified',sha256:digest(image) },
+    { source_url:'https://blog.example.com/wp-content/uploads/full.png',original_urls:[],local_path:'media/full.png',status:'verified',sha256:digest(full) },
+    { source_url:'https://blog.example.com/wp-content/uploads/thumbnail.png',original_urls:[],local_path:'media/thumbnail.png',status:'verified',sha256:digest(thumbnail) },
+  ]);
   const dry = await migrateWordPress(source,target,true);
   expect(dry.privateArticles).toBe(1);
+  expect(dry.media).toBe(1);
   await migrateWordPress(source,target);
   const site = new Site(target);
   const first = site.store.get('entry','wordpress:1')!;
+  expect(site.store.list('media').map(row => row.id)).toEqual([digest(image).slice(0,24)]);
+  expect(site.redirect(new URL('https://blog.example.com/wp-content/uploads/full.png'))).toBeNull();
   expect(first.value.document.source).toContain('/media/'+digest(image).slice(0,24)+'.png');
   expect(first.value.document.source).toContain('[https://blog.example.com](/)');
   expect(first.value.document.source).not.toContain('{.alignnone}');

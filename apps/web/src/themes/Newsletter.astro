@@ -6,6 +6,7 @@ import type { Release, PublishedEntry } from '@weava/contracts';
 import { site, analytics, engagement } from '../runtime.ts';
 import { imageAttributes, renderFields, articleOutline, renderNavigation, selectEntries, paginate, pageLinks, layoutFor, wordpressArchivePage } from '@weava/core';
 import ArticleActions from './ArticleActions.astro';
+import ArticleBody from './ArticleBody.astro';
 import { featuredEntries, recommendedEntries, feedLinks } from '@weava/core';
 import ArticleComments from './ArticleComments.astro';
 import SiteInfoLinks from '../components/SiteInfoLinks.astro';
@@ -153,14 +154,16 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
           </aside>
         </div>
       </> : entry?.kind === 'content' ? <>
-        {interactive && <ArticleActions position="top" counts={discussion} />}
         {outline.items.length > 0 && <aside class="nl-toc" data-toc data-open={String(tocOpen)}>
           <button type="button" class="nl-toc-handle" data-toc-toggle aria-label="展开文章目录" aria-expanded={String(tocOpen)} aria-controls="article-toc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 6h14M7 12h14M7 18h14M2 6h1M2 12h1M2 18h1" /></svg></button>
           <div class="nl-toc-backdrop" data-toc-close hidden={!tocOpen}></div>
           <div class="nl-toc-panel" id="article-toc" hidden={!tocOpen}><div class="nl-toc-heading"><span>目录</span><button type="button" data-toc-close aria-label="收起文章目录">×</button></div><nav aria-label="文章目录">{outline.items.map((item) => <a href={`#${encodeURIComponent(item.id)}`} data-heading-id={item.id} style={`--toc-depth:${item.level - 2}`}>{item.title}</a>)}</nav></div>
         </aside>}
         <Advertisement settings={settings} position="articleTop" />
-        <article class="prose nl-prose" data-article-body set:html={outline.html} />
+        <ArticleBody html={outline.html}>
+          {owner && <a slot="edit" class="nl-article-edit" href={`${site.auth.adminPath()}/?entry=${encodeURIComponent(entry.id)}`}>编辑</a>}
+          {interactive && <ArticleActions slot="actions" position="top" counts={discussion} />}
+        </ArticleBody>
         <Advertisement settings={settings} position="articleBottom" />
 
         {interactive && <><ArticleActions position="bottom" counts={discussion} /><ArticleComments allowComments={entry?.allowComments !== false} items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} /></>}

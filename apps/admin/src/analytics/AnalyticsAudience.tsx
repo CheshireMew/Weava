@@ -6,8 +6,9 @@ import { analyticsPresentation } from './presentation.tsx';
 
 import type { AnalyticsView } from './types.ts';
 export function AnalyticsAudience({
-  model,
+  model, section = 'pages',
 }: {
+  section?: 'pages' | 'sources' | 'visitors';
   model: Pick<
     AnalyticsView,
     'data' | 'live' | 'path' | 'loadedQuery' | 'liveError' | 'retryLive' | 'openVisitor'
@@ -19,10 +20,10 @@ export function AnalyticsAudience({
   return (
     <>
       {' '}
-      <Card title="页面排行">
+      {section === 'pages' && <Card title="页面排行">
         <DataTable rows={data.pages} columns={pageColumns} />
-      </Card>
-      <Card title="访问来源">
+      </Card>}
+      {section === 'sources' && <Card title="访问来源">
         <DataTable
           rows={data.sources}
           columns={[
@@ -46,8 +47,8 @@ export function AnalyticsAudience({
             { key: 'views', label: '浏览', numeric: true },
           ]}
         />
-      </Card>
-      <details className="settings-disclosure"><summary>访客详情</summary><Card title="最活跃访客">
+      </Card>}
+      {section === 'visitors' && <><Card title="最活跃访客">
         <DataTable rows={data.activeVisitors} columns={visitorColumns} size={10} />
       </Card>
       <Card title="最新访客">
@@ -97,6 +98,7 @@ export function AnalyticsAudience({
           {new URLSearchParams(loadedQuery).get('path') ? '，页面路径筛选生效' : '全站'}。
         </p>
       </Card>
-    </details></>
+    </>}
+    </>
   );
 }

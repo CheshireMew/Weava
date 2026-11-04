@@ -200,11 +200,11 @@ export function EntrySettings({
           允许新评论
         </label>
 
-      <details className="settings-disclosure"><summary>定时发布</summary><EntrySchedule model={model} /></details>
+      <section><h3>定时发布</h3><EntrySchedule model={model} /></section>
       <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} />
 
       <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} />
-      <details className="settings-disclosure"><summary>更多操作</summary><EntryMoreActions model={model} /></details>
+      <section><h3>更多操作</h3><EntryMoreActions model={model} /></section>
     </>}
   </aside>;
 }

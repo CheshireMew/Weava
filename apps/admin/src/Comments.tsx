@@ -32,8 +32,8 @@ export default function Comments(props: SiteSettingProps) {
       <select aria-label="评论状态" value={status} disabled={busy} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option><option value="pending">待审核</option>
       </select>
+      <CommentSettings {...props} />
     </div>
-    <CommentSettings {...props} />
     {data ? <>
       {!data.items.length && <p className="muted">暂无评论</p>}
       {data.items.map((row) => <article className="admin-comment form-card" key={row.id}>

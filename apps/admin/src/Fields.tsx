@@ -1,4 +1,5 @@
-import { createContext, useContext, useId, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { Dialog } from './Dialog.tsx';
+import { createContext, useContext, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { fieldVisible, fieldDefaults, effectiveFields, type ContentType, type FieldDefinition, type FieldIssue, type FieldWidget } from '@weava/contracts';
 import { ReferenceField } from './ReferenceField.tsx';
 import { useSelectors } from './Selectors.tsx';
@@ -36,30 +37,35 @@ export function Fields({ definitions, values, onChange, layout, errors = [], pre
 
 function RepeatedField({ field, value, onChange, errors, path }: { field: FieldDefinition; value: any[]; onChange: (value: any[]) => void; errors: FieldIssue[]; path: string }) {
   const keys = useRef<string[]>([]), drag = useRef<number | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState<string | null>(null);
   while (keys.current.length < value.length) keys.current.push(crypto.randomUUID());
   if (keys.current.length > value.length) keys.current.length = value.length;
+  const complex = field.type === 'group' && ((field.fields?.length ?? 0) > 2 || field.fields?.some(child => child.multiple || ['group', 'richtext', 'reference'].includes(child.type)));
   const move = (from: number, to: number) => {
     if (from < 0 || from >= value.length || to < 0 || to >= value.length || from === to) return;
     const next = [...value], [item] = next.splice(from, 1), [key] = keys.current.splice(from, 1);
     next.splice(to, 0, item); keys.current.splice(to, 0, key); onChange(next);
   };
   const drop = (event: DragEvent, index: number) => { event.preventDefault(); if (drag.current !== null) move(drag.current, index); drag.current = null; };
+  const fields = (item: any, index: number) => field.type === 'group'
+    ? <Fields definitions={field.fields ?? []} values={item ?? {}} onChange={next => onChange(value.map((old, i) => i === index ? next : old))} errors={errors} prefix={path + '.' + index + '.'} />
+    : <Fields definitions={[{ ...field, key: String(index), multiple: false, condition: undefined, minItems: undefined, maxItems: undefined }]} values={{ [index]: item }} onChange={next => onChange(value.map((old, i) => i === index ? next[index] : old))} errors={errors} prefix={path + '.'} />;
   return <fieldset className="repeated-field"><legend>{field.label}{field.required && <span aria-hidden="true"> *</span>}</legend>
     {value.map((item, index) => {
-      const title = field.type === 'group' ? String(item?.[field.summaryField ?? 'title'] || item?.name || field.label) : String(item ?? field.label);
-      const hasError = errors.some((error) => error.path.startsWith(path + '.' + index + '.') || error.path === path + '.' + index);
-      const key = keys.current[index], toggle = () => setExpanded((old) => ({ ...old, [key]: !old[key] }));
-      return <details key={key} open={hasError || !!expanded[key]} onDragOver={(event) => event.preventDefault()} onDrop={(event) => drop(event, index)}>
-        <summary onClick={(event) => { if ((event.target as HTMLElement).closest('button')) return; event.preventDefault(); toggle(); }}><span><button type="button" aria-label={(expanded[key] || hasError ? '折叠' : '展开') + '第' + (index + 1) + '项'} onClick={(event) => { event.preventDefault(); toggle(); }}>{expanded[key] || hasError ? '▾' : '▸'}</button>{index + 1}. {title || field.label}</span><span className="repeat-actions">
-          <button type="button" draggable aria-label={'拖动' + field.label + '第' + (index + 1) + '项'} onClick={(event) => event.preventDefault()} onDragStart={() => { drag.current = index; }} onDragEnd={() => { drag.current = null; }}>↕</button>
-          <button type="button" aria-label={'上移第' + (index + 1) + '项'} disabled={index === 0} onClick={(event) => { event.preventDefault(); move(index, index - 1); }}>↑</button>
-          <button type="button" aria-label={'下移第' + (index + 1) + '项'} disabled={index === value.length - 1} onClick={(event) => { event.preventDefault(); move(index, index + 1); }}>↓</button>
-          <button type="button" onClick={(event) => { event.preventDefault(); keys.current.splice(index, 1); onChange(value.filter((_, i) => i !== index)); }}>移除</button>
-        </span></summary>
-        {field.type === 'group' ? <Fields definitions={field.fields ?? []} values={item ?? {}} onChange={(next) => onChange(value.map((old, i) => i === index ? next : old))} errors={errors} prefix={path + '.' + index + '.'} /> : <Fields definitions={[{ ...field, key: String(index), multiple: false, condition: undefined, minItems: undefined, maxItems: undefined }]} values={{ [index]: item }} onChange={(next) => onChange(value.map((old, i) => i === index ? next[index] : old))} errors={errors} prefix={path + '.'} />}
-      </details>;
+      const title = field.type === 'group' ? String(item?.[field.summaryField ?? 'title'] || item?.name || field.label) : field.label;
+      const issues = errors.filter(error => error.path.startsWith(path + '.' + index + '.') || error.path === path + '.' + index);
+      const key = keys.current[index];
+      return <section className="repeat-item" key={key} onDragOver={event => event.preventDefault()} onDrop={event => drop(event, index)}>
+        <header><span>{index + 1}. {title}</span><div className="repeat-actions">
+          {complex && <button type="button" onClick={() => setEditing(key)}>编辑</button>}
+          <button type="button" draggable aria-label={'拖动' + field.label + '第' + (index + 1) + '项'} onDragStart={() => { drag.current = index; }} onDragEnd={() => { drag.current = null; }}>↕</button>
+          <button type="button" aria-label={'上移第' + (index + 1) + '项'} disabled={index === 0} onClick={() => move(index, index - 1)}>↑</button>
+          <button type="button" aria-label={'下移第' + (index + 1) + '项'} disabled={index === value.length - 1} onClick={() => move(index, index + 1)}>↓</button>
+          <button type="button" onClick={() => { keys.current.splice(index, 1); if (editing === key) setEditing(null); onChange(value.filter((_, i) => i !== index)); }}>移除</button>
+        </div></header>
+        {complex ? <>{issues.length > 0 && <p className="error" role="alert">{issues.map(issue => issue.message).join('；')}</p>}{editing === key && <Dialog label={'编辑' + field.label} onClose={() => setEditing(null)}><div className="modal-title"><h2>{title}</h2><button onClick={() => setEditing(null)}>完成</button></div>{fields(item, index)}</Dialog>}</> : fields(item, index)}
+      </section>;
     })}
-    <button type="button" disabled={field.maxItems !== undefined && value.length >= field.maxItems} onClick={() => { const key = crypto.randomUUID(); keys.current.push(key); setExpanded((old) => ({ ...old, [key]: true })); onChange([...value, blank(field)]); }}>添加{field.label}</button>
+    <button type="button" disabled={field.maxItems !== undefined && value.length >= field.maxItems} onClick={() => { const key = crypto.randomUUID(); keys.current.push(key); if (complex) setEditing(key); onChange([...value, blank(field)]); }}>添加{field.label}</button>
   </fieldset>;
 }

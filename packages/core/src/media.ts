@@ -14,6 +14,7 @@ import { openSync,closeSync,readSync } from 'node:fs';
 import { digestFile } from './file-io.ts';
 import { updateRevisionReferences } from './media-reference-index.ts';
 import { BoundedCache } from './cache.ts';
+import { imageDerivatives } from './media-images.ts';
 const imageCaches=new WeakMap<object,{stamp:string;attributes:BoundedCache<string,any>;html:BoundedCache<string,string>}>();
 function imageCache(site:Site){
   const stamp=site.store.state('media-version')??'0';let cache=imageCaches.get(site.store);
@@ -216,25 +217,7 @@ export async function prepareMedia(site: Site, data: Buffer|string, name: string
     dir = join(site.root, 'media');
   mkdirSync(dir, { recursive: true });
   if(typeof data==='string'){if(data!==join(dir,file))await copyFile(data,join(dir,file));}else writeFileSync(join(dir, file), data);
-  const derivatives: any[] = [];
-  if (image) {
-    const optimized = join(dir, 'optimized');
-    mkdirSync(optimized, { recursive: true });
-    for (const width of [480, 960, 1600]) {
-      if ((metadata.width ?? 0) < width && derivatives.length) continue;
-      const target = id + '-' + width + '.webp';
-      const info = await sharp(data, { limitInputPixels: 32000000 })
-        .rotate()
-        .resize({ width, withoutEnlargement: true })
-        .webp({ quality: 82 })
-        .toFile(join(optimized, target));
-      derivatives.push({
-        url: '/media/optimized/' + target,
-        width: info.width,
-        bytes: statSync(join(optimized, target)).size,
-      });
-    }
-  }
+  const derivatives = image ? await imageDerivatives(site.root, data, id, metadata, size) : [];
   return {
     id, revision: existing?.revision ?? null,
     value: {
@@ -243,8 +226,8 @@ export async function prepareMedia(site: Site, data: Buffer|string, name: string
       url: '/media/' + file,
       bytes: size,
       hash,
-      width: metadata.width,
-      height: metadata.height,
+      width: metadata.autoOrient?.width ?? metadata.width,
+      height: metadata.autoOrient?.height ?? metadata.height,
       derivatives,
       createdAt: now(),
       ...(existing?.value ?? {}),

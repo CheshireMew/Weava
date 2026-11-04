@@ -20,6 +20,7 @@ export function Dialog({ children, label, className = 'modal', onClose, dismissi
   }, []);
   return <dialog ref={ref} className={className} aria-label={label} onCancel={(event) => {
     event.preventDefault();
+    event.stopPropagation();
     if (dismissible) onClose();
   }}>{children}</dialog>;
 }

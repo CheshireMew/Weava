@@ -5,14 +5,14 @@ import { Trend } from './Trend.tsx';
 import { analyticsPresentation } from './presentation.tsx';
 
 import type { AnalyticsView } from './types.ts';
-export function AnalyticsTrends({ model }: { model: Pick<AnalyticsView, 'data' | 'openVisitor'> }) {
+export function AnalyticsTrends({ model, section = 'overview' }: { section?: 'overview' | 'sources'; model: Pick<AnalyticsView, 'data' | 'openVisitor'> }) {
   const { data, openVisitor } = model;
   const { dates } = analyticsPresentation(data, openVisitor);
 
   return (
     <>
       {' '}
-      <Card title="流量趋势">
+      {section === 'overview' && <Card title="流量趋势">
         <Trend
           dates={dates}
           empty={!data.views && !data.previous.views}
@@ -45,8 +45,8 @@ export function AnalyticsTrends({ model }: { model: Pick<AnalyticsView, 'data' |
             },
           ]}
         />
-      </Card>
-      <details className="settings-disclosure"><summary>搜索与 AI 来源趋势</summary><Card title="搜索与 AI 来源趋势">
+      </Card>}
+      {section === 'sources' && <Card title="搜索与 AI 来源趋势">
         <Trend
           dates={dates}
           empty={!data.engines.length}
@@ -79,7 +79,7 @@ export function AnalyticsTrends({ model }: { model: Pick<AnalyticsView, 'data' |
           })}
         />
         <p className="analytics-note">按会话首次来源统计；来源被隐藏的访问归入直接 / 未知。</p>
-      </Card>
-    </details></>
+      </Card>}
+    </>
   );
 }

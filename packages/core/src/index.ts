@@ -9,6 +9,7 @@ export * from './instance-access.ts';
 export * from './site.ts';
 export * from './entry-actions.ts';
 export * from './documents.ts';
+export * from './entry-cover.ts';
 export * from './render.ts';
 export * from './media.ts';
 export * from './analytics.ts';

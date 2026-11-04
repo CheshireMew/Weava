@@ -24,12 +24,32 @@ it('keeps configured fields, opening and batch selection without redundant statu
   const current = model();
   await act(async () => root.render(<ContentEntries model={current} selectable />));
   expect(host.textContent).toContain('评分：5');
-  expect(host.textContent).not.toContain('已发布');
+  expect(host.querySelector('.publication-meta')?.textContent).toContain('已发布');
   expect(host.querySelector('.entry-state')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('.publication-open')!.click());
   expect(current.select).toHaveBeenCalledWith('entry-1');
   await act(async () => host.querySelector<HTMLInputElement>('[aria-label="批量选择 已有文章"]')!.click());
   expect(current.setBulkIds.mock.calls[0][0]([])).toEqual(['entry-1']);
+});
+
+it('shows the publication state once beside the date instead of the content type or a badge', async () => {
+  const current = model();
+  current.state.types[0].value.admin.columns = ['type', 'updatedAt'];
+  for (const [published, hasChanges, state, label] of [
+    [false, true, 'draft', '草稿'],
+    [true, false, 'published', '已发布'],
+    [true, true, 'published', '已发布（有未发布修改）'],
+    [false, false, 'archived', '已归档'],
+  ] as const) {
+    const row = current.items[0];
+    row.published = published; row.hasChanges = hasChanges; row.value.status = state;
+    await act(async () => root.render(<ContentEntries model={current} />));
+    const meta = host.querySelector('.publication-meta')!;
+    expect(meta.querySelector('time')).not.toBeNull();
+    expect(meta.textContent).toContain(label); expect(meta.textContent).not.toContain('文章');
+    expect(host.querySelector('.entry-state')).toBeNull();
+    expect(host.querySelector('.publication-copy')!.textContent!.split(label)).toHaveLength(2);
+  }
 });
 
 it('prevents opening or batch selection while displayed results are stale', async () => {
@@ -87,4 +107,19 @@ it('uses the existing status and sorting setters from the new controls', async (
   await act(async () => { sort.value = 'title'; sort.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(current.setLibrarySort).toHaveBeenCalledWith('title');
   expect(current.setLibraryPage).toHaveBeenCalledWith(1);
+});
+
+it('opens filters above the library and restores focus on Escape without changing the selection', async () => {
+  const current = model();
+  await act(async () => root.render(<ContentLibrary model={current} />));
+  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="筛选内容"]')!;
+  expect(host.querySelector('details')).toBeNull();
+  await act(async () => trigger.click());
+  const popup = document.querySelector('[role="dialog"][aria-label="筛选内容"]')!;
+  expect(popup).not.toBeNull(); expect(host.contains(popup)).toBe(false);
+  await act(async () => { const select = popup.querySelector<HTMLSelectElement>('[aria-label="更多内容状态"]')!; select.value = 'changed'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(current.setStatus).toHaveBeenCalledWith('changed');
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  expect(document.querySelector('[role="dialog"][aria-label="筛选内容"]')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
 });

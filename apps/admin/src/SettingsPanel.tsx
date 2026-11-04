@@ -21,6 +21,7 @@ import { AutosaveStatus } from './AutosaveStatus.tsx';
 import { settingsSchema } from '../../../packages/contracts/src/api-models.ts';
 import { api } from './api.ts';
 import { mergeSettingDraft } from './settings-draft.ts';
+import type { AutosaveState } from './useAutosave.ts';
 
 const emptyTerms: any[] = [];
 const unchanged = async () => {};
@@ -44,30 +45,29 @@ export default function SettingsPanel({
   panels,
   layouts,
   save,
-  publish,
   onError,
   siteInfo,
   terms = emptyTerms,
   refresh = unchanged,
   initialSection,
-  pendingApplication = false,
+  application,
+  applyTerms = unchanged,
 }: {
   row: any;
   themes: any[];
   panels: any[];
   layouts: any[];
   save: (v: Settings, r: number) => Promise<any>;
-  publish: () => any;
   onError: (s: string) => void;
   siteInfo?: SiteInfo;
   terms?: any[];
   refresh?: () => Promise<any>;
   initialSection?: string;
-  pendingApplication?: boolean;
+  application?: AutosaveState;
+  applyTerms?: () => void;
 }) {
   const selectors = useSelectors();
-  const taxonomy = useTaxonomyEditor(terms, refresh);
-  const [saving, setSaving] = useState(false);
+  const taxonomy = useTaxonomyEditor(terms, refresh, applyTerms);
   const baseline = useRef(row);
   const managed = useManagedRecord<any>(
     row,
@@ -89,33 +89,13 @@ export default function SettingsPanel({
   }, [row]);
   const set = (p: Partial<Settings>) =>
     managed.setRecord((record: any) => ({ ...record, value: { ...record.value, ...p } }));
-  async function publishSettings() {
-    setSaving(true);
-    try {
-      await taxonomy.save();
-      await managed.autoSave.flush();
-      await publish();
-    } catch (error: any) { onError(error.message); }
-    finally { setSaving(false); }
-  }
-  const saveState = ['error', 'saving', 'incomplete', 'pending'].flatMap(phase => [managed.autoSave, taxonomy.autoSave].filter(state => state.phase === phase))[0] ?? managed.autoSave;
+  const saveState = ['error', 'saving', 'incomplete', 'pending'].flatMap(phase => [managed.autoSave, taxonomy.autoSave, application].filter(state => state?.phase === phase))[0] ?? managed.autoSave;
   return (
     <div className="panel">
       <div className="panel-title">
-        <div>
-          <h1>网站设置</h1>
-          <AutosaveStatus state={saveState} label="网站设置" savedText={pendingApplication ? '已自动保存，待应用到网站' : '已自动保存'} />
-        </div>
-        <div>
-          <button
-            className="primary"
-            disabled={saving || taxonomy.busy}
-            onClick={() => void publishSettings()}
-          >
-            {saving ? '正在应用…' : '保存并应用'}
-          </button>
-        </div>
+        <h1>网站设置</h1>
       </div>
+      {['error', 'incomplete'].includes(saveState.phase) && <div className="settings-save-feedback"><AutosaveStatus state={saveState} label="网站设置" /></div>}
       <PanelSections label="网站设置分类" initialSection={initialSection} sections={[
         { id: 'site', label: '基本信息', content: <>
         <section className="form-card">
@@ -141,9 +121,7 @@ export default function SettingsPanel({
           <div className="site-logo"><span>网站标志</span>
             {value.logo && <img src={value.logo} alt="网站标志" />}
             <button type="button" onClick={async () => { const media = await selectors.media('image'); if (media) set({ logo: media.url }); }}>选择图片</button>
-            <details className="settings-disclosure"><summary>使用图片地址</summary>
-              <label>标志图片地址<input value={value.logo ?? ''} onChange={event => set({ logo: event.target.value })} /></label>
-            </details>
+            {value.logo && <button type="button" onClick={() => set({ logo: '' })}>移除图片</button>}
           </div>
         </section>
 </> },

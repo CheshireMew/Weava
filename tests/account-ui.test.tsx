@@ -61,3 +61,13 @@ it('shows the server wait and prevents immediate resubmission on the login scree
   await click('2 秒后重试');expect(mocks.api.mock.calls.filter(([path])=>path==='login')).toHaveLength(attempts);
   await act(async()=>vi.advanceTimersByTime(2100));expect(button('进入网站').disabled).toBe(false);
 });
+
+it('opens recovery instructions in a dialog without submitting or changing login information', async () => {
+  mocks.api.mockResolvedValue({ authenticated: false, initialized: true, version: 'test' });
+  function Screen() { const model = useAdminSession(setError); return <LoginScreen model={model} error="" setError={setError} />; }
+  await act(async () => root.render(<Screen />));
+  expect(host.querySelector('details')).toBeNull(); await click('忘记密码？');
+  expect(host.querySelector('dialog[open]')?.textContent).toContain('owner reset-link');
+  await click('关闭'); expect(host.querySelector('dialog')).toBeNull();
+  expect(mocks.api).toHaveBeenCalledTimes(1); expect(mocks.api).toHaveBeenCalledWith('session');
+});

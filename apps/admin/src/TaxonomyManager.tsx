@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { AutosaveStatus } from './AutosaveStatus.tsx';
+import { Dialog } from './Dialog.tsx';
 import { Pencil, Plus } from 'lucide-react';
 import type { Term } from '@weava/contracts';
 import { api } from './api.ts';
@@ -6,13 +8,14 @@ import { termTrail } from './TermPicker.tsx';
 import { useManagedRecord } from './EditSessions.tsx';
 
 type TermRecord = { id: string; revision: number | null; value: Term };
-export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any>) {
+export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any>, apply?: () => void) {
   const [busy, setBusy] = useState(false);
   const managed = useManagedRecord<TermRecord>(null, async record => {
     const label = record.value.label.trim();
     if (!label) throw new Error('请填写分类或标签名称。');
     const slug = record.value.slug.trim() || label.replace(/[/?#\\\s]+/g, '-');
     const saved = await api('terms', { value: { ...record.value, label, slug }, revision: record.revision });
+    apply?.();
     await refresh();
     return saved;
   }, '分类与标签', { autosave: { ready: record => !!record.value.label.trim() && !!(record.value.slug.trim() || record.value.label.replace(/[/?#\\\s]+/g, '-')) } });
@@ -55,13 +58,14 @@ export default function TaxonomyManager({ model, onError }: {
   const visible = rows.filter(row => row.value.kind === kind && termTrail(row.value, catalog).toLocaleLowerCase().includes(query.toLocaleLowerCase()))
     .sort((a, b) => termTrail(a.value, catalog).localeCompare(termTrail(b.value, catalog)));
   const fields = record && <div className="taxonomy-edit-fields">
-    <label>名称<input autoFocus aria-label="分类或标签名称" value={record.value.label} onChange={event => update({ label: event.target.value })} /></label>
-    <details className="settings-disclosure"><summary>网址与层级</summary>
+    <label>名称<input data-autofocus aria-label="分类或标签名称" value={record.value.label} onChange={event => update({ label: event.target.value })} /></label>
+
       <label>网址标识<input aria-label="分类或标签网址标识" placeholder="根据名称自动生成" value={record.value.slug} onChange={event => update({ slug: event.target.value })} /></label>
       <label>上级{label}<select aria-label={'上级' + label} value={record.value.parentId ?? ''} onChange={event => update({ parentId: event.target.value || undefined })}>
         <option value="">无上级</option>{catalog.filter(term => term.kind === record.value.kind && term.id !== record.id && !descendants(term.id, record.id)).map(term => <option key={term.id} value={term.id}>{termTrail(term, catalog)}</option>)}
       </select></label>
-    </details>
+
+    {['error', 'incomplete'].includes(model.autoSave.phase) && <AutosaveStatus state={model.autoSave} label="分类与标签" />}
     <div className="taxonomy-edit-actions"><button type="button" disabled={busy} onClick={() => run(() => model.select(null))}>完成</button>{record.revision === null && <button type="button" disabled={busy} onClick={model.cancel}>取消新建</button>}</div>
   </div>;
   return <section className="form-card taxonomy-settings" aria-label="分类与标签管理">
@@ -74,10 +78,13 @@ export default function TaxonomyManager({ model, onError }: {
     })}><Plus size={15} aria-hidden="true" />新建{label}</button></div>
     <input type="search" aria-label="搜索分类和标签" placeholder={'搜索' + label} value={query} onChange={event => setQuery(event.target.value)} />
     <div className="taxonomy-inline-list">
-      {visible.map(row => <button key={row.id} type="button" aria-label={'编辑' + label + ' ' + termTrail(row.value, catalog)} aria-expanded={record?.id === row.id} disabled={busy}
+      {visible.map(row => <button key={row.id} type="button" aria-label={'编辑' + label + ' ' + termTrail(row.value, catalog)} aria-haspopup="dialog" disabled={busy}
         onClick={() => run(() => model.select(record?.id === row.id ? null : row))}><span>{termTrail(row.value, catalog)}</span><Pencil size={14} aria-hidden="true" /></button>)}
       {!visible.length && !record && <p className="muted">{query ? '没有匹配的' + label : '尚未创建' + label}</p>}
     </div>
-    {fields}
+    {record && <Dialog label={(record.revision === null ? '新建' : '编辑') + label} onClose={() => { if (record.revision === null) model.cancel(); else run(() => model.select(null)); }} dismissible={!busy}>
+      <div className="modal-title"><h2>{record.revision === null ? '新建' : '编辑'}{label}</h2><button type="button" disabled={busy} onClick={() => { if (record.revision === null) model.cancel(); else run(() => model.select(null)); }}>关闭</button></div>
+      {fields}
+    </Dialog>}
   </section>;
 }

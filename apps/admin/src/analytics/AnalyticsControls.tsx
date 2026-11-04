@@ -17,7 +17,6 @@ export function AnalyticsControls({ model }: { model: AnalyticsController }) {
     exportType,
     setStart,
     setEnd,
-    setPath,
     setFilters,
     setApplied,
     setExportType,
@@ -75,12 +74,6 @@ export function AnalyticsControls({ model }: { model: AnalyticsController }) {
             type="date"
             value={end}
             onChange={(e) => setEnd(e.target.value)}
-          />
-          <input
-            aria-label="页面路径筛选"
-            placeholder="全部页面"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
           />
           <select
             aria-label="来源筛选"

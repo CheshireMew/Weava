@@ -1,0 +1,29 @@
+{"message":"[console.error] Astro Error while running audit's match function: TypeError: Failed to fetch","label":"vite","level":"error"}
+{"message":"The operation was aborted\n  Stack trace:\n    at stream.<computed>.AbortError.cause (node:internal/streams/add-abort-signal:47:22)\n    at addAbortSignal (node:internal/streams/add-abort-signal:38:25)\n    at new ReadStream (node:internal/fs/streams:258:3)\n    at mediaResponse (E:\\Code\\Weava\\packages\\core\\src\\media-response.ts:40:18)\n    [...] See full stack trace in the browser, or rerun with --verbose.\n  Caused by:\n  This operation was aborted\n    at new DOMException (node:internal/per_context/domexception:76:18)\n    [...] See full stack trace in the browser, or rerun with --verbose.","label":null,"level":"error"}
+10:34:25 [vite] (client) [Unhandled error] ReferenceError: creating is not defined
+ > useContentWorkspace ../../../../_admin/src/useContentWorkspace.ts?t=1793759665413:107:3
+ > App ../../../../_admin/src/App.tsx?t=1793759665406:63:20
+ > Object.react_stack_bottom_frame ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:14140:12
+ > renderWithHooks ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:4398:19
+ > updateFunctionComponent ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:5773:16
+ > beginWork ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:6389:20
+ > runWithFiberInDEV ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:942:66
+ > performUnitOfWork ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:9146:92
+ > workLoopSync ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:9042:37
+ > renderRootSync ../../../../_admin/@fs/E:/Code/Weava/node_modules/.vite/admin/deps/react-dom_client.js?v=1d91c2a8:9026:6
+
+10:34:25 [vite] (client) [console.warn] An error occurred in the <App> component.
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://react.dev/link/error-boundaries to learn more about error boundaries.
+
+10:37:36 [vite] (client) [Unhandled error] Error: ResizeObserver loop completed with undelivered notifications.
+ > ../../../../_admin/@vite/client:374:50
+
+10:38:44 [vite] (client) [Unhandled error] Error: ResizeObserver loop completed with undelivered notifications.
+ > ../../../../_admin/@vite/client:374:50
+
+(node:30272) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGTERM listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:30272) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 exit listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+(node:30272) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 SIGINT listeners added to [process]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit

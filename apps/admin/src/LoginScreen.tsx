@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { Dialog } from './Dialog.tsx';
 import { api } from './api.ts';
 import type { AdminSession } from './useAdminSession.ts';
 import { PasswordField } from './PasswordField.tsx';
@@ -13,6 +15,7 @@ export function LoginScreen({
   setError: (message: string) => void;
   notice?:string;
 }) {
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const { session, setSession, password, setPassword, loginPending, setLoginPending } = model;
   if (!session)
     return (
@@ -83,7 +86,8 @@ export function LoginScreen({
             {model.cooldown.seconds ? `${model.cooldown.seconds} 秒后重试` : loginPending ? '正在登录…' : '进入网站'}
           </button>
         </form>}
-        {session.initialized&&<details><summary>忘记密码？</summary><p>请在运行 Weava 的电脑或服务器终端，针对这个站点运行 <code>owner reset-link</code>，取得一次性重设链接后在网页里设置新密码。网页不会向未登录访客发放链接。</p></details>}
+        {session.initialized && <button type="button" className="text-button" onClick={() => setRecoveryOpen(true)}>忘记密码？</button>}
+        {recoveryOpen && <Dialog label="重设密码" onClose={() => setRecoveryOpen(false)}><div className="modal-title"><h2>重设密码</h2><button onClick={() => setRecoveryOpen(false)}>关闭</button></div><p>请在运行 Weava 的电脑或服务器终端，针对这个站点运行 <code>owner reset-link</code>，取得一次性重设链接后在网页里设置新密码。网页不会向未登录访客发放链接。</p></Dialog>}
         {error && (
           <p className="error" role="alert" id="login-error">
             {error}

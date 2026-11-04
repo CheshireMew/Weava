@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Dialog } from './Dialog.tsx';
 import { api, waitJob } from './api.ts';
 export default function HistoryMaintenance({refresh}: {refresh:()=>Promise<any>}) {
   const before = new Date(Date.now()-90*86400000).toISOString().slice(0,10), keepReleases = 20, keepRevisions = 20;
@@ -10,6 +11,6 @@ export default function HistoryMaintenance({refresh}: {refresh:()=>Promise<any>}
     {plan&&<div><p>准备归档 {plan.releases} 个公开版本、{plan.revisions} 个修订；保留 {plan.protectedReleases} 个公开版本和 {plan.protectedRevisions} 个受保护修订。</p><button className="primary" disabled={busy||!plan.releases&&!plan.revisions} onClick={()=>void run('maintenance/archive',{options:plan.options,review:plan.review})}>整理并保留恢复记录</button></div>}
     {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
     {archives.map((archive)=><div className="history-archive-row" key={archive.id}><span>{new Date(archive.createdAt).toLocaleString()} · {archive.releases} 个公开版本 · {archive.revisions} 个修订</span><button disabled={busy} onClick={()=>api(`maintenance/archive?id=${archive.id}`).then(setContents).catch((error)=>setError(error.message))}>查看归档</button><button disabled={busy} onClick={()=>void run('maintenance/restore',{id:archive.id})}>恢复历史记录</button></div>)}
-    {contents&&<details open><summary>归档内容</summary><p>公开版本 {contents.releases.length} · 修订 {contents.revisions.length}</p><ul>{contents.releases.slice(0,100).map((release:any)=><li key={release.id}>{new Date(release.createdAt).toLocaleString()}</li>)}</ul></details>}
+    {contents&&<Dialog label="归档内容" onClose={() => setContents(null)}><div className="modal-title"><h2>归档内容</h2><button onClick={() => setContents(null)}>关闭</button></div><p>公开版本 {contents.releases.length} · 修订 {contents.revisions.length}</p><ul>{contents.releases.slice(0,100).map((release:any)=><li key={release.id}>{new Date(release.createdAt).toLocaleString()}</li>)}</ul></Dialog>}
   </section>;
 }

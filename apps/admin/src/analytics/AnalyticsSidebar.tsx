@@ -8,8 +8,9 @@ import { number, devices, country, change } from './format.ts';
 
 import type { AnalyticsView } from './types.ts';
 export function AnalyticsSidebar({
-  model,
+  model, section = 'overview',
 }: {
+  section?: 'overview' | 'countries' | 'devices';
   model: Pick<AnalyticsView, 'data' | 'filters' | 'filter' | 'onError'>;
 }) {
   const { data, filters, filter, onError } = model;
@@ -23,8 +24,8 @@ export function AnalyticsSidebar({
   return (
     <>
       {' '}
-      <aside className="analytics-sidebar">
-        <Card title="流量概览">
+      <aside className={section === 'devices' ? 'analytics-section-grid' : 'analytics-sidebar'}>
+        {section === 'overview' && <Card title="流量概览">
           <table className="analytics-overview">
             <thead>
               <tr>
@@ -57,15 +58,15 @@ export function AnalyticsSidebar({
           {Object.keys(filters).length > 0 && (
             <p className="analytics-note">概览展示全站时间统计，页面路径筛选仍生效。</p>
           )}
-        </Card>
-        <Card title="国家 / 地区">
+        </Card>}
+        {section === 'countries' && <Card title="国家 / 地区">
           <Distribution
             rows={data.countries}
             label={country}
             onSelect={(v) => filter('country', v)}
           />
-        </Card>
-        <details className="settings-disclosure"><summary>设备详情</summary><Card title="浏览器">
+        </Card>}
+        {section === 'devices' && <><Card title="浏览器">
           <Distribution rows={data.browsers} onSelect={(v) => filter('browser', v)} />
         </Card>
         <Card title="操作系统">
@@ -81,7 +82,8 @@ export function AnalyticsSidebar({
         <Card title="设备型号">
           <Distribution rows={data.models} onSelect={(v) => filter('model', v)} />
         </Card>
-        </details><div className="analytics-local-options">
+        </>}
+        {section === 'overview' && <div className="analytics-local-options">
           <label>
             <input
               type="checkbox"
@@ -99,7 +101,7 @@ export function AnalyticsSidebar({
             排除本机后续访问
           </label>
           <p>清除浏览器数据或换设备后会识别为新访客。</p>
-        </div>
+        </div>}
       </aside>
     </>
   );

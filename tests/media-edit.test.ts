@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import sharp from 'sharp';
-import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument } from '@weava/core';
+import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument, imageAttributes, entryCover, queryDrafts } from '@weava/core';
+import { imageDerivatives } from '../packages/core/src/media-images.ts';
 import { entrySchema } from '@weava/contracts';
 const sites: Site[] = [], base = 'D:/Tools/cache/weava/tests/media-edit-' + Date.now();
 let sequence = 0;
@@ -9,6 +10,45 @@ const create = () => { const site = new Site(base + '/' + sequence++); sites.pus
 const image = () => sharp({ create: { width: 800, height: 400, channels: 3, background: '#337755' } }).png().toBuffer();
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 describe('media library editing', () => {
+  it('uses the first real body image when no cover is set and follows later body edits without saving a cover', () => {
+    const site = create(), value = entrySchema.parse({ id: 'automatic-cover', kind: 'content', type: 'post', title: '自动封面', path: '/automatic-cover/', document: { version: 1, format: 'markdown', source: '```md\n![example](https://example.com/code.png)\n```\n\n![first](https://example.com/first.png)\n\n![second](https://example.com/second.png)' } });
+    site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null);
+    expect(entryCover(value)).toBe('https://example.com/first.png');
+    expect(entryCover({ ...value, cover: 'https://example.com/manual.png' })).toBe('https://example.com/manual.png');
+    const row = site.saveEntry(value, null);
+    expect(queryDrafts(site).items[0].value.cover).toBe('https://example.com/first.png');
+    expect(site.store.get('entry', row.id)!.value.cover).toBe('');
+    site.saveEntry({ ...row.value, document: { version: 1, format: 'html', source: '<p>Updated</p><img src="https://example.com/new.png">' } }, row.revision);
+    expect(queryDrafts(site).items[0].value.cover).toBe('https://example.com/new.png');
+    expect(entryCover({ ...value, blocks: [{ id: 'container', type: 'container', props: {}, children: [{ id: 'image', type: 'image', props: { src: 'https://example.com/block.png' } }] }] })).toBe('https://example.com/block.png');
+    expect(entryCover({ ...value, document: { version: 1, format: 'lexical', source: { root: { type: 'root', children: [{ type: 'image', src: 'https://example.com/editor.png', kind: 'image' }] } } } })).toBe('https://example.com/editor.png');
+    expect(entryCover({ ...value, document: { version: 1, format: 'markdown', source: 'Only text' } })).toMatch(/^\/default-covers\/picsum-\d+\.webp$/);
+  });
+  it('preserves readable native sizes, avoids larger display copies and leaves animation intact', async () => {
+    const site = create(), bytes = await image(), row = await uploadMedia(site, bytes, 'readable.png');
+    expect(row.value.derivatives.map((item: any) => item.width)).toEqual([480, 800]);
+    expect(imageAttributes(site, row.value.url).srcset).toContain('800w');
+    for (const item of row.value.derivatives) {
+      const metadata = await sharp(site.root + item.url).metadata();
+      expect(metadata.width).toBe(item.width);
+      expect(item.bytes).toBeLessThan(bytes.length);
+    }
+    expect(readFileSync(site.root + row.value.url)).toEqual(bytes);
+    const efficient = await sharp({ create: { width: 24, height: 16, channels: 4, background: '#00000000' } }).webp({ quality: 82 }).toBuffer();
+    const small = await uploadMedia(site, efficient, 'small.webp');
+    expect(small.value.derivatives).toEqual([]);
+    expect(imageAttributes(site, small.value.url).src).toBe(small.value.url);
+    // Build a real two-frame GIF so the uploaded media's metadata detects animation.
+    const gif = await sharp({ create: { width: 20, height: 40, channels: 3, background: '#ff0000' } })
+      .raw().toBuffer();
+    gif.fill(0, 20 * 20 * 3);
+    const animated = await sharp(gif, { raw: { width: 20, height: 40, channels: 3, pageHeight: 20 } }).gif({ delay: [100, 100], loop: 0 }).toBuffer();
+    expect((await sharp(animated).metadata()).pages).toBe(2);
+    const motion = await uploadMedia(site, animated, 'motion.gif');
+    expect(motion.value.derivatives).toEqual([]);
+    expect(readFileSync(site.root + motion.value.url)).toEqual(animated);
+    expect(await imageDerivatives(site.root, bytes, row.id, await sharp(bytes).metadata(), bytes.length, row.value.derivatives)).toEqual(row.value.derivatives);
+  });
   it('edits metadata with revision protection, searches and archives batches atomically without removing files', async () => {
     const site = create(), first = await uploadMedia(site, await image(), '原图.png');
     const updated = saveMediaMetadata(site, first.id, { name: '作品图.png', alt: '作品说明', caption: '作品图注' }, first.revision);

@@ -1,0 +1,761 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T17:17:20.338Z",
+  "title": "Design System: Weava 管理后台",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "浅灰导航底",
+        "canonical": "#fafafa",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "白色工作表面",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "surface-soft": {
+        "role": "neutral",
+        "displayName": "浅色辅助表面",
+        "canonical": "#fafafa",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "surface-secondary": {
+        "role": "neutral",
+        "displayName": "中性悬停底",
+        "canonical": "#f2f2f2",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "内容分隔线",
+        "canonical": "#e6e6e6",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "control-line": {
+        "role": "neutral",
+        "displayName": "控件边框",
+        "canonical": "#dedede",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "深蓝灰正文",
+        "canonical": "#303030",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "次要文字",
+        "canonical": "#555555",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "辅助文字",
+        "canonical": "#747474",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "橙色主操作",
+        "canonical": "#d63d0b",
+        "tonalRamp": [
+          "oklch(15% 0.0420 35.58)",
+          "oklch(27% 0.0840 35.58)",
+          "oklch(39% 0.1120 35.58)",
+          "oklch(51% 0.1400 35.58)",
+          "oklch(63% 0.1400 35.58)",
+          "oklch(75% 0.1120 35.58)",
+          "oklch(87% 0.0700 35.58)",
+          "oklch(95% 0.0280 35.58)"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "主操作深蓝",
+        "canonical": "#bd3307",
+        "tonalRamp": [
+          "oklch(15% 0.0420 35.26)",
+          "oklch(27% 0.0840 35.26)",
+          "oklch(39% 0.1120 35.26)",
+          "oklch(51% 0.1400 35.26)",
+          "oklch(63% 0.1400 35.26)",
+          "oklch(75% 0.1120 35.26)",
+          "oklch(87% 0.0700 35.26)",
+          "oklch(95% 0.0280 35.26)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "浅橙选择底",
+        "canonical": "#fff1eb",
+        "tonalRamp": [
+          "oklch(15% 0.0052 44.81)",
+          "oklch(27% 0.0103 44.81)",
+          "oklch(39% 0.0137 44.81)",
+          "oklch(51% 0.0172 44.81)",
+          "oklch(63% 0.0172 44.81)",
+          "oklch(75% 0.0137 44.81)",
+          "oklch(87% 0.0086 44.81)",
+          "oklch(95% 0.0034 44.81)"
+        ]
+      },
+      "focus": {
+        "role": "primary",
+        "displayName": "蓝色焦点",
+        "canonical": "#d63d0b",
+        "tonalRamp": [
+          "oklch(15% 0.0420 35.58)",
+          "oklch(27% 0.0840 35.58)",
+          "oklch(39% 0.1120 35.58)",
+          "oklch(51% 0.1400 35.58)",
+          "oklch(63% 0.1400 35.58)",
+          "oklch(75% 0.1120 35.58)",
+          "oklch(87% 0.0700 35.58)",
+          "oklch(95% 0.0280 35.58)"
+        ]
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "主操作白字",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "error-ink": {
+        "role": "tertiary",
+        "displayName": "错误文字",
+        "canonical": "#a03530",
+        "tonalRamp": [
+          "oklch(15% 0.0420 26.53)",
+          "oklch(27% 0.0840 26.53)",
+          "oklch(39% 0.1120 26.53)",
+          "oklch(51% 0.1400 26.53)",
+          "oklch(63% 0.1400 26.53)",
+          "oklch(75% 0.1120 26.53)",
+          "oklch(87% 0.0700 26.53)",
+          "oklch(95% 0.0280 26.53)"
+        ]
+      },
+      "error-surface": {
+        "role": "tertiary",
+        "displayName": "错误底色",
+        "canonical": "#fdf0ee",
+        "tonalRamp": [
+          "oklch(15% 0.0043 28.01)",
+          "oklch(27% 0.0086 28.01)",
+          "oklch(39% 0.0115 28.01)",
+          "oklch(51% 0.0143 28.01)",
+          "oklch(63% 0.0143 28.01)",
+          "oklch(75% 0.0115 28.01)",
+          "oklch(87% 0.0072 28.01)",
+          "oklch(95% 0.0029 28.01)"
+        ]
+      },
+      "success-ink": {
+        "role": "tertiary",
+        "displayName": "成功文字",
+        "canonical": "#386b51",
+        "tonalRamp": [
+          "oklch(15% 0.0210 159.99)",
+          "oklch(27% 0.0420 159.99)",
+          "oklch(39% 0.0560 159.99)",
+          "oklch(51% 0.0700 159.99)",
+          "oklch(63% 0.0700 159.99)",
+          "oklch(75% 0.0560 159.99)",
+          "oklch(87% 0.0350 159.99)",
+          "oklch(95% 0.0140 159.99)"
+        ]
+      },
+      "success-surface": {
+        "role": "tertiary",
+        "displayName": "成功底色",
+        "canonical": "#edf6f0",
+        "tonalRamp": [
+          "oklch(15% 0.0037 157.00)",
+          "oklch(27% 0.0074 157.00)",
+          "oklch(39% 0.0099 157.00)",
+          "oklch(51% 0.0124 157.00)",
+          "oklch(63% 0.0124 157.00)",
+          "oklch(75% 0.0099 157.00)",
+          "oklch(87% 0.0062 157.00)",
+          "oklch(95% 0.0025 157.00)"
+        ]
+      },
+      "warning-ink": {
+        "role": "tertiary",
+        "displayName": "警告文字",
+        "canonical": "#805d29",
+        "tonalRamp": [
+          "oklch(15% 0.0247 74.67)",
+          "oklch(27% 0.0494 74.67)",
+          "oklch(39% 0.0658 74.67)",
+          "oklch(51% 0.0823 74.67)",
+          "oklch(63% 0.0823 74.67)",
+          "oklch(75% 0.0658 74.67)",
+          "oklch(87% 0.0412 74.67)",
+          "oklch(95% 0.0165 74.67)"
+        ]
+      },
+      "warning-surface": {
+        "role": "tertiary",
+        "displayName": "警告底色",
+        "canonical": "#faf2e2",
+        "tonalRamp": [
+          "oklch(15% 0.0068 84.59)",
+          "oklch(27% 0.0137 84.59)",
+          "oklch(39% 0.0182 84.59)",
+          "oklch(51% 0.0228 84.59)",
+          "oklch(63% 0.0228 84.59)",
+          "oklch(75% 0.0182 84.59)",
+          "oklch(87% 0.0114 84.59)",
+          "oklch(95% 0.0046 84.59)"
+        ]
+      },
+      "entry-published-ink": {
+        "role": "tertiary",
+        "displayName": "已发布绿字",
+        "canonical": "#3c5633",
+        "tonalRamp": [
+          "oklch(15% 0.0192 137.93)",
+          "oklch(27% 0.0384 137.93)",
+          "oklch(39% 0.0513 137.93)",
+          "oklch(51% 0.0641 137.93)",
+          "oklch(63% 0.0641 137.93)",
+          "oklch(75% 0.0513 137.93)",
+          "oklch(87% 0.0320 137.93)",
+          "oklch(95% 0.0128 137.93)"
+        ]
+      },
+      "entry-published-surface": {
+        "role": "tertiary",
+        "displayName": "已发布浅绿底",
+        "canonical": "#dfead7",
+        "tonalRamp": [
+          "oklch(15% 0.0084 131.81)",
+          "oklch(27% 0.0167 131.81)",
+          "oklch(39% 0.0223 131.81)",
+          "oklch(51% 0.0279 131.81)",
+          "oklch(63% 0.0279 131.81)",
+          "oklch(75% 0.0223 131.81)",
+          "oklch(87% 0.0140 131.81)",
+          "oklch(95% 0.0056 131.81)"
+        ]
+      },
+      "entry-changed-ink": {
+        "role": "tertiary",
+        "displayName": "未发布修改黄褐字",
+        "canonical": "#78531c",
+        "tonalRamp": [
+          "oklch(15% 0.0256 73.29)",
+          "oklch(27% 0.0512 73.29)",
+          "oklch(39% 0.0683 73.29)",
+          "oklch(51% 0.0853 73.29)",
+          "oklch(63% 0.0853 73.29)",
+          "oklch(75% 0.0683 73.29)",
+          "oklch(87% 0.0427 73.29)",
+          "oklch(95% 0.0171 73.29)"
+        ]
+      },
+      "entry-changed-surface": {
+        "role": "tertiary",
+        "displayName": "未发布修改浅黄底",
+        "canonical": "#f4dfb4",
+        "tonalRamp": [
+          "oklch(15% 0.0182 84.98)",
+          "oklch(27% 0.0364 84.98)",
+          "oklch(39% 0.0485 84.98)",
+          "oklch(51% 0.0606 84.98)",
+          "oklch(63% 0.0606 84.98)",
+          "oklch(75% 0.0485 84.98)",
+          "oklch(87% 0.0303 84.98)",
+          "oklch(95% 0.0121 84.98)"
+        ]
+      },
+      "entry-draft-ink": {
+        "role": "tertiary",
+        "displayName": "草稿灰蓝字",
+        "canonical": "#666666",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "entry-draft-surface": {
+        "role": "tertiary",
+        "displayName": "草稿浅灰蓝底",
+        "canonical": "#f0f0f0",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-ink": {
+        "role": "neutral",
+        "displayName": "导航文字",
+        "canonical": "#555555",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-hover": {
+        "role": "neutral",
+        "displayName": "导航悬停底",
+        "canonical": "#f2f2f2",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-hover-ink": {
+        "role": "neutral",
+        "displayName": "导航悬停文字",
+        "canonical": "#303030",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-active": {
+        "role": "neutral",
+        "displayName": "中性导航选中底",
+        "canonical": "#ededed",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-active-ink": {
+        "role": "neutral",
+        "displayName": "导航当前项蓝字",
+        "canonical": "#303030",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "nav-divider": {
+        "role": "neutral",
+        "displayName": "导航分组线",
+        "canonical": "#e6e6e6",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(27% 0.0000 0.00)",
+          "oklch(39% 0.0000 0.00)",
+          "oklch(51% 0.0000 0.00)",
+          "oklch(63% 0.0000 0.00)",
+          "oklch(75% 0.0000 0.00)",
+          "oklch(87% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "analytics-purple": {
+        "role": "secondary",
+        "displayName": "统计紫灰",
+        "canonical": "#6b7195",
+        "tonalRamp": [
+          "oklch(15% 0.0169 277.06)",
+          "oklch(27% 0.0338 277.06)",
+          "oklch(39% 0.0451 277.06)",
+          "oklch(51% 0.0563 277.06)",
+          "oklch(63% 0.0563 277.06)",
+          "oklch(75% 0.0451 277.06)",
+          "oklch(87% 0.0282 277.06)",
+          "oklch(95% 0.0113 277.06)"
+        ]
+      },
+      "analytics-green": {
+        "role": "secondary",
+        "displayName": "统计青绿",
+        "canonical": "#428478",
+        "tonalRamp": [
+          "oklch(15% 0.0211 180.32)",
+          "oklch(27% 0.0423 180.32)",
+          "oklch(39% 0.0564 180.32)",
+          "oklch(51% 0.0705 180.32)",
+          "oklch(63% 0.0705 180.32)",
+          "oklch(75% 0.0564 180.32)",
+          "oklch(87% 0.0352 180.32)",
+          "oklch(95% 0.0141 180.32)"
+        ]
+      },
+      "analytics-orange": {
+        "role": "secondary",
+        "displayName": "统计黄棕",
+        "canonical": "#9b7638",
+        "tonalRamp": [
+          "oklch(15% 0.0276 78.23)",
+          "oklch(27% 0.0552 78.23)",
+          "oklch(39% 0.0736 78.23)",
+          "oklch(51% 0.0920 78.23)",
+          "oklch(63% 0.0920 78.23)",
+          "oklch(75% 0.0736 78.23)",
+          "oklch(87% 0.0460 78.23)",
+          "oklch(95% 0.0184 78.23)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "页面标题",
+        "purpose": "页面标题，列表页使用40px行高。"
+      },
+      "section": {
+        "displayName": "分区标题",
+        "purpose": "表单与管理内容分区。"
+      },
+      "body": {
+        "displayName": "界面正文",
+        "purpose": "共享界面的默认字号与行高。"
+      },
+      "label": {
+        "displayName": "控件标签",
+        "purpose": "导航、字段标签、次要说明。"
+      },
+      "metadata": {
+        "displayName": "元数据",
+        "purpose": "日期、计数、表头与辅助状态。"
+      },
+      "directory-title": {
+        "displayName": "目录标题",
+        "purpose": "内容条目中的可打开标题。"
+      },
+      "editor-title": {
+        "displayName": "编辑标题",
+        "purpose": "正文编辑区的标题输入。"
+      },
+      "editor-body": {
+        "displayName": "编辑正文",
+        "purpose": "富文本正文阅读与输入。"
+      },
+      "metric": {
+        "displayName": "统计数值",
+        "purpose": "访问统计指标；使用等宽数字。"
+      },
+      "brand": {
+        "displayName": "品牌名称",
+        "purpose": "真实站点名称与 W 标记组成站点卡。"
+      },
+      "navigation": {
+        "displayName": "导航项目",
+        "purpose": "分组导航中的普通入口。"
+      },
+      "navigation-active": {
+        "displayName": "当前导航项目",
+        "purpose": "当前入口以中性浅灰底和较高字重表示。"
+      },
+      "entry-state": {
+        "displayName": "发布状态",
+        "purpose": "目录和正文顶部共享的发布状态标签。"
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "motion-fast",
+        "value": "150ms",
+        "purpose": "按钮背景、文字与边框颜色过渡。"
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "共享按钮状态过渡的缓动。"
+      },
+      {
+        "name": "spin",
+        "value": "spin 1s linear infinite",
+        "purpose": "加载图标旋转；减少动态效果时停止并保留状态文字。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "analytics-compact",
+        "value": "1200px",
+        "purpose": "窗口最大宽度：统计卡片与网格收紧。"
+      },
+      {
+        "name": "analytics-stack",
+        "value": "1000px",
+        "purpose": "窗口最大宽度：统计主辅区上下排列，指标改三列。"
+      },
+      {
+        "name": "panel-stack",
+        "value": "900px",
+        "purpose": "窗口最大宽度：对象详情面板改单列，媒体详情前置。"
+      },
+      {
+        "name": "designer-legacy-window",
+        "value": "760px",
+        "purpose": "窗口最大宽度：页面设计器重排、资源选择网格改两列。"
+      },
+      {
+        "name": "custom-field-stack",
+        "value": "640px",
+        "purpose": "窗口最大宽度：半宽自定义字段占满一行。"
+      },
+      {
+        "name": "editor-container",
+        "value": "800px",
+        "purpose": "编辑区域容器最大宽度：设置移到正文下方。"
+      },
+      {
+        "name": "designer-container-wide",
+        "value": "900px",
+        "purpose": "设计器容器最大宽度：检查器移到画布下方。"
+      },
+      {
+        "name": "designer-container-narrow",
+        "value": "650px",
+        "purpose": "设计器容器最大宽度：单列，侧区最大高度 260px。"
+      },
+      {
+        "name": "navigation-drawer",
+        "value": "900px",
+        "purpose": "菜单改用原生抽屉，工作区占满窗口。"
+      },
+      {
+        "name": "workspace-compact",
+        "value": "1100px",
+        "purpose": "侧栏228px，主区间距收紧。"
+      },
+      {
+        "name": "mobile",
+        "value": "700px",
+        "purpose": "条目与工具栏换行，输入16px，标题28px。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "主按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "保存、发布与新建等主要操作。",
+      "html": "<button class=\"ds-primary\" type=\"button\">保存工作稿</button>",
+      "css": ".ds-primary{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border:1px solid var(--control-line,#dedede);border-radius:var(--radius-control,8px);background:var(--surface,#ffffff);color:var(--ink-secondary,#555555);line-height:20px;cursor:pointer;transition:background-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1));}.ds-primary:disabled{opacity:.5;cursor:default;}.ds-primary:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-primary{transition:none;}}.ds-primary{background:var(--accent,#d63d0b);border-color:var(--accent,#d63d0b);color:var(--on-accent,#ffffff);}.ds-primary:hover,.ds-primary:active:not(:disabled){background:var(--accent-hover,#bd3307);border-color:var(--accent-hover,#bd3307);}@media(max-width:700px){.ds-primary{min-height:44px;}}"
+    },
+    {
+      "name": "次按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "预览等普通操作。",
+      "html": "<button class=\"ds-secondary\" type=\"button\">预览</button>",
+      "css": ".ds-secondary{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border:1px solid var(--control-line,#dedede);border-radius:var(--radius-control,8px);background:var(--surface,#ffffff);color:var(--ink-secondary,#555555);line-height:20px;cursor:pointer;transition:background-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1));}.ds-secondary:disabled{opacity:.5;cursor:default;}.ds-secondary:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-secondary{transition:none;}}.ds-secondary:hover{background:var(--surface-secondary,#f2f2f2);border-color:#8295ad;}.ds-secondary:active:not(:disabled){background:var(--accent-soft,#fff1eb);}@media(max-width:700px){.ds-secondary{min-height:44px;}}"
+    },
+    {
+      "name": "图标主按钮",
+      "kind": "button",
+      "refersTo": "button-icon-primary",
+      "description": "内容目录中的紧凑新建入口。",
+      "html": "<button class=\"ds-icon-primary\" type=\"button\" aria-label=\"新建内容\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg></button>",
+      "css": ".ds-icon-primary{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border:1px solid var(--control-line,#dedede);border-radius:var(--radius-control,8px);background:var(--surface,#ffffff);color:var(--ink-secondary,#555555);line-height:20px;cursor:pointer;transition:background-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1));}.ds-icon-primary:disabled{opacity:.5;cursor:default;}.ds-icon-primary:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-icon-primary{transition:none;}}.ds-icon-primary{width:38px;height:38px;padding:0;background:var(--accent,#d63d0b);border-color:var(--accent,#d63d0b);color:var(--on-accent,#ffffff);}.ds-icon-primary:hover,.ds-icon-primary:active:not(:disabled){background:var(--accent-hover,#bd3307);border-color:var(--accent-hover,#bd3307);}@media(max-width:700px){.ds-icon-primary{min-height:44px;}}"
+    },
+    {
+      "name": "文本字段",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "使用可见标签的普通字段；包含聚焦、错误和禁用样式。",
+      "html": "<label class=\"ds-field\">标题<input class=\"ds-input\" placeholder=\"输入标题\" /></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:8px;font:13px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;color:var(--ink-secondary,#555555);margin:16px 0;}.ds-input{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;border:1px solid var(--control-line,#dedede);background:var(--surface,#ffffff);border-radius:var(--radius-control,8px);padding:9px 11px;width:100%;min-width:0;color:var(--ink,#303030);caret-color:var(--accent,#d63d0b);}.ds-input::placeholder{color:var(--ink-muted,#747474);opacity:1;}.ds-input:focus{border-color:var(--focus,#d63d0b);}.ds-input[aria-invalid='true']{border-color:var(--error-ink,#a03530);}.ds-input:disabled{background:var(--surface-soft,#fafafa);color:var(--ink-muted,#747474);}.ds-input:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(max-width:700px){.ds-input{min-height:44px;font-size:16px;}}"
+    },
+    {
+      "name": "分组导航项目",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "浅蓝灰侧栏中的品牌、分组、当前位置和更多管理；预览抽取代表性项目。",
+      "html": "<aside class=\"ds-sidebar\"><a class=\"ds-brand\" href=\"#\"><span class=\"ds-brand-mark\" aria-hidden=\"true\">W</span><span>Weava</span></a><div class=\"ds-site-name\">你的网站</div><nav class=\"ds-nav\" aria-label=\"网站管理\"><div class=\"ds-nav-group\"><button class=\"ds-nav-item\" type=\"button\" aria-current=\"page\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z\"/><path d=\"M14 2v4a2 2 0 0 0 2 2h4\"/><path d=\"M10 9H8\"/><path d=\"M16 13H8\"/><path d=\"M16 17H8\"/></svg>内容</button><button class=\"ds-nav-item\" type=\"button\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M3 9h18\"/><path d=\"M9 21V9\"/></svg>页面</button></div><div class=\"ds-nav-group\"><button class=\"ds-nav-item\" type=\"button\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"13.5\" cy=\"6.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"17.5\" cy=\"10.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"8.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/><circle cx=\"6.5\" cy=\"12.5\" r=\".5\" fill=\"currentColor\"/><path d=\"M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z\"/></svg>网站设置</button></div><details class=\"ds-nav-tools\"><summary>更多管理</summary><div class=\"ds-nav-group\"><button class=\"ds-nav-item\" type=\"button\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"18\" height=\"18\" x=\"3\" y=\"3\" rx=\"2\"/><path d=\"M3 9h18\"/><path d=\"M9 21V9\"/></svg>模板与布局</button></div></details><div class=\"ds-nav-group\"><button class=\"ds-nav-item\" type=\"button\"><svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"8\" r=\"5\"/><path d=\"M20 21a8 8 0 0 0-16 0\"/></svg>账户</button></div></nav><div class=\"ds-sidebar-bottom\"><button class=\"ds-logout\" type=\"button\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\"/><polyline points=\"16 17 21 12 16 7\"/><line x1=\"21\" x2=\"9\" y1=\"12\" y2=\"12\"/></svg>退出</button></div></aside>",
+      "css": ".ds-sidebar{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:flex;flex-direction:column;width:212px;padding:29px 16px 20px;background:var(--canvas,#fafafa);color:var(--ink,#303030);border-inline-end:1px solid var(--line,#e6e6e6);}.ds-brand{display:flex;align-items:center;gap:10px;padding-inline:12px;color:inherit;text-decoration:none;font-size:24px;line-height:32px;font-weight:700;letter-spacing:-.03em;}.ds-brand-mark{display:grid;place-items:center;width:29px;height:29px;border-radius:7px;background:var(--accent,#d63d0b);color:var(--on-accent,#ffffff);font-size:23px;font-weight:750;letter-spacing:-.08em;padding-inline-end:2px;line-height:1;}.ds-site-name{margin:10px 12px 25px;font-size:13px;color:#4f637a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-nav{display:flex;flex-direction:column;padding-bottom:16px;}.ds-nav-group{display:grid;gap:3px;}.ds-nav-group+.ds-nav-group{margin-top:14px;padding-top:14px;border-top:1px solid #e6e6e6;}.ds-nav-tools{margin-top:12px;padding-top:12px;border-top:1px solid #e6e6e6;}.ds-nav-tools>summary{padding:8px 13px;color:var(--ink-secondary,#555555);cursor:pointer;font-size:13px;}.ds-nav-tools+.ds-nav-group{margin-top:12px;}.ds-nav-item{font:500 13px/20px 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:flex;align-items:center;gap:12px;justify-content:flex-start;border:0;background:transparent;color:#555555;padding:12px 16px;min-height:46px;border-radius:9px;cursor:pointer;transition:background-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1));}.ds-nav-item:hover{background:#f2f2f2;color:#244765;}.ds-nav-item:active:not(:disabled){background:var(--accent-soft,#fff1eb);}.ds-nav-item[aria-current=\"page\"]{background:#ededed;color:#303030;font-weight:700;}.ds-nav-item svg{flex-shrink:0;}.ds-sidebar-bottom{margin-top:auto;padding-top:13px;border-top:1px solid var(--line,#e6e6e6);}.ds-logout{display:flex;align-items:center;gap:8px;min-height:36px;padding:8px 12px;border:0;border-radius:4px;background:transparent;font:13px/20px 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;color:#3e5873;cursor:pointer;}.ds-logout:hover{color:var(--accent,#d63d0b);background:#e8eef5;}.ds-logout:active{background:var(--accent-soft,#fff1eb);}.ds-nav-item:focus-visible,.ds-nav-tools>summary:focus-visible,.ds-brand:focus-visible,.ds-logout:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(max-width:700px){.ds-nav-item{min-height:44px;}}@media(prefers-reduced-motion:reduce){.ds-nav-item{transition:none;}}"
+    },
+    {
+      "name": "可移除筛选标签",
+      "kind": "chip",
+      "refersTo": "filter-tag",
+      "description": "访问统计中已生效的筛选条件。",
+      "html": "<button class=\"ds-filter-tag\" type=\"button\" aria-label=\"移除桌面筛选\">桌面<svg width=\"13\" height=\"13\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m18 6-12 12M6 6l12 12\"/></svg></button>",
+      "css": ".ds-filter-tag{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:38px;padding:8px 14px;border:1px solid var(--control-line,#dedede);border-radius:var(--radius-control,8px);background:var(--surface,#ffffff);color:var(--ink-secondary,#555555);line-height:20px;cursor:pointer;transition:background-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1)),border-color var(--motion-fast,150ms) var(--ease-out,cubic-bezier(0.16,1,0.3,1));}.ds-filter-tag:disabled{opacity:.5;cursor:default;}.ds-filter-tag:focus-visible{outline:2px solid var(--focus,#d63d0b);outline-offset:3px;}@media(prefers-reduced-motion:reduce){.ds-filter-tag{transition:none;}}.ds-filter-tag{background:var(--accent-soft,#fff1eb);min-height:30px;padding:4px 8px;font-size:12px;}.ds-filter-tag:hover{background:var(--surface-secondary,#f2f2f2);border-color:#8295ad;}.ds-filter-tag:active:not(:disabled){background:var(--accent-soft,#fff1eb);}.ds-filter-tag svg{flex-shrink:0;}"
+    },
+    {
+      "name": "统计卡片",
+      "kind": "card",
+      "refersTo": "analytics-card",
+      "description": "统计主辅区共享的边框容器；示例采用现有空态。",
+      "html": "<section class=\"ds-card\"><div class=\"ds-card-title\"><h2>来源</h2></div><p class=\"ds-card-empty\">暂无数据</p></section>",
+      "css": ".ds-card{font:14px/1.5 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;color:var(--ink,#303030);background:var(--surface,#ffffff);border:1px solid var(--line,#e6e6e6);border-radius:10px;padding:18px;min-width:0;}.ds-card-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}.ds-card h2{margin:0;font-size:15px;line-height:1.5;font-weight:600;}.ds-card-empty{padding:30px 10px;color:var(--ink-muted,#747474);text-align:center;font-size:13px;margin:0;}@media(max-width:1200px){.ds-card{padding:14px;}}@media(max-width:700px){.ds-card{padding:14px 12px;}}"
+    },
+    {
+      "name": "内容发布状态",
+      "kind": "chip",
+      "refersTo": "entry-state-published",
+      "description": "目录和正文顶部共用的状态标签；颜色与文字一起表达发布状态。",
+      "html": "<div class=\"ds-status-examples\"><span class=\"ds-entry-state ds-published\"><span class=\"ds-status-dot\" aria-hidden=\"true\"></span>已发布</span><span class=\"ds-entry-state ds-changed\"><span class=\"ds-status-dot\" aria-hidden=\"true\"></span>有未发布修改</span><span class=\"ds-entry-state\"><span class=\"ds-status-dot\" aria-hidden=\"true\"></span>草稿</span><span class=\"ds-entry-state ds-archived\"><span class=\"ds-status-dot\" aria-hidden=\"true\"></span>已归档</span></div>",
+      "css": ".ds-status-examples{display:flex;flex-wrap:wrap;gap:8px;}.ds-entry-state{display:inline-flex;align-items:center;gap:8px;min-height:26px;padding:4px 8px;border-radius:3px;white-space:nowrap;font:500 12px/18px 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;color:var(--entry-draft-ink,#666666);background:var(--entry-draft-surface,#f0f0f0);}.ds-status-dot{width:4px;height:12px;border-radius:1px;background:#8193a0;flex-shrink:0;}.ds-entry-state.ds-published{color:var(--entry-published-ink,#3c5633);background:var(--entry-published-surface,#dfead7);}.ds-entry-state.ds-published .ds-status-dot{background:#6a8552;}.ds-entry-state.ds-changed{color:var(--entry-changed-ink,#78531c);background:var(--entry-changed-surface,#f4dfb4);}.ds-entry-state.ds-changed .ds-status-dot{background:#a47a30;}.ds-entry-state.ds-archived{color:#586575;background:#edf0f3;}.ds-entry-state.ds-archived .ds-status-dot{background:#8a96a3;}"
+    },
+    {
+      "name": "内容条目",
+      "kind": "custom",
+      "refersTo": "publication-row",
+      "description": "按当前排序展示真实封面、标题、更新时间、类型与发布状态；自定义字段沿用类型配置。",
+      "html": "<div class=\"ds-post\"><span class=\"ds-cover\"></span><div><strong>示例文章标题</strong><p>更新于 2026年11月4日 · 文章</p></div><span class=\"ds-state\">已发布</span></div>",
+      "css": ".ds-post{display:flex;align-items:center;gap:20px;min-height:116px;padding:24px;border:1px solid #e6e6e6;border-radius:11px;background:#fff;color:#303030;font:15px/1.5 Segoe UI,Microsoft YaHei,sans-serif}.ds-cover{width:100px;height:68px;background:#fafafa;border:1px solid #e6e6e6;border-radius:8px}.ds-post>div{flex:1}.ds-post strong{font-size:16px;font-weight:650}.ds-post p{margin:8px 0 0;color:#747474;font-size:13px}.ds-state{font-size:13px;background:#dfead7;color:#3c5633;padding:4px 8px;border-radius:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "以写作和发布为中心",
+    "overview": "参考用户提供的 Substack 后台截图，采用浅灰导航、白色工作区、深灰正文和橙色主操作。模仿视觉与排版，不照搬 Substack 的业务入口。保留 Weava 当前菜单、真实数据与全部现有编辑、管理和发布功能。",
+    "keyCharacteristics": [
+      "浅灰导航、白色工作区与橙色主操作。",
+      "状态切换、搜索筛选和舒展的内容条目。",
+      "保留 Weava 功能与独立写作页。"
+    ],
+    "rules": [
+      {
+        "name": "功能保留",
+        "body": "参考视觉，不强行套用外部产品的业务结构。",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "保留真实数据、现有功能与状态反馈。",
+      "编辑页只显示标题、工具栏和正文。"
+    ],
+    "donts": [
+      "不恢复旧蓝灰默认配色。",
+      "不增加无功能的菜单或虚构统计。"
+    ]
+  }
+}

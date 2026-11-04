@@ -48,7 +48,7 @@ it('offers normal sidebar fields and only converts legacy markup after an explic
 it('allows homepage recommendation reordering without changing article revisions', async () => {
   vi.mocked(api).mockResolvedValue([{ id: 'first', published: true, value: { kind: 'content', title: '第一篇', editorial: { featured: true, weight: 1 } } }, { id: 'second', published: true, value: { kind: 'content', title: '第二篇', editorial: { featured: true, weight: 0 } } }] as any);
   const change = vi.fn(); await render(<FeaturedSettings order={[]} onChange={change} onError={vi.fn()} />);
-  await act(async () => { const details = host.querySelector('details')!; details.open = true; details.dispatchEvent(new Event('toggle')); });
+  expect(host.querySelector('details')).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="下移 第一篇"]')!.click());
   expect(change).toHaveBeenCalledWith(['second', 'first']); expect(api).toHaveBeenCalledTimes(1);
 });
@@ -58,12 +58,49 @@ it('preserves existing search overrides without exposing schema or author identi
   expect(host.querySelector('select')).toBeNull(); expect(host.textContent).not.toMatch(/规范地址|作者身份|页面类型|核验/);
   await input('input', '新标题'); expect(change.mock.calls[0][0].seo).toMatchObject({ title: '新标题', schemaType: 'TechArticle', authorType: 'Organization', canonical: 'https://example.com/old/' });
 });
-it('defaults new advertisements to normal content fields while keeping third-party code optional', async () => {
+it('defaults new advertisements to normal content fields with an independent code switch', async () => {
   const change = vi.fn(); await render(<AdvertisementSettings value={undefined} onChange={change} />);
   expect(change).not.toHaveBeenCalled(); expect(host.querySelector('iframe')).toBeNull();
-  const code = [...host.querySelectorAll('details')].find(details => details.querySelector('summary')?.textContent === '接入第三方广告代码')!;
-  expect(code.open).toBe(false); await input('input:not([type="checkbox"])', '赞助商');
+  const code = host.querySelector('[aria-label="网页顶部广告代码模式"]')!;
+  expect(code.getAttribute('aria-checked')).toBe('false');
+  expect(host.textContent).not.toContain('接入第三方广告代码'); await input('input', '赞助商');
   expect(change.mock.calls[0][0].siteTop.content).toEqual({ title: '赞助商', text: '', image: '', url: '' });
+});
+it('switches the same ad editor between visual and source modes without rewriting existing HTML', async () => {
+  const html = '<style>.ad { color: red; }</style>\n<div class="ad">原广告 &amp; 文本</div><script>window.ad=1</script>';
+  const change = vi.fn();
+  await render(<AdvertisementSettings value={{ siteTop: { enabled: true, html } }} onChange={change} />);
+  const slot = host.querySelector('[data-advertisement="siteTop"]')!, code = slot.querySelector<HTMLButtonElement>('[aria-label="网页顶部广告代码模式"]')!;
+  expect(slot.querySelector('iframe')).not.toBeNull(); expect(slot.querySelector('textarea')).toBeNull();
+  await act(async () => code.click());
+  expect(slot.querySelector('iframe')).toBeNull(); expect(slot.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe(html);
+  expect(slot.querySelectorAll('.advertisement-editor')).toHaveLength(1);
+  await act(async () => code.click()); expect(slot.querySelector('iframe')).not.toBeNull(); expect(slot.querySelector('textarea')).toBeNull();
+  await act(async () => code.click()); expect(slot.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe(html);
+  expect(change).not.toHaveBeenCalled();
+});
+it('keeps enabling independent of code mode and preserves entered code when changing the visual mode', async () => {
+  const change = vi.fn(), value = { siteTop: { enabled: true, html: '<p>原广告</p>' } };
+  await render(<AdvertisementSettings value={value} onChange={change} />);
+  const code = host.querySelector<HTMLButtonElement>('[aria-label="网页顶部广告代码模式"]')!;
+  await act(async () => code.click()); await input('[aria-label="网页顶部广告代码"]', '<p>新广告</p>');
+  expect(change).toHaveBeenLastCalledWith({ siteTop: { enabled: true, html: '<p>新广告</p>', content: undefined } });
+  const updated = change.mock.calls.at(-1)![0]; await render(<AdvertisementSettings value={updated} onChange={change} />);
+  await act(async () => code.click()); await act(async () => code.click());
+  expect(host.querySelector<HTMLTextAreaElement>('[aria-label="网页顶部广告代码"]')!.value).toBe('<p>新广告</p>');
+  expect(change).toHaveBeenCalledTimes(1);
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="启用网页顶部广告"]')!.click());
+  expect(change.mock.calls.at(-1)![0].siteTop).toMatchObject({ enabled: false, html: '<p>新广告</p>' });
+});
+it('shows equivalent escaped code for a structured ad while leaving its stored representation untouched', async () => {
+  const change = vi.fn(), content = { title: '标题 <测试>', text: '文字 & 说明', image: '/media/ad.png', url: 'https://example.com/?a=1&b=2' };
+  await render(<AdvertisementSettings value={{ siteTop: { enabled: true, html: '<p>旧底稿</p>', content } }} onChange={change} />);
+  const code = host.querySelector<HTMLButtonElement>('[aria-label="网页顶部广告代码模式"]')!;
+  await act(async () => code.click());
+  const source = host.querySelector<HTMLTextAreaElement>('[aria-label="网页顶部广告代码"]')!.value;
+  expect(source).toContain('标题 &lt;测试&gt;'); expect(source).toContain('文字 &amp; 说明'); expect(source).toContain('/media/ad.png'); expect(source).toContain('a=1&amp;b=2');
+  await act(async () => code.click()); expect(host.querySelector<HTMLInputElement>('input')!.value).toBe(content.title);
+  expect(change).not.toHaveBeenCalled();
 });
 it('retires browser routes while leaving publication plans available to external tools', () => {
   expect(adminPanel('?panel=types')).toBe('content'); expect(adminPanel('?panel=publication-plans')).toBe('content');
