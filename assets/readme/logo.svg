@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30" role="img" aria-labelledby="title desc">
+  <title id="title">Weava</title>
+  <desc id="desc">The W mark used by the Weava admin navigation.</desc>
+  <!-- Derived from AdminNavigation.tsx and style.css: .brand-mark and its accent color tokens. -->
+  <rect width="30" height="30" rx="6" fill="#d63d0b"/>
+  <text x="15" y="15" text-anchor="middle" dominant-baseline="central" fill="#ffffff" font-family="'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif" font-size="22" font-weight="750" letter-spacing="-0.05em">W</text>
+</svg>
