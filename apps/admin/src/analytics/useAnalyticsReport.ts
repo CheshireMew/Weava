@@ -5,15 +5,16 @@ import { api } from '../api.ts';
 
 import { shift, today } from './format.ts';
 import { watchVisible } from './polling.ts';
-export function useAnalyticsReport() {
+export function useAnalyticsReport(initialQuery = '', realtime = true) {
+  const initial = new URLSearchParams(initialQuery);
   const [data, setData] = useState<AnalyticsReport | null>(null),
     [live, setLive] = useState<AnalyticsRealtime | null>(null),
     [geo, setGeo] = useState<GeoStatus | null>(null);
-  const [start, setStart] = useState(''),
-    [end, setEnd] = useState(''),
-    [path, setPath] = useState(''),
-    [filters, setFilters] = useState<Record<string, string>>({});
-  const [applied, setApplied] = useState(''),
+  const [start, setStart] = useState(initial.get('start') || ''),
+    [end, setEnd] = useState(initial.get('end') || ''),
+    [path, setPath] = useState(initial.get('path') || ''),
+    [filters, setFilters] = useState<Record<string, string>>(() => Object.fromEntries([...initial].filter(([key]) => ['channel', 'country', 'browser', 'os', 'device', 'model'].includes(key))));
+  const [applied, setApplied] = useState(initialQuery),
     [loadedQuery, setLoadedQuery] = useState(''),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
@@ -51,10 +52,8 @@ export function useAnalyticsReport() {
       setLiveError('');
       setGeo(result.geo);
       setGeoError('');
-      if (!q) {
-        setStart(result.range.start);
-        setEnd(result.range.end);
-      }
+      setStart(result.range.start);
+      setEnd(result.range.end);
     } catch (e: any) {
       if (mounted.current && g === generation.current) setError(e.message);
     } finally {
@@ -65,6 +64,7 @@ export function useAnalyticsReport() {
     void load(applied);
   }, [applied]);
   useEffect(() => {
+    if (!realtime) return;
     const p = new URLSearchParams(loadedQuery);
     const watch = watchVisible<AnalyticsRealtime>(
       () =>
@@ -82,7 +82,7 @@ export function useAnalyticsReport() {
       void watch.refresh();
     };
     return watch.stop;
-  }, [loadedQuery]);
+  }, [loadedQuery, realtime]);
   useEffect(() => {
     if (!geo?.updating) return;
     const watch = watchVisible<GeoStatus>(

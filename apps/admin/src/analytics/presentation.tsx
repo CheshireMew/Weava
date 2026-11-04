@@ -1,4 +1,3 @@
-import { ExternalLink } from 'lucide-react';
 import type { AnalyticsReport, AnalyticsVisitor } from '@weava/contracts';
 
 import { country, devices, dateAt, duration } from './format.ts';
@@ -17,9 +16,8 @@ export function analyticsPresentation(
     }
   };
   const pageLink = (p: string) => (
-    <a href={p} target="_blank" rel="noreferrer" className="analytics-page-link" title={p}>
-      {pageLabel(p)}
-      <ExternalLink size={12} />
+    <a href={p} target="_blank" rel="noreferrer" className="analytics-page-link" title={pageLabel(p) + '\n' + p}>
+      <span>{pageLabel(p)}</span>
     </a>
   );
   const visitorColumns: Column[] = [
@@ -27,7 +25,7 @@ export function analyticsPresentation(
       key: 'id',
       label: '访客',
       render: (v: AnalyticsVisitor) => (
-        <button className="analytics-text-button" onClick={() => openVisitor(v.id)} title={v.id}>
+        <button className="analytics-text-button analytics-visitor-id" onClick={() => openVisitor(v.id)} title={v.id}>
           {v.id.slice(0, 8)}
         </button>
       ),

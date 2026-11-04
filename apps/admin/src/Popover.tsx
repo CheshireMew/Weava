@@ -1,8 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
-export function Popover({ label, trigger, children, className = '', menu = false }: {
-  label: string; trigger: ReactNode; children: ReactNode; className?: string; menu?: boolean;
+export function Popover({ label, trigger, children, className = '', menu = false, align = 'end' }: {
+  label: string; trigger: ReactNode; children: ReactNode | ((close: () => void) => ReactNode); className?: string; menu?: boolean; align?: 'start' | 'end';
 }) {
   const [open, setOpen] = useState(false), [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 500 });
   const button = useRef<HTMLButtonElement>(null), popup = useRef<HTMLDivElement>(null), id = useId();
@@ -11,7 +11,7 @@ export function Popover({ label, trigger, children, className = '', menu = false
     if (!open) return;
     const anchor = button.current!.getBoundingClientRect(), bounds = popup.current!.getBoundingClientRect();
     const top = anchor.bottom + 8 + bounds.height < window.innerHeight - 12 ? anchor.bottom + 8 : Math.max(12, anchor.top - bounds.height - 8);
-    setPosition({ top, left: Math.max(12, Math.min(anchor.right - bounds.width, window.innerWidth - bounds.width - 12)), maxHeight: window.innerHeight - top - 12 });
+    setPosition({ top, left: Math.max(12, Math.min(align === 'start' ? anchor.left : anchor.right - bounds.width, window.innerWidth - bounds.width - 12)), maxHeight: window.innerHeight - top - 12 });
     popup.current!.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true });
   }, [open]);
   useEffect(() => {
@@ -42,6 +42,6 @@ export function Popover({ label, trigger, children, className = '', menu = false
         event.preventDefault();
         const items = [...popup.current!.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')], current = items.indexOf(document.activeElement as HTMLButtonElement);
         items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
-      }}>{children}</div>, document.body)}
+      }}>{typeof children === 'function' ? children(() => close(true)) : children}</div>, document.body)}
   </>;
 }

@@ -14,11 +14,13 @@ export function DataTable({
   columns,
   empty = '所选范围内暂无数据。',
   size = 10,
+  preview = false,
 }: {
   rows: any[];
   columns: Column[];
   empty?: string;
   size?: number;
+  preview?: boolean;
 }) {
   const [page, setPage] = useState(1),
     [sort, setSort] = useState<{ key: string; desc: boolean } | null>(null);
@@ -40,13 +42,13 @@ export function DataTable({
   ) : (
     <>
       <div className="analytics-table-scroll">
-        <table className="analytics-table">
+        <table className={'analytics-table' + (preview ? ' analytics-preview-table' : '')}>
           <thead>
             <tr>
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className={col.numeric ? 'numeric' : ''}
+                  className={'column-' + col.key + (col.numeric ? ' numeric' : '')}
                   aria-sort={
                     sort?.key === col.key ? (sort.desc ? 'descending' : 'ascending') : 'none'
                   }
@@ -70,7 +72,7 @@ export function DataTable({
             {sorted.slice((current - 1) * size, current * size).map((row, i) => (
               <tr key={row.id || i}>
                 {columns.map((col) => (
-                  <td key={col.key} className={col.numeric ? 'numeric' : ''}>
+                  <td key={col.key} className={'column-' + col.key + (col.numeric ? ' numeric' : '')}>
                     {col.render
                       ? col.render(row)
                       : typeof row[col.key] === 'number'
@@ -83,7 +85,7 @@ export function DataTable({
           </tbody>
         </table>
       </div>
-      {pages > 1 && (
+      {!preview && pages > 1 && (
         <div className="analytics-pagination">
           <span>
             共 {number(rows.length)} 项 · {current} / {pages}

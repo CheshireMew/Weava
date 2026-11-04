@@ -1,128 +1,43 @@
-import { Download, RefreshCw, X } from 'lucide-react';
-
-import { channels, devices, country } from './format.ts';
-
+import { useContext } from 'react';
+import { Download, RefreshCw, SlidersHorizontal, X } from 'lucide-react';
+import { Popover } from '../Popover.tsx';
+import { channels, country, devices } from './format.ts';
+import { DateRangeMenu } from './DateRangeMenu.tsx';
+import { ReportWorkspace } from './report-workspace.ts';
+import { reports, filterKeys, type ReportName } from './report-navigation.ts';
 import type { AnalyticsController } from './useAnalyticsReport.ts';
 
-export function AnalyticsControls({ model }: { model: AnalyticsController }) {
-  const {
-    data,
-    start,
-    end,
-    path,
-    filters,
-    loadedQuery,
-    loading,
-    error,
-    exportType,
-    setStart,
-    setEnd,
-    setFilters,
-    setApplied,
-    setExportType,
-    load,
-    apply,
-    filter,
-    preset,
-  } = model;
-  const exportUrl = '/api/admin/v1/analytics/export?' + loadedQuery + '&dataset=' + exportType;
-  const canExport = !!data && !loading && !error;
-  return (
-    <>
-      {' '}
-      <div className="panel-title">
-        <h1>访问统计</h1>
-        <div className="analytics-actions">
-          <button disabled={loading} onClick={() => load()} aria-label="刷新统计">
-            <RefreshCw size={16} className={loading ? 'spin' : ''} />
-            刷新
-          </button>
-        </div>
+export function AnalyticsControls({ model, report, query }: { model: AnalyticsController; report: ReportName; query: string }) {
+  const workspace = useContext(ReportWorkspace)!;
+  const { data, loading } = model;
+  const params = new URLSearchParams(query);
+  const filters = [...params].filter(([key]) => [...filterKeys, 'path'].includes(key));
+  const apply = (key: string, value: string) => {
+    const next = new URLSearchParams(query);
+    if (value) next.set(key, value); else next.delete(key);
+    workspace.navigate(report, next.toString());
+  };
+  const dimensionNames: Record<string, string> = { country: '国家 / 地区', browser: '浏览器', os: '操作系统', device: '设备类型', model: '设备型号', path: '页面', channel: '来源' };
+  const dimensions = data ? [['country', data.countries], ['browser', data.browsers], ['os', data.operatingSystems], ['device', data.devices], ['model', data.models]] as const : [];
+  const exportQuery = new URLSearchParams(query);
+  if (data) { exportQuery.set('start', data.range.start); exportQuery.set('end', data.range.end); }
+  exportQuery.set('dataset', reports[report].dataset);
+  return <>
+    <div className="analytics-detail-toolbar">
+      {report === 'realtime' ? <span>最近 5 分钟 · 每 15 秒更新</span> : data ? <DateRangeMenu label={reports[report].title} {...data.range} disabled={loading} onChange={(start, end) => {
+        const next = new URLSearchParams(query); next.set('start', start); next.set('end', end); workspace.navigate(report, next.toString());
+      }} /> : <span>正在读取日期…</span>}
+      <div className="analytics-detail-actions">
+        {report !== 'realtime' && <><select aria-label="来源筛选" value={params.get('channel') || ''} onChange={event => apply('channel', event.target.value)}><option value="">全部来源</option>{Object.entries(channels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+          <Popover label="筛选报表" trigger={<><SlidersHorizontal size={14} />筛选</>} className="analytics-dimension-popover">
+            {close => <>{dimensions.map(([key, rows]) => <label key={key}>{dimensionNames[key]}<select aria-label={dimensionNames[key] + '筛选'} value={params.get(key) || ''} onChange={event => { apply(key, event.target.value); close(); }}>
+              <option value="">全部</option>{rows.map(row => <option key={row.name} value={row.name}>{key === 'country' ? country(row.name) : key === 'device' ? devices[row.name] || row.name : row.name}</option>)}
+            </select></label>)}</>}
+          </Popover></>}
+        {reports[report].dataset && data && !loading && !model.error && <a className="analytics-export" href={'/api/admin/v1/analytics/export?' + exportQuery}><Download size={14} />导出 CSV</a>}
+        <button disabled={loading} onClick={() => model.load()} aria-label="刷新报表"><RefreshCw size={14} className={loading ? 'spin' : ''} />刷新</button>
       </div>
-      <form
-        className="analytics-filters"
-        onSubmit={(e) => {
-          e.preventDefault();
-          apply();
-        }}
-      >
-        <div className="analytics-presets">
-          {[
-            [1, 0, '今天'],
-            [1, -1, '昨天'],
-            [7, 0, '近 7 天'],
-            [30, 0, '近 30 天'],
-            [90, 0, '近 90 天'],
-          ].map(([days, offset, label]) => (
-            <button key={label} type="button" onClick={() => preset(Number(days), Number(offset))}>
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="analytics-date-inputs">
-          <input
-            aria-label="开始日期"
-            required
-            type="date"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-          />
-          <span>至</span>
-          <input
-            aria-label="结束日期"
-            required
-            type="date"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-          />
-          <select
-            aria-label="来源筛选"
-            value={filters.channel || ''}
-            onChange={(e) => filter('channel', e.target.value)}
-          >
-            <option value="">全部来源</option>
-            {Object.entries(channels).map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button type="submit" disabled={loading}>
-            查询
-          </button>
-        </div>
-        {Object.entries(filters).length > 0 && (
-          <div className="analytics-filter-tags">
-            {Object.entries(filters).map(([key, value]) => (
-              <button key={key} type="button" onClick={() => filter(key, '')}>
-                {key === 'country'
-                  ? country(value)
-                  : key === 'channel'
-                    ? channels[value]
-                    : key === 'device'
-                      ? devices[value]
-                      : value}
-                <X size={13} />
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                setFilters({});
-                setApplied(
-                  new URLSearchParams({
-                    ...(start ? { start } : {}),
-                    ...(end ? { end } : {}),
-                    ...(path ? { path } : {}),
-                  }).toString(),
-                );
-              }}
-            >
-              清除筛选
-            </button>
-          </div>
-        )}
-      </form>
-    </>
-  );
+    </div>
+    {filters.length > 0 && <div className="analytics-filter-tags">{filters.map(([key, value]) => <button key={key} onClick={() => apply(key, '')}>{dimensionNames[key]}：{key === 'country' ? country(value) : key === 'channel' ? channels[value] || value : key === 'device' ? devices[value] || value : value}<X size={12} /></button>)}<button onClick={() => { const p = new URLSearchParams(query); for (const [key] of filters) p.delete(key); workspace.navigate(report, p.toString()); }}>清除筛选</button></div>}
+  </>;
 }

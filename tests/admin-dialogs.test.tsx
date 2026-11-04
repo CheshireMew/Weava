@@ -11,6 +11,7 @@ import HistoryMaintenance from '../apps/admin/src/HistoryMaintenance.tsx';
 import Operations from '../apps/admin/src/Operations.tsx';
 import ImportManager from '../apps/admin/src/ImportManager.tsx';
 import { AnalyticsReportView } from '../apps/admin/src/AnalyticsReportView.tsx';
+import { ReportWorkspace } from '../apps/admin/src/analytics/report-workspace.ts';
 import { api, waitJob } from '../apps/admin/src/api.ts';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), waitJob: vi.fn() }));
@@ -118,18 +119,19 @@ it('shows import problems immediately and opens long explanations without commit
   expect(api).toHaveBeenCalledTimes(1); expect(api).toHaveBeenCalledWith('import/wxr', expect.objectContaining({ options: expect.objectContaining({ dryRun: true }) }));
 });
 
-it('switches report categories and chart data while retaining shared filters', async () => {
+it('shows overview reports directly and links to details without changing filters', async () => {
   const totals = { views: 1, visitors: 1, sessions: 1, clicks: 0 };
   const data: any = { ...totals, range: { start: '2026-11-03', end: '2026-11-04', timezone: 'Asia/Shanghai', previousStart: '2026-11-01', previousEnd: '2026-11-02' }, previous: totals, lifetime: totals, averageActiveMs: 10, overview: [], daily: [{ date: '2026-11-04', views: 1, visitors: 1, sessions: 1, clicks: 0, previousViews: 1, previousVisitors: 1 }], historicalViews: 0 };
   for (const key of ['pages', 'sources', 'engines', 'countries', 'browsers', 'operatingSystems', 'devices', 'models', 'activeVisitors', 'recentVisitors', 'links', 'actions', 'campaigns', 'crawlers', 'legacySources']) data[key] = [];
   const model: any = { loading: false, filters: { country: 'CN' }, loadedQuery: 'country=CN', live: { visitors: [], count: 0 }, retryLive: { current: vi.fn() }, filter: vi.fn(), updateGeo: vi.fn() };
-  await render(<AnalyticsReportView data={data} model={model} openVisitor={vi.fn()} onError={vi.fn()} />);
-  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(5); expect(host.textContent).toContain('页面排行'); expect([...host.querySelectorAll('h2')].map(node => node.textContent)).not.toContain('浏览器');
-  await click('数据'); expect(host.querySelector('.analytics-trend svg')).toBeNull(); expect(host.querySelector('.analytics-trend tbody')?.textContent).toContain('2026-11-04');
-  await click('来源'); expect(host.textContent).toContain('访问来源'); expect(host.textContent).toContain('全球访客分布');
-  await click('访客'); expect(host.textContent).toContain('当前在线');
-  await click('设备'); expect(host.textContent).toContain('设备型号');
-  await click('行为'); expect(host.textContent).toContain('爬虫请求'); expect(host.querySelector('details')).toBeNull();
+  const navigate = vi.fn();
+  await render(<ReportWorkspace.Provider value={{ data, ranges: {}, refresh: 0, setRange: vi.fn(), fetch: vi.fn(), navigate, openVisitor: vi.fn() }}><AnalyticsReportView data={data} model={model} onError={vi.fn()} /></ReportWorkspace.Provider>);
+  const headings = [...host.querySelectorAll('h2')].map(node => node.textContent);
+  expect(headings).toEqual(expect.arrayContaining(['页面排行', '浏览器', '设备型号', '全球访客分布', '最新访客', '搜索与 AI 来源趋势']));
+  expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
+  expect(host.querySelector('details')).toBeNull();
+  await act(async () => host.querySelector<HTMLAnchorElement>('[aria-label="流量趋势"] footer a')!.click());
+  expect(navigate).toHaveBeenCalledWith('traffic', 'start=2026-11-03&end=2026-11-04');
   expect(model.filters).toEqual({ country: 'CN' }); expect(model.filter).not.toHaveBeenCalled(); expect(api).not.toHaveBeenCalled();
 });
 

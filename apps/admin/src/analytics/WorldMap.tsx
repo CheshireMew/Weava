@@ -23,7 +23,7 @@ export function WorldMap({
   };
   const fill = (id: string) =>
     counts.has(id)
-      ? `hsl(154 30% ${86 - Math.sqrt((counts.get(id) || 0) / max) * 48}%)`
+      ? `hsl(209 65% ${93 - Math.sqrt((counts.get(id) || 0) / max) * 41}%)`
       : 'var(--surface-secondary)';
   return (
     <>
