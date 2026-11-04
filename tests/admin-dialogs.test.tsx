@@ -125,7 +125,7 @@ it('keeps the overview focused and links to details without changing shared filt
   for (const key of ['pages', 'sources', 'engines', 'countries', 'browsers', 'operatingSystems', 'devices', 'models', 'activeVisitors', 'recentVisitors', 'links', 'actions', 'campaigns', 'crawlers', 'legacySources']) data[key] = [];
   const model: any = { loading: false, filters: { country: 'CN' }, loadedQuery: 'country=CN', live: { visitors: [], count: 0 }, retryLive: { current: vi.fn() }, filter: vi.fn(), updateGeo: vi.fn() };
   const navigate = vi.fn();
-  await render(<ReportWorkspace.Provider value={{ data, query: 'start=2026-11-03&end=2026-11-04', navigate, openVisitor: vi.fn() }}><AnalyticsReportView data={data} model={model} onError={vi.fn()} /></ReportWorkspace.Provider>);
+  await render(<ReportWorkspace.Provider value={{ data, query: 'start=2026-11-03&end=2026-11-04', loading: false, changeRange: vi.fn(), navigate, openVisitor: vi.fn() }}><AnalyticsReportView data={data} model={model} onError={vi.fn()} /></ReportWorkspace.Provider>);
   const headings = [...host.querySelectorAll('h2')].map(node => node.textContent);
   expect(headings).toEqual(['流量趋势', '流量概览', '页面排行']);
   expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);

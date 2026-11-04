@@ -36,12 +36,12 @@ export function AnalyticsReportView({ data, model, section = 'overview', onError
       <ReportCard report="pages">{(data, query) => <ReportContent report="pages" data={data} query={query} />}</ReportCard>
     </>}
     {section === 'sources' && <div className="analytics-main">
-      <Card title="搜索与 AI 来源趋势"><SourcesChart data={data} detail /></Card>
-      <Card title="访问来源"><ReportContent report="sources" data={data} query={query} detail tableOnly /></Card>
-      <div className="analytics-geography-grid"><AnalyticsGeography model={view} /><Card title="国家 / 地区"><ReportContent report="countries" data={data} query={query} /></Card></div>
+      <Card title="搜索与 AI 来源趋势" dateRange><SourcesChart data={data} detail /></Card>
+      <Card title="访问来源" dateRange><ReportContent report="sources" data={data} query={query} detail tableOnly /></Card>
+      <div className="analytics-geography-grid"><AnalyticsGeography model={view} /><Card title="国家 / 地区" dateRange><ReportContent report="countries" data={data} query={query} /></Card></div>
     </div>}
     {section === 'visitors' && <div className="analytics-main">
-      <Card title={visitorOrder === 'visitors' ? '最新访客' : '最活跃访客'} action={<select className="analytics-visitor-order" aria-label="访客排序" value={visitorOrder} onChange={event => setVisitorOrder(event.target.value as 'visitors' | 'active')}><option value="visitors">最新访问</option><option value="active">最活跃</option></select>}><ReportContent report={visitorOrder} data={data} query={query} detail /></Card>
+      <Card title={visitorOrder === 'visitors' ? '最新访客' : '最活跃访客'} dateRange action={<select className="analytics-visitor-order" aria-label="访客排序" value={visitorOrder} onChange={event => setVisitorOrder(event.target.value as 'visitors' | 'active')}><option value="visitors">最新访问</option><option value="active">最活跃</option></select>}><ReportContent report={visitorOrder} data={data} query={query} detail /></Card>
       <AnalyticsDetail report="realtime" model={model} query={query} onError={onError} />
     </div>}
     {section === 'devices' && <div className="analytics-section-grid">{(['browsers', 'os', 'devices', 'models'] as const).map(report => <ReportCard key={report} report={report}>{(data, query) => <ReportContent report={report} data={data} query={query} />}</ReportCard>)}</div>}

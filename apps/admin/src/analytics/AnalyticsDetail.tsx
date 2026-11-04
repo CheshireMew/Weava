@@ -27,7 +27,7 @@ export function AnalyticsDetail({ report, query, model, onError }: { report: Rep
         { key: 'path', label: '当前页面', render: row => analyticsPresentation(data, openVisitor).pageLink(row.path) },
       ]} />
       <p className="analytics-note">最近 {model.live?.windowMinutes || 5} 分钟的在线访客，每 15 秒更新，不随历史日期和来源筛选改变。</p>
-    </Card> : <Card title={reports[report].title}><ReportContent report={report} data={data} query={query} detail /></Card>}
+    </Card> : <Card title={reports[report].title} dateRange><ReportContent report={report} data={data} query={query} detail /></Card>}
     {report === 'countries' && <AnalyticsGeography model={view} />}
   </div>;
 }

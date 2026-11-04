@@ -1,15 +1,15 @@
 import { useEffect, useId, useState } from 'react';
 import { ArrowLeft, RefreshCw } from 'lucide-react';
 import type { AnalyticsReport } from '@weava/contracts';
-import { AnalyticsReportView, Delta } from './AnalyticsReportView.tsx';
-import { AnalyticsControls } from './analytics/AnalyticsControls.tsx';
+import { AnalyticsReportView } from './AnalyticsReportView.tsx';
+import { AnalyticsControls, AnalyticsFilterTags } from './analytics/AnalyticsControls.tsx';
 import { useAnalyticsReport } from './analytics/useAnalyticsReport.ts';
 import { ReportWorkspace, internalClick } from './analytics/report-workspace.ts';
 import { reportLocation, reportSection, sections, reportUrl, type AnalyticsSection, type ReportName } from './analytics/report-navigation.ts';
 import { AnalyticsDetail } from './analytics/AnalyticsDetail.tsx';
 import { AnalyticsExportContext } from './analytics/Card.tsx';
 import { VisitorDetails } from './analytics/VisitorDetails.tsx';
-import { number, duration } from './analytics/format.ts';
+import { DateRangeMenu } from './analytics/DateRangeMenu.tsx';
 import './AnalyticsPanel.css';
 
 type Location = ReturnType<typeof reportLocation>;
@@ -34,22 +34,20 @@ function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Loc
   const query = new URLSearchParams(route.query);
   if (data) { query.set('start', data.range.start); query.set('end', data.range.end); }
   const appliedQuery = query.toString();
-  const tabs = <nav className="analytics-tabs" role="tablist" aria-label="统计报表">{sections.map(([key, label], index) => <button key={key} role="tab" id={id + key} aria-selected={route.section === key} aria-controls={id + 'panel'} tabIndex={route.section === key ? 0 : -1} onClick={() => navigate(null, route.query, key)} onKeyDown={event => {
+  const changeQuery = (query: string) => navigate(route.report, query, route.section);
+  const changeRange = (start: string, end: string) => { const next = new URLSearchParams(appliedQuery); next.set('start', start); next.set('end', end); changeQuery(next.toString()); };
+  const tabs = <div className="analytics-section-navigation"><nav className="library-status-tabs analytics-tabs" role="tablist" aria-label="统计报表">{sections.map(([key, label], index) => <button key={key} role="tab" id={id + key} aria-selected={route.section === key} aria-controls={id + 'panel'} tabIndex={route.section === key ? 0 : -1} onClick={() => navigate(null, route.query, key)} onKeyDown={event => {
     const next = event.key === 'ArrowRight' ? (index + 1) % sections.length : event.key === 'ArrowLeft' ? (index + sections.length - 1) % sections.length : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : -1;
     if (next >= 0) { event.preventDefault(); navigate(null, route.query, sections[next][0]); document.getElementById(id + sections[next][0])?.focus(); }
-  }}>{label}</button>)}</nav>;
+  }}>{label}</button>)}</nav></div>;
   return <div className="panel analytics-panel">
-    <header className="panel-title"><h1>访问统计</h1><button disabled={loading} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading ? 'spin' : ''} />刷新</button></header>
-    <AnalyticsControls model={model} report={route.report} section={route.section} query={appliedQuery} timezone={timezone} onChange={query => navigate(route.report, query, route.section)} />
-    {data && !error && <div className="analytics-metrics">
-      {([['visitors', '访客'], ['views', '浏览量'], ['sessions', '会话'], ['clicks', '链接点击']] as const).map(([key, label]) => <article key={key}><span>{label}</span><strong>{number(data[key])}</strong><small>较上一时段 <Delta now={data[key]} before={data.previous[key]} /></small></article>)}
-      <article><span>平均可见停留</span><strong>{duration(data.averageActiveMs)}</strong><small>仅统计页面可见的时间</small></article>
-    </div>}
+    <header className="panel-title"><h1>访问统计</h1><div className="analytics-header-actions"><AnalyticsControls model={model} report={route.report} query={appliedQuery} onChange={changeQuery} /><button disabled={loading} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading ? 'spin' : ''} />刷新</button></div></header>
     {tabs}
+    <AnalyticsFilterTags query={appliedQuery} onChange={changeQuery} />
     <section id={id + 'panel'} role="tabpanel" aria-labelledby={id + route.section} aria-busy={loading}>
-      {error && <p role="alert" className="analytics-error">{error}<button onClick={() => model.load()}>重试</button></p>}
+      {error && <div className="analytics-error" role="alert"><span>{error}</span><div className="analytics-error-actions">{model.start && model.end && <DateRangeMenu label="统计" start={model.start} end={model.end} timezone={timezone} onChange={changeRange} />}<button onClick={() => model.load()}>重试</button></div></div>}
       {!data && loading && <p role="status" className="analytics-loading">正在读取统计…</p>}
-      {data && !error && <ReportWorkspace.Provider value={{ data, query: appliedQuery, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
+      {data && !error && <ReportWorkspace.Provider value={{ data, query: appliedQuery, loading, changeRange, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
         <AnalyticsExportContext.Provider value={!loading ? appliedQuery : null}>
           {route.report ? <>
             <div className="analytics-report-heading"><a href={reportUrl(null, appliedQuery, route.section)} onClick={event => internalClick(event, () => navigate(null, appliedQuery, route.section))}><ArrowLeft size={14} />返回{sections.find(([key]) => key === route.section)?.[1]}</a></div>

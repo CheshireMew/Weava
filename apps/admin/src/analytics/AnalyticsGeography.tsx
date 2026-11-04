@@ -16,7 +16,7 @@ export function AnalyticsGeography({
   return (
     <>
       {' '}
-      <Card title="全球访客分布">
+      <Card title="全球访客分布" dateRange>
         <WorldMap rows={data.countries} onSelect={(v) => filter('country', v)} />
         <div className="analytics-geo-status">
           <span>

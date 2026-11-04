@@ -140,7 +140,7 @@ button.primary, .button.primary, .icon-primary { background: var(--accent); bord
 .library-status-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; }
 .library-status-tabs button { min-height: 36px; padding: 7px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-muted); font-size: 14px; font-weight: 600; white-space: nowrap; }
 .library-status-tabs button:hover { background: var(--surface-soft); color: var(--ink); }
-.library-status-tabs button[aria-pressed='true'] { background: #ededed; color: var(--ink); }
+.library-status-tabs button[aria-pressed='true'], .library-status-tabs button[aria-selected='true'] { background: #ededed; color: var(--ink); }
 .library-create { white-space: nowrap; min-height: 44px; padding: 10px 18px; font-weight: 650; }
 .library-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; width: 100%; max-width: 1000px; margin: 0 auto 22px; flex-shrink: 0; }
 .library-search { display: flex; align-items: center; gap: 12px; border: 1px solid var(--control-line); border-radius: var(--radius-control); height: 46px; flex: 1 1 260px; min-width: 0; padding-inline: 14px; color: var(--ink-muted); }

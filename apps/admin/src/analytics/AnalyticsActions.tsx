@@ -16,7 +16,7 @@ export function AnalyticsActions({
   return (
     <>
       {' '}
-      <Card title="链接点击">
+      <Card title="链接点击" dateRange>
         <DataTable
           rows={data.links}
           columns={[
@@ -43,7 +43,7 @@ export function AnalyticsActions({
           ]}
         />
       </Card>
-      <Card title="关键动作">
+      <Card title="关键动作" dateRange>
         <DataTable
           rows={data.actions}
           columns={[
@@ -53,7 +53,7 @@ export function AnalyticsActions({
         />
       </Card>
       {data.campaigns.length > 0 && (
-        <Card title="推广链接">
+        <Card title="推广链接" dateRange>
           <DataTable
             rows={data.campaigns}
             columns={[
@@ -66,7 +66,7 @@ export function AnalyticsActions({
           />
         </Card>
       )}
-      <Card title="爬虫请求">
+      <Card title="爬虫请求" dateRange>
         <DataTable
           rows={data.crawlers}
           columns={[
