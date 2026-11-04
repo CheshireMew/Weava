@@ -83,8 +83,8 @@ it('groups secondary settings and removes the indexing checkbox without resettin
   expect(sharing.querySelector('input')).not.toBeNull();
   expect(sharing.textContent).not.toContain('来源与核验');
   expect(host.querySelector('input[type="checkbox"]')).toBeNull();
-  await click('高级');
-  expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain('来源与核验');
+  await click('更多操作');
+  expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).not.toContain('来源与核验');
   expect(current.record.value.indexable).toBe(false);
   expect(current.update).not.toHaveBeenCalled();
 });

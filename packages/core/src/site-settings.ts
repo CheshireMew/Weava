@@ -5,12 +5,20 @@ import type { Term } from '@weava/contracts';
 import { WeavaError, type Settings, siteSeoSchema, advertisementsSchema } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { siteInfoSchema } from '../../contracts/src/site-info.ts';
+import { sidebarSchema } from '../../contracts/src/site-presentation.ts';
 export class SiteSettings {
   constructor(private site: Pick<Site, 'store' | 'settings' | 'terms'>) {}
   settings() {
     return this.site.store.get('settings', 'site')!;
   }
   saveSettings(value: Settings, revision: number) {
+    if (value.sidebar) {
+      value = { ...value, sidebar: sidebarSchema.parse(value.sidebar) };
+      for (const link of value.sidebar!.links) {
+        if (!link.label.trim()) throw new WeavaError('请填写侧栏链接名称。');
+        webUrl(link.url, value.domain);
+      }
+    }
     if (value.siteInfo !== undefined) {
       const info = siteInfoSchema.parse(value.siteInfo);
       for (const role of ['about', 'friends'] as const) {
@@ -24,6 +32,10 @@ export class SiteSettings {
     }
     if (value.advertisements !== undefined)
       value = { ...value, advertisements: advertisementsSchema.parse(value.advertisements) };
+    for (const slot of Object.values(value.advertisements ?? {})) {
+      if (slot?.content?.url) webUrl(slot.content.url, value.domain);
+      if (slot?.content?.image) webUrl(slot.content.image, value.domain);
+    }
     const previousSettings = this.site.settings().value as Settings;
     value = {
       ...value,

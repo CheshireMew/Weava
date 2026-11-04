@@ -1,3 +1,4 @@
+import { AnalyticsExportContext } from './analytics/Card.tsx';
 import { AnalyticsReportView } from './AnalyticsReportView.tsx';
 import { useState } from 'react';
 import { useAnalyticsReport } from './analytics/useAnalyticsReport.ts';
@@ -22,12 +23,12 @@ export default function AnalyticsPanel({ onError }: { onError: (message: string)
       )}
       {loading && !data && <p role="status">正在读取统计…</p>}
       {data && !error && (
-        <AnalyticsReportView
+        <AnalyticsExportContext.Provider value={!loading && !error ? new URLSearchParams({ ...Object.fromEntries(new URLSearchParams(model.loadedQuery)), start: data.range.start, end: data.range.end }).toString() : null}><AnalyticsReportView
           data={data}
           model={model}
           openVisitor={openVisitor}
           onError={onError}
-        />
+        /></AnalyticsExportContext.Provider>
       )}
       {visitor && (
         <VisitorDetails key={visitor} visitor={visitor} setVisitor={setVisitor} data={data} />

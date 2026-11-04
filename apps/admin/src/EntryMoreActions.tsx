@@ -1,19 +1,11 @@
 import { Archive } from 'lucide-react';
 import { api } from './api.ts';
-import { SaveCreationTemplate } from './AuthoringControls.tsx';
 import type { ContentWorkspace } from './useContentWorkspace.ts';
 
 export function EntryMoreActions({ model }: { model: Pick<ContentWorkspace, 'record' | 'state' | 'session' | 'update' | 'persist' | 'setError' | 'refresh' | 'notify' | 'select'> }) {
   const { record, state, session, update, persist, setError, refresh, notify, select } = model;
   if (!record) return null;
   return <div className="entry-more-actions">
-        <SaveCreationTemplate
-          entry={record.value}
-          onSaved={async () => {
-            await refresh();
-          }}
-          onError={setError}
-        />
 
         <button
           onClick={() => {

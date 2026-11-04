@@ -21,12 +21,15 @@ describe('publication boundaries and candidate validation', () => {
     const first = site.publish();
     site.saveEntry({ ...original.value, title: '尚未发布的改稿' }, original.revision);
     const settings = site.settings();
-    site.saveSettings({ ...settings.value, name: '新站名' }, settings.revision);
+    site.saveSettings({ ...settings.value, name: '新站名', sidebar: { text: '支持创作', links: [{ label: '社交主页', url: 'https://example.com/' }] }, advertisements: { siteTop: { enabled: true, html: '<div>原始广告</div>', content: { title: '赞助商', text: '说明', image: '', url: 'https://example.com/' } } } }, settings.revision);
     const review = site.previewPublication({ scope: 'settings' });
     expect(review.entries).toEqual([]);
     expect(site.release()!.id).toBe(first.id);
     const changed = site.publish(review.options);
     expect(changed.settings.name).toBe('新站名');
+    expect(changed.settings.sidebar!.text).toBe('支持创作');
+    expect(changed.settings.advertisements!.siteTop!.html).toBe('<div>原始广告</div>');
+    expect(changed.entries[0].description).toBe('原正文');
     expect(changed.entries[0].title).toBe('one');
     expect(() => site.publish(review.options)).toThrow(/公开版本已变化/);
     const next = site.previewPublication({ ids: ['one'] });

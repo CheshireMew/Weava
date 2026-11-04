@@ -43,7 +43,11 @@ export function useManagedRecord<R extends EditableRecord>(initial: R | null, wr
   const ref=useRef<EditSession<R> | null>(null);
   if (!ref.current) {
     let storage: Storage | undefined; try { if (options.recovery !== false) storage=window.localStorage; } catch {}
-    ref.current=new EditSession(initial,row=>latest.current(row),()=>{render(value=>value+1);queueMicrotask(manager.changed);},storage,'weava-edit:v1:'+label,(...args)=>latestOptions.current.saved?.(...args));
+    ref.current=new EditSession(initial,row=>{
+      const autosave=latestOptions.current.autosave;
+      if(typeof autosave==='object'&&autosave.ready&&!autosave.ready(row))throw new Error(autosave.incompleteMessage??'请补全当前内容后再继续。');
+      return latest.current(row);
+    },()=>{render(value=>value+1);queueMicrotask(manager.changed);},storage,'weava-edit:v1:'+label,(...args)=>latestOptions.current.saved?.(...args));
   }
   const session=ref.current;
   useEditGuard(label,()=>session.dirty,session.save,()=>{session.discard();options.discard?.();},options.recovery === false ? undefined : session,options.closeMessage);

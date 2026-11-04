@@ -1,7 +1,8 @@
 import { afterEach, expect, it } from 'vitest';
 import { adminApi } from '@weava/contracts/api';
 import { advertisementsSchema, defaultSettings, entrySchema } from '@weava/contracts';
-import { Site, exportSite, importSite } from '@weava/core';
+import { Site, exportSite, importSite, projectSettingTerms, settingsPublicationState } from '@weava/core';
+import type { Release, Term } from '@weava/contracts';
 
 const sites: Site[] = [];
 const root = 'D:/Tools/cache/weava/tests/advertisements-' + Date.now();
@@ -11,6 +12,21 @@ const create = () => {
   return site;
 };
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
+
+it('reports pending settings only for real changes, including disabled ads and renamed terms', () => {
+  const terms: Term[] = [
+    { id: 'category-writing', kind: 'category', label: '写作', slug: 'writing' },
+    { id: 'tag-ui', kind: 'tag', label: 'UI', slug: 'ui' },
+  ];
+  const settings = { ...defaultSettings, taxonomies: [{ id: 'legacy-writing', label: '写作', slug: 'old-writing' }], advertisements: { siteBottom: { enabled: true, html: '<div>广告</div>' } } };
+  const published = { settings: JSON.parse(JSON.stringify(projectSettingTerms(settings, terms))), terms: [...terms].reverse() } as Release;
+  expect(settingsPublicationState(settings, terms, published)).toEqual({ settingsPending: false, termsPending: false });
+  expect(settingsPublicationState({ ...settings, advertisements: { siteBottom: { ...settings.advertisements.siteBottom, enabled: false } } }, terms, published))
+    .toEqual({ settingsPending: true, termsPending: false });
+  const renamed = terms.map(term => term.kind === 'tag' ? { ...term, label: '界面' } : term);
+  expect(settingsPublicationState(settings, renamed, published)).toEqual({ settingsPending: false, termsPending: true });
+  expect(settingsPublicationState(settings, terms, null)).toEqual({ settingsPending: true, termsPending: true });
+});
 
 it('retains all four HTML slots through API input and output, while accepting old settings', () => {
   const html = '<style>.banner{color:red}</style><a href="/offer/?a=1&b=2">广告</a><iframe src="https://example.com"></iframe><script>window.adLoaded=true</script>';

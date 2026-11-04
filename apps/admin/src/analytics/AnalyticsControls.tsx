@@ -38,36 +38,6 @@ export function AnalyticsControls({ model }: { model: AnalyticsController }) {
             <RefreshCw size={16} className={loading ? 'spin' : ''} />
             刷新
           </button>
-          <select
-            aria-label="导出内容"
-            value={exportType}
-            onChange={(e) => setExportType(e.target.value)}
-          >
-            {Object.entries({
-              pages: '页面排行',
-              daily: '每日趋势',
-              sources: '来源',
-              countries: '地区',
-              browsers: '浏览器',
-              os: '操作系统',
-              devices: '设备类型',
-              models: '设备型号',
-              visitors: '最新访客',
-              links: '链接点击',
-              actions: '关键动作',
-              campaigns: '推广链接',
-              crawlers: '爬虫请求',
-              lifetime: '累计浏览',
-            }).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <a className="button" href={canExport ? exportUrl : undefined} aria-disabled={!canExport}>
-            <Download size={16} />
-            CSV
-          </a>
         </div>
       </div>
       <form

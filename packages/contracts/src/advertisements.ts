@@ -9,7 +9,7 @@ export const advertisementSlots = [
 
 export type AdvertisementPosition = (typeof advertisementSlots)[number]['id'];
 
-const advertisementSchema = z.object({ enabled: z.boolean(), html: z.string() });
+const advertisementSchema = z.object({ enabled: z.boolean(), html: z.string(), content: z.object({ title: z.string(), text: z.string(), image: z.string(), url: z.string() }).optional() });
 export const advertisementsSchema = z.object({
   siteTop: advertisementSchema.optional(),
   siteBottom: advertisementSchema.optional(),

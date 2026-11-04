@@ -1,7 +1,14 @@
 import type { Site } from './site.ts';
-import { WeavaError, type Entry, type Term } from '@weava/contracts';
+import { WeavaError, type Entry, type Settings, type Term } from '@weava/contracts';
 import { digest } from './storage.ts';
 import type { Block } from '@weava/contracts';
+export function projectSettingTerms(settings: Settings, catalog: Term[]): Settings {
+  return { ...settings, taxonomies: settings.taxonomies.map(item => {
+    const term = catalog.find(term => term.id === item.id || (term.kind === 'category' && term.label === item.label));
+    return term ? { ...item, ...term } : item;
+  }) };
+}
+
 export function bindBlockTerms(blocks: Block[], catalog: Term[]): Block[] {
   return blocks.map((block) => {
     const props = { ...block.props };

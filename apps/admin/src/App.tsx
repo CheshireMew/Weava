@@ -12,7 +12,6 @@ import { useEditSessions } from './EditSessions.tsx';
 
 import './style.css';
 
-const TypeManager=lazy(()=>import('./TypeManager.tsx'));
 const SettingsPanel=lazy(()=>import('./SettingsPanel.tsx'));
 const Operations=lazy(()=>import('./Operations.tsx'));
 import { AdminNavigation, tabs } from './AdminNavigation.tsx';
@@ -31,7 +30,6 @@ const AccountPanel = lazy(() => import('./AccountPanel.tsx'));
 const AnalyticsPanel = lazy(() => import('./AnalyticsPanel.tsx'));
 
 const RedirectManager = lazy(() => import('./RedirectManager.tsx'));
-const PublicationPlans = lazy(() => import('./PublicationPlans.tsx'));
 const Comments = lazy(() => import('./Comments.tsx'));
 
 const MediaManager = lazy(() => import('./MediaManager.tsx'));
@@ -80,7 +78,6 @@ export function App({authentication,error,setError}:AppProps) {
   async function saveSiteSettings(value: any, revision: number) {
     const row = await api('settings', { value, revision });
     await refresh();
-    notify('设置已保存');
     return row;
   }
   useEffect(() => {
@@ -235,20 +232,6 @@ export function App({authentication,error,setError}:AppProps) {
                   {record ? <EntryEditor model={workspace} /> : <ContentLibrary model={workspace} />}
                 </div>
               )}
-              {tab === 'types' && (
-                <TypeManager
-                  types={state.types}
-                  extensionBlocks={state.extensionBlocks ?? []}
-                  templates={state.layouts ?? []}
-                  onSave={async (value, revision) => {
-                    const row = await api('types', { value, revision });
-                    await refresh();
-                    notify('内容类型已保存');
-                    return row;
-                  }}
-                  onError={setError}
-                />
-              )}
               {tab === 'media' && (
                 <Suspense fallback={<p>正在载入媒体…</p>}>
                   <MediaManager
@@ -270,7 +253,8 @@ export function App({authentication,error,setError}:AppProps) {
                   themes={state.themes ?? []}
                   panels={state.extensionPanels ?? []}
                   layouts={state.layouts ?? []}
-                  publish={() => task('publish', { scope: 'settings' })}
+                  publish={() => task('publish', { scope: 'settings' }, true)}
+                  pendingApplication={state.settingsPending || state.termsPending}
                   save={saveSiteSettings}
                   onError={setError}
                   siteInfo={state.siteInfo}
@@ -287,8 +271,8 @@ export function App({authentication,error,setError}:AppProps) {
               )}
               {tab === 'comments' && (
                 <Suspense fallback={<p>加载中…</p>}>
-                  <Comments settings={state.settings} saveSettings={saveSiteSettings}
-                    publishSettings={() => task('publish', { scope: 'settings' })} onError={setError} />
+                  <Comments settings={state.settings} saveSettings={saveSiteSettings} pendingApplication={state.settingsPending || state.termsPending}
+                    publishSettings={() => task('publish', { scope: 'settings' }, true)} onError={setError} />
                 </Suspense>
               )}
               {tab === 'redirects' && (
@@ -297,11 +281,6 @@ export function App({authentication,error,setError}:AppProps) {
                     onError={setError}
                     publish={() => task('publish', { scope: 'routes' })}
                   />
-                </Suspense>
-              )}
-              {tab === 'publication-plans' && (
-                <Suspense fallback={<p>加载中…</p>}>
-                  <PublicationPlans onError={setError} />
                 </Suspense>
               )}
               {tab === 'account' && <Suspense fallback={<p>正在读取账户…</p>}><AccountPanel sessionGeneration={authentication.sessionGeneration} setError={setError} notify={notify} /></Suspense>}

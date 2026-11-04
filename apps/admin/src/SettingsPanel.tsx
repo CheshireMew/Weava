@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PanelSections } from './PanelSections.tsx';
 
 import { defaultSettings, type Settings } from '@weava/contracts';
@@ -6,7 +6,7 @@ import { defaultSettings, type Settings } from '@weava/contracts';
 import { NavigationEditor } from './NavigationEditor.tsx';
 import { AdvertisementSettings } from './AdvertisementSettings.tsx';
 
-import { Fields } from './Fields.tsx';
+
 
 import { useManagedRecord } from './EditSessions.tsx';
 
@@ -15,7 +15,12 @@ import { useSelectors } from './Selectors.tsx';
 import { SiteInfoSettings } from './SiteInfoSettings.tsx';
 import type { SiteInfo } from '../../../packages/contracts/src/site-info.ts';
 import TaxonomyManager, { useTaxonomyEditor } from './TaxonomyManager.tsx';
-import { CategoryDirectory } from './SiteSettingControls.tsx';
+import { FeaturedSettings } from './FeaturedSettings.tsx';
+import { SidebarSettings } from './SidebarSettings.tsx';
+import { AutosaveStatus } from './AutosaveStatus.tsx';
+import { settingsSchema } from '../../../packages/contracts/src/api-models.ts';
+import { api } from './api.ts';
+import { mergeSettingDraft } from './settings-draft.ts';
 
 const emptyTerms: any[] = [];
 const unchanged = async () => {};
@@ -45,6 +50,7 @@ export default function SettingsPanel({
   terms = emptyTerms,
   refresh = unchanged,
   initialSection,
+  pendingApplication = false,
 }: {
   row: any;
   themes: any[];
@@ -57,47 +63,56 @@ export default function SettingsPanel({
   terms?: any[];
   refresh?: () => Promise<any>;
   initialSection?: string;
+  pendingApplication?: boolean;
 }) {
   const selectors = useSelectors();
   const taxonomy = useTaxonomyEditor(terms, refresh);
   const [saving, setSaving] = useState(false);
+  const baseline = useRef(row);
   const managed = useManagedRecord<any>(
     row,
-    (value) => save(value.value, value.revision),
+    async (snapshot) => {
+      try { return await save(snapshot.value, snapshot.revision); }
+      catch (error: any) {
+        if (error.status !== 409 || baseline.current.revision !== snapshot.revision) throw error;
+        const latest = await api('settings');
+        return save(mergeSettingDraft(baseline.current.value, snapshot.value, latest.value), latest.revision);
+      }
+    },
     '网站设置',
+    { autosave: { ready: record => settingsSchema.safeParse(record.value).success }, saved: saved => { baseline.current = saved; } },
   );
   const value: Settings = managed.record!.value;
   useEffect(() => {
+    if (!managed.session.dirty) baseline.current = row;
     managed.session.receive(row);
   }, [row]);
   const set = (p: Partial<Settings>) =>
     managed.setRecord((record: any) => ({ ...record, value: { ...record.value, ...p } }));
-  async function saveSettings(publishAfter = false) {
+  async function publishSettings() {
     setSaving(true);
     try {
       await taxonomy.save();
-      await managed.session.save();
-      if (publishAfter) await publish();
+      await managed.autoSave.flush();
+      await publish();
     } catch (error: any) { onError(error.message); }
     finally { setSaving(false); }
   }
+  const saveState = ['error', 'saving', 'incomplete', 'pending'].flatMap(phase => [managed.autoSave, taxonomy.autoSave].filter(state => state.phase === phase))[0] ?? managed.autoSave;
   return (
     <div className="panel">
       <div className="panel-title">
         <div>
           <h1>网站设置</h1>
-          <p>保存为工作稿，发布后更新网站。</p>
+          <AutosaveStatus state={saveState} label="网站设置" savedText={pendingApplication ? '已自动保存，待应用到网站' : '已自动保存'} />
         </div>
         <div>
-          <button disabled={saving || taxonomy.busy} onClick={() => void saveSettings()}>
-            保存设置
-          </button>
           <button
             className="primary"
             disabled={saving || taxonomy.busy}
-            onClick={() => void saveSettings(true)}
+            onClick={() => void publishSettings()}
           >
-            发布设置
+            {saving ? '正在应用…' : '保存并应用'}
           </button>
         </div>
       </div>
@@ -159,9 +174,6 @@ export default function SettingsPanel({
           {[
             ['accent', '强调色', 'color'],
             ['background', '背景色', 'color'],
-            ['width', '页面宽度', 'number'],
-            ['radius', '圆角', 'number'],
-            ['spacing', '区块间距', 'number'],
           ].map(([key, label, type]) => (
             <label key={key}>
               {label}
@@ -179,58 +191,9 @@ export default function SettingsPanel({
               />
             </label>
           ))}
-          <SettingChoice label="字体" value={value.themeConfig.font} choices={{ 'system-ui': '系统字体', 'system-ui, sans-serif': '系统无衬线字体', sans: '无衬线字体', serif: '衬线字体', monospace: '等宽字体' }} onChange={font => set({ themeConfig: { ...value.themeConfig, font } })} />
         </section>
-        {value.theme === 'newsletter' && (
-          <section className="form-card">
-            <h2>首页侧栏</h2>
-            <label>
-              RSS 订阅下方 HTML
-              <textarea
-                className="advertisement-code"
-                rows={10}
-                spellCheck={false}
-                autoCapitalize="off"
-                autoCorrect="off"
-                value={value.extensions.newsletter?.sidebarHtml ?? ''}
-                onChange={(event) =>
-                  set({
-                    extensions: {
-                      ...value.extensions,
-                      newsletter: {
-                        ...value.extensions.newsletter,
-                        sidebarHtml: event.target.value,
-                      },
-                    },
-                  })
-                }
-              />
-            </label>
-          </section>
-        )}
-        {value.theme === 'newsletter' && (
-          <section className="form-card">
-            <h2>文章目录</h2>
-            <label className="checkbox">
-              <input
-                type="checkbox"
-                checked={value.extensions.newsletter?.tocDefaultOpen === true}
-                onChange={(e) =>
-                  set({
-                    extensions: {
-                      ...value.extensions,
-                      newsletter: {
-                        ...value.extensions.newsletter,
-                        tocDefaultOpen: e.target.checked,
-                      },
-                    },
-                  })
-                }
-              />
-              默认展开侧边目录
-            </label>
-          </section>
-        )}
+        <FeaturedSettings order={value.featuredOrder} onChange={featuredOrder => set({ featuredOrder })} onError={onError} />
+        {value.theme === 'newsletter' && <SidebarSettings value={value} onChange={sidebar => set({ sidebar })} />}
 </> },
         { id: 'navigation', label: '导航与分类', content: <>
         <TaxonomyManager model={taxonomy} onError={onError} />
@@ -240,7 +203,6 @@ export default function SettingsPanel({
             value={value.navigation}
             onChange={(navigation) => set({ navigation })}
           />
-          <CategoryDirectory terms={taxonomy.catalog} value={value.taxonomies} onChange={taxonomies => set({ taxonomies })} />
         </section>
 </> },
         { id: 'sharing', label: '搜索与分享', content: <>        <SiteSeoFields value={value} onChange={set} />
@@ -249,19 +211,6 @@ export default function SettingsPanel({
           value={value.advertisements}
           onChange={(advertisements) => set({ advertisements })}
         />
-</> },
-        { id: 'advanced', label: '高级', content: <><section className="form-card"><h2>项目资料</h2><label>项目源代码地址<input value={value.sourceUrl ?? ''} onChange={event => set({ sourceUrl: event.target.value })} /></label></section>        {panels
-          .filter((panel) => !panel.themes?.length || panel.themes.includes(value.theme))
-          .map((panel) => (
-            <section className="form-card" key={panel.id}>
-              <h2>{panel.label}</h2>
-              <Fields
-                definitions={panel.fields}
-                values={value.extensions[panel.id] ?? {}}
-                onChange={(v) => set({ extensions: { ...value.extensions, [panel.id]: v } })}
-              />
-            </section>
-          ))}
 </> },
       ]} />
 

@@ -1,4 +1,4 @@
-const panels = new Set(['content', 'types', 'media', 'comments', 'redirects', 'publication-plans', 'appearance', 'analytics', 'search-tools', 'operations', 'account']);
+const panels = new Set(['content', 'media', 'comments', 'redirects', 'appearance', 'analytics', 'search-tools', 'operations', 'account']);
 export function adminPanel(search: string) {
   const panel = new URLSearchParams(search).get('panel') ?? 'content';
   if (panel === 'pages' || panel === 'layouts' || panel === 'terms') return 'appearance';

@@ -47,7 +47,7 @@ export function AnalyticsAudience({
           ]}
         />
       </Card>
-      <Card title="最活跃访客">
+      <details className="settings-disclosure"><summary>访客详情</summary><Card title="最活跃访客">
         <DataTable rows={data.activeVisitors} columns={visitorColumns} size={10} />
       </Card>
       <Card title="最新访客">
@@ -97,6 +97,6 @@ export function AnalyticsAudience({
           {new URLSearchParams(loadedQuery).get('path') ? '，页面路径筛选生效' : '全站'}。
         </p>
       </Card>
-    </>
+    </details></>
   );
 }

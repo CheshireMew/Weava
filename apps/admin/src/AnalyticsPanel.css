@@ -3,8 +3,8 @@
   --analytics-blue: #1d5ea6;
   --analytics-green: #428478;
   --analytics-orange: #9b7638;
-  max-width: 1600px;
-  margin-inline: auto;
+  max-width: none;
+  margin: 0;
   font-variant-numeric: tabular-nums;
 }
 .analytics-panel .panel-title {

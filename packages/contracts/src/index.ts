@@ -146,7 +146,7 @@ export const entrySchema = z.object({
   title: z.string().min(1).max(300),
   path: z.string().startsWith('/'),
   description: z.string().default(''),
-  summaryMode: z.enum(['manual', 'marker', 'auto']).default('manual'),
+  summaryMode: z.enum(['manual', 'marker', 'auto']).default('auto'),
   author: z.string().default(''),
   cover: z.string().default(''),
   categories: z.array(z.string()).default([]),
@@ -223,6 +223,8 @@ export { advertisementSlots, advertisementsSchema } from './advertisements.ts';
 export type { AdvertisementPosition, Advertisements } from './advertisements.ts';
 
 export interface Settings {
+  featuredOrder?: string[];
+  sidebar?: import('./site-presentation.ts').SiteSidebar;
   siteInfo?: import('./site-info.ts').SiteInfo;
   advertisements?: import('./advertisements.ts').Advertisements;
   commentModeration?: boolean;

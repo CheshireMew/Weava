@@ -26,7 +26,6 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
   const library = useContentLibrary(state, tab, setError);
   const editor = useEntryEditor({ setError, setLibrary: library.setLibrary, setState, compact });
   const { persist, select, selection } = editor;
-  const [creating, setCreating] = useState<{ kind: Entry['kind']; type: string } | null>(null);
   async function createNew(kind: Entry['kind'], type: string, templateId?: string) {
     const request = ++selection.current;
     const row = await api('entries/create', { kind, type, templateId });
@@ -44,14 +43,6 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
       await persist();
       const kind = 'content' as const,
         type = library.libraryType || state.types[0]?.value.id || 'post';
-      if (kind === 'content' &&
-        state.creationTemplates?.some(
-          (row: any) => row.value.kind === 'content' && row.value.type === type,
-        )
-      ) {
-        setCreating({ kind, type });
-        return;
-      }
       await createNew(kind, type);
     } catch (error: any) {
       setError(error.message);
@@ -111,8 +102,6 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     ...options,
     ...library,
     ...editor,
-    creating,
-    setCreating,
     createNew,
     newEntry,
     duplicateEntry,

@@ -38,24 +38,7 @@ function DatasetDetails({ dataset }: { dataset: any }) {
 export function SearchDataPanel({ data, refresh, busy, execute }: {
   data: any; refresh: () => Promise<any>; busy: boolean; execute: (action: () => Promise<void>) => Promise<void>;
 }) {
-  const [input, setInput] = useState(''), [filename, setFilename] = useState('');
-  return <>
-    <section className="form-card"><h2>搜索表现与 AI 回答记录</h2>
-      {data?.datasets.length ? data.datasets.map((dataset: any) => <DatasetDetails key={dataset.id} dataset={dataset} />)
-        : <p className="muted">尚未导入搜索数据。</p>}
-    </section>
-    <details className="settings-disclosure"><summary>导入外部数据</summary>
-      <label>选择数据文件<input type="file" accept=".json,application/json" disabled={busy} onChange={event => {
-        const file = event.target.files?.[0];
-        if (file) void execute(async () => { setInput(await file.text()); setFilename(file.name); });
-      }} /></label>
-      {filename && <p>{filename}</p>}
-      <details className="settings-disclosure"><summary>手动输入数据（高级）</summary>
-        <label>数据内容（JSON）<textarea rows={7} value={input} onChange={event => { setInput(event.target.value); setFilename(''); }} /></label>
-      </details>
-      <button disabled={busy || !input.trim()} onClick={() => execute(async () => {
-        await api('search-data/import', JSON.parse(input)); setInput(''); setFilename(''); await refresh();
-      })}>检查并导入</button>
-    </details>
-  </>;
+  return <section className="form-card"><h2>搜索表现与 AI 回答记录</h2>
+    {data?.datasets.length ? data.datasets.map((dataset: any) => <DatasetDetails key={dataset.id} dataset={dataset} />) : <p className="muted">暂无搜索数据。</p>}
+  </section>;
 }

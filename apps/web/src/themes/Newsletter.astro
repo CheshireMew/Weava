@@ -84,7 +84,7 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
   <body class="newsletter" data-theme="newsletter" data-release={release.id}
     data-article-id={interactive ? entry?.id : undefined} data-canonical={canonical} data-language={settings.language} data-timezone={settings.timezone}
     data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
-    style={`--nl-accent:${settings.themeConfig.accent};--nl-width:${settings.themeConfig.width}px;--paper:#fff;font-family:${settings.themeConfig.font}`}>
+    style={`--nl-accent:${settings.themeConfig.accent};--nl-width:${settings.themeConfig.width}px;--paper:${settings.themeConfig.background};font-family:${settings.themeConfig.font}`}>
     <a class="skip" href="#main">跳到正文</a>
     {headerRegion ? <header class="nl-wrap" set:html={headerRegion} /> :
     <header class="nl-header">
@@ -144,7 +144,10 @@ const discussion = interactive ? engagement.summary(entry!.id) : { likes: 0, com
             <div class="nl-profile">
               {settings.logo ? <img class="nl-profile-logo" src={settings.logo} alt="" width="38" height="38" /> : <span class="nl-monogram">{settings.name.slice(0, 1)}</span>}
               <h2>{settings.name}</h2><p>{settings.description}</p><a class="nl-subscribe" href="/rss.xml"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="4" cy="16" r="1" fill="currentColor" /><path d="M3 9a8 8 0 0 1 8 8M3 3a14 14 0 0 1 14 14" /></svg>订阅 RSS</a>
-              {sidebarHtml.trim() && <div class="nl-sidebar-custom" set:html={sidebarHtml} />}
+              {settings.sidebar ? <div class="nl-sidebar-custom nl-sidebar-links">
+                {settings.sidebar.text && <p>{settings.sidebar.text}</p>}
+                {settings.sidebar.links.map(link => <a href={link.url} target="_blank" rel="noopener noreferrer">{link.label}</a>)}
+              </div> : sidebarHtml.trim() && <div class="nl-sidebar-custom" set:html={sidebarHtml} />}
             </div>
             <section class="nl-categories"><h2>分类</h2>{categories.map((category) => <a href={category.path}><span>{category.label}</span><span>{category.count}</span></a>)}</section>
           </aside>

@@ -2,7 +2,6 @@ import { lazy, Suspense } from 'react';
 
 import { api } from './api.ts';
 
-import { ChooseCreationTemplate } from './AuthoringControls.tsx';
 
 import { Dialog } from './Dialog.tsx';
 
@@ -39,9 +38,6 @@ export function ContentDialogs({ model }: { model: ContentWorkspace }) {
     bulkOpen,
     setBulkOpen,
     items,
-    creating,
-    setCreating,
-    createNew,
   } = model;
 
   return (
@@ -60,19 +56,6 @@ export function ContentDialogs({ model }: { model: ContentWorkspace }) {
             }}
           />
         </Suspense>
-      )}
-      {creating && (
-        <ChooseCreationTemplate
-          templates={state.creationTemplates ?? []}
-          kind={creating.kind}
-          type={creating.type}
-          create={(templateId) => createNew(creating.kind, creating.type, templateId)}
-          close={() => setCreating(null)}
-          refresh={async () => {
-            await refresh();
-          }}
-          onError={setError}
-        />
       )}
       {history && record && (
         <Suspense fallback={null}>

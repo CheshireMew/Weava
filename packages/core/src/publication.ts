@@ -10,7 +10,7 @@ import { renderDocument, validateFields } from './documents.ts';
 import { renderBlocks, renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
 import { prepareReleaseStorage,writeReleaseStorage } from './publication-store.ts';
 import { validateEditorial, entrySummary } from './editorial.ts';
-import { projectTerms, bindBlockTerms } from './taxonomy.ts';
+import { projectTerms, bindBlockTerms, projectSettingTerms } from './taxonomy.ts';
 import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
 import type { Layout } from '@weava/contracts';
 import { validateSeo } from './seo.ts';
@@ -105,10 +105,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
     const projected = { ...projectTerms(normalized, terms), blocks: bindBlockTerms(normalized.blocks, [...(previous?.terms ?? []), ...terms]) };
     entries.set(entry.id, immutableDigest(projected) === immutableDigest(entry) ? entry : projected);
   }
-  if (!['entries', 'layouts', 'routes'].includes(scope) || !previous) settings = { ...settings, taxonomies: settings.taxonomies.map((item) => {
-    const term = terms.find((term) => term.id === item.id || (term.kind === 'category' && term.label === item.label));
-    return term ? { ...item, ...term } : item;
-  }) };
+  if (!['entries', 'layouts', 'routes'].includes(scope) || !previous) settings = projectSettingTerms(settings, terms);
   const redirects = { ...previous?.redirects, ...(['all', 'routes'].includes(scope) ? snapshot.aliases : {}) };
   for (const [from, value] of Object.entries(redirects)) if (value.disabled) delete redirects[from];
   const paths = new Map<string, string>();
@@ -165,7 +162,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   for (const id of Object.values(settings.regions ?? {})) if (id) include(id);
   release.layouts = [...catalog.values()];
   for (const [position, entry] of release.entries.entries()) {
-    if (!entry.description && entry.summaryMode && entry.summaryMode !== 'manual') {
+    if (!entry.description) {
       const description = entrySummary(entry, entry.blocks.length ? renderBlocks(entry.blocks, release, entry, site.blockRenderers) : entry.html, (blocks) => renderBlocks(blocks, release, entry, site.blockRenderers));
       if (description !== entry.description) { const updated = {...entry,description}; entries.set(entry.id,updated); release.entries[position]=updated; }
     }

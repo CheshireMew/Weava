@@ -1,4 +1,4 @@
-import { storageUsage, schedules, layouts } from '@weava/core';
+import { storageUsage, schedules, layouts, settingsPublicationState } from '@weava/core';
 import { WeavaError as DomainError } from '@weava/contracts';
 
 import { readJobLog } from '@weava/core';
@@ -25,8 +25,12 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
   return {
     state: async ({}, context) => {
       const { url } = context;
+      const settings = site.settings();
+      const settingsPanel = ['appearance', 'comments'].includes(url.searchParams.get('panel') ?? '');
+      const published = settingsPanel ? site.release() : null;
       return {
-        settings: site.settings(),
+        settings,
+        ...(settingsPanel ? settingsPublicationState(settings.value, site.terms().map(row => row.value), published) : {}),
         ...(url.searchParams.get('panel') === 'appearance' ? { siteInfo: resolveSiteInfo(site) } : {}),
         types: site.store.list('type'),
         contentViews: contentViews(site),

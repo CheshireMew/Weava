@@ -46,7 +46,7 @@ export function AnalyticsTrends({ model }: { model: Pick<AnalyticsView, 'data' |
           ]}
         />
       </Card>
-      <Card title="搜索与 AI 来源趋势">
+      <details className="settings-disclosure"><summary>搜索与 AI 来源趋势</summary><Card title="搜索与 AI 来源趋势">
         <Trend
           dates={dates}
           empty={!data.engines.length}
@@ -80,6 +80,6 @@ export function AnalyticsTrends({ model }: { model: Pick<AnalyticsView, 'data' |
         />
         <p className="analytics-note">按会话首次来源统计；来源被隐藏的访问归入直接 / 未知。</p>
       </Card>
-    </>
+    </details></>
   );
 }

@@ -10,6 +10,14 @@ const { settings, position } = Astro.props;
 const slot = settings.advertisements?.[position];
 ---
 
-{slot?.enabled && slot.html.trim() && (
+{slot?.enabled && (slot.content ? [slot.content.title, slot.content.text, slot.content.image].some(value => value.trim()) && (
+  <aside class="weava-advertisement weava-display-ad" aria-label="广告" data-ad-slot={position}>
+    {slot.content.url ? <a href={slot.content.url} target="_blank" rel="sponsored noopener noreferrer">
+      {slot.content.image && <img src={slot.content.image} alt={slot.content.title} loading="lazy" />}
+      {slot.content.title && <strong>{slot.content.title}</strong>}{slot.content.text && <p>{slot.content.text}</p>}
+    </a> : <>{slot.content.image && <img src={slot.content.image} alt={slot.content.title} loading="lazy" />}{slot.content.title && <strong>{slot.content.title}</strong>}{slot.content.text && <p>{slot.content.text}</p>}</>}
+  </aside>
+) : slot.html.trim() && (
   <aside class="weava-advertisement" aria-label="广告" data-ad-slot={position} set:html={slot.html} />
-)}
+))}
+<style>.weava-display-ad{padding:20px;border:1px solid #ddd;border-radius:8px;text-align:center}.weava-display-ad a{display:block;color:inherit;text-decoration:none}.weava-display-ad img{max-width:100%;height:auto;margin-inline:auto}.weava-display-ad strong{display:block;font-size:1.1em}.weava-display-ad p{margin:8px 0 0;white-space:pre-line}</style>

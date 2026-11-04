@@ -57,8 +57,8 @@ export function AnalyticsReportView({
         <section className="analytics-main" aria-label="统计报表">
           <AnalyticsTrends model={view} />
           <AnalyticsAudience model={view} />
-          <AnalyticsGeography model={view} />
-          <AnalyticsActions model={view} />
+          <details className="settings-disclosure"><summary>地区详情</summary><AnalyticsGeography model={view} /></details>
+          <details className="settings-disclosure"><summary>点击、推广与爬虫详情</summary><AnalyticsActions model={view} /></details>
         </section>
         <AnalyticsSidebar model={view} />
       </div>

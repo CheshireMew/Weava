@@ -22,14 +22,12 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   const searchTerm = useDebouncedValue(q);
   const [groups, setGroups] = useState<any[]>([]), [group, setGroup] = useState('');
   useEffect(() => { if (picker?.type !== 'media') return; let active = true; api('media/groups').then((rows) => { if (active) setGroups(rows); }).catch((error) => setError(error.message)); return () => { active = false; }; }, [picker]);
-  const [presets, setPresets] = useState<any[]>([]), [presetId, setPresetId] = useState('');
-  useEffect(() => { if (picker?.type === 'media') api('media/presets').then(setPresets).catch((error) => setError(error.message)); }, [picker]);
   const fileInput = useRef<HTMLInputElement>(null), pending = useRef<Picker | null>(null);
   useEffect(() => () => { pending.current?.resolve(null); }, []);
   const open = (type: Picker['type'], kind?: string, reference?: ReferenceOptions, initialGroup?: string) => new Promise<any>((resolve) => {
     pending.current?.resolve(null);
     const next = { type, kind, reference, resolve };
-    pending.current = next; setPicker(next); setPresetId(''); setGroup(initialGroup ?? ''); setQ(''); setPage(1); setError(''); setLoading(true);
+    pending.current = next; setPicker(next); setGroup(initialGroup ?? ''); setQ(''); setPage(1); setError(''); setLoading(true);
     setResult({ items: [], total: 0, pages: 0 });
   });
   const finish = (value: any) => { pending.current?.resolve(value); pending.current = null; setPicker(null); };
@@ -62,13 +60,12 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
       <div className="selector-toolbar">
         <input data-autofocus aria-label={picker.type === 'media' ? '搜索媒体' : '查找内容'} placeholder="搜索" value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} />
         {picker.type === 'media' && <select aria-label="选择器媒体分组" value={group} onChange={(event) => { setGroup(event.target.value); setPage(1); }}><option value="">全部分组</option><option value="__ungrouped__">未分组</option>{groups.filter((row) => !row.value.archived).map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
-        {picker.type === 'media' && presets.some((row) => !row.value.archived) && <select aria-label="图片使用规格" value={presetId} onChange={(event) => setPresetId(event.target.value)}><option value="">使用原文件</option>{presets.filter((row) => !row.value.archived).map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select>}
         {picker.type === 'media' && <><button disabled={!!progress} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden accept={picker.kind === 'image' ? 'image/*' : undefined} onChange={(event) => { if (event.target.files?.[0]) void upload(event.target.files[0]); }} /></>}
       </div>
       {error && <p className="error" role="alert">{error}</p>}{progress && <p role="status">{progress}</p>}
       {loading && <p role="status">正在查找…</p>}
       <div className={picker.type === 'media' ? 'selector-media' : 'selector-content'} aria-busy={loading}>
-        {result.items.map((row: any) => <button key={row.id} className="selector-item" disabled={!!progress || loading} onClick={async () => { if (picker.type !== 'media') { finish({ id: row.id, title: row.value.title, path: row.value.path }); return; } try { let url = row.value.url; if (presetId && kindOf(url) === 'image') { const complete = await waitJob(await api('media/variant', { id: row.id, revision: row.revision, presetId }), (job) => setProgress(job.message)); url = complete.result.value.url; } finish({ ...row.value, url, kind: kindOf(url) }); } catch (error: any) { setError(error.message); } finally { setProgress(''); } }}>
+        {result.items.map((row: any) => <button key={row.id} className="selector-item" disabled={!!progress || loading} onClick={async () => { if (picker.type !== 'media') { finish({ id: row.id, title: row.value.title, path: row.value.path }); return; } try { let url = row.value.url; finish({ ...row.value, url, kind: kindOf(url) }); } catch (error: any) { setError(error.message); } finally { setProgress(''); } }}>
           {picker.type === 'media' && kindOf(row.value.url) === 'image' && <img src={row.value.derivatives?.[0]?.url ?? row.value.url} alt="" loading="lazy" width="240" height="160" />}
           <strong>{row.value.name ?? row.value.title}</strong>{picker.type === 'content' && <small>{row.value.path}</small>}
         </button>)}

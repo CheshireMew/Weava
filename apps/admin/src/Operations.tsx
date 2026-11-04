@@ -13,7 +13,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
   refresh: () => any;
   onError: (s: string) => void;
 }) {
-  const [path, setPath] = useState('D:/Tools/weava/backups');
+  const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
   return <div className="panel operations-panel">
@@ -21,8 +21,8 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
     <PanelSections label="备份与维护分类" sections={[
       { id: 'backup', label: '备份', content: <section className="form-card settings-form">
         <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
-        <label>备份保存位置<input value={path} onChange={event => setPath(event.target.value)} /></label>
-        <button className="primary" disabled={!path.trim()} onClick={() => task('backup', { path })}>创建备份</button>
+        <details className="settings-disclosure"><summary>备份保存位置</summary><label>文件夹<input value={path} onChange={event => setPath(event.target.value)} /></label></details>
+        <button className="primary" disabled={!path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
         <details className="settings-disclosure"><summary>检查已有备份</summary>
           <label>备份所在文件夹<input value={verify} onChange={event => setVerify(event.target.value)} /></label>
           <button disabled={!verify.trim()} onClick={() => task('verify', { path: verify })}>检查备份是否完整</button>
@@ -63,10 +63,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
           </>}
         </section>
         <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>
-        <details className="settings-disclosure"><summary>扩展与程序信息</summary>
-          <Suspense fallback={<p>正在载入扩展…</p>}><ExtensionManager rows={state.extensions ?? []} refresh={refresh} /></Suspense>
-          {state.program && <p>程序版本 {state.program.framework} · 数据版本 {state.program.databaseSchema}</p>}
-        </details>
+
       </> },
     ]} />
   </div>;

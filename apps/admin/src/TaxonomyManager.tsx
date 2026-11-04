@@ -15,7 +15,7 @@ export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any
     const saved = await api('terms', { value: { ...record.value, label, slug }, revision: record.revision });
     await refresh();
     return saved;
-  }, '分类与标签');
+  }, '分类与标签', { autosave: { ready: record => !!record.value.label.trim() && !!(record.value.slug.trim() || record.value.label.replace(/[/?#\\\s]+/g, '-')) } });
   useEffect(() => {
     const current = managed.session.record;
     if (current?.revision != null) {
@@ -25,7 +25,7 @@ export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any
   }, [rows]);
   async function save() {
     setBusy(true);
-    try { return await managed.session.save(); }
+    try { return await managed.autoSave.flush(); }
     finally { setBusy(false); }
   }
   async function select(record: TermRecord | null) {
@@ -34,7 +34,7 @@ export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any
     if (record?.revision === null) managed.setRecord(record);
   }
   return {
-    rows, catalog: rows.map(row => row.value), record: managed.record, busy,
+    rows, catalog: rows.map(row => row.value), record: managed.record, busy, autoSave: managed.autoSave,
     save, select,
     update: (patch: Partial<Term>) => managed.setRecord(record => record && ({ ...record, value: { ...record.value, ...patch } })),
     cancel: () => { managed.session.discard(); managed.session.adopt(null); },
@@ -62,7 +62,7 @@ export default function TaxonomyManager({ model, onError }: {
         <option value="">无上级</option>{catalog.filter(term => term.kind === record.value.kind && term.id !== record.id && !descendants(term.id, record.id)).map(term => <option key={term.id} value={term.id}>{termTrail(term, catalog)}</option>)}
       </select></label>
     </details>
-    <div className="taxonomy-edit-actions"><button type="button" disabled={busy} onClick={() => run(() => model.select(null))}>完成</button><button type="button" disabled={busy} onClick={model.cancel}>取消</button></div>
+    <div className="taxonomy-edit-actions"><button type="button" disabled={busy} onClick={() => run(() => model.select(null))}>完成</button>{record.revision === null && <button type="button" disabled={busy} onClick={model.cancel}>取消新建</button>}</div>
   </div>;
   return <section className="form-card taxonomy-settings" aria-label="分类与标签管理">
     <h2>分类与标签</h2>

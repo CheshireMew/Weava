@@ -91,15 +91,6 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     <section className="form-card"><h2>登录会话</h2><button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:'others'});await refresh();notify('其他登录会话已撤销。');})}>退出其他会话</button>
       {account.sessions.map(session=><div className="account-session" key={session.id}><strong>{session.current?'当前会话':'登录会话'} · {session.browser} / {session.os}</strong><p>登录：{time(session.createdAt)}<br/>最近活动：{time(session.lastSeen)}<br/>到期：{time(session.expiresAt)}</p>{!session.current&&<button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:session.id});await refresh();})}>撤销此会话</button>}</div>)}
     </section>
-    <section className="form-card"><h2>后台入口</h2><form onSubmit={event=>{event.preventDefault();act(async()=>{const result=await api('account/admin-path',{...proof,path:adminPath});window.location.assign(result.adminPath+'/?panel=account');});}}>
-      <label>后台地址<input required pattern={'/[a-zA-Z0-9][a-zA-Z0-9_\\-]{2,79}'} value={adminPath} onChange={event=>setAdminPath(event.target.value)}/></label>
-      <p>更改后旧地址返回 404，请保存新地址。忘记时可在本机运行 owner status 查看。后台接口仍要求身份验证。</p>
-      <button disabled={cannotProve||adminPath===account.adminPath}>保存并打开新入口</button>
-    </form></section>
-    <section className="form-card"><h2>外部工具凭据</h2><p>轮换 CLI 令牌后，持有旧令牌的外部工具将立即失去访问权限。本站 CLI 会读取新令牌，其他工具需要重新配置。</p>
-      <label><input type="checkbox" checked={revokeAll} onChange={event=>setRevokeAll(event.target.checked)}/>同时退出全部网页登录</label>
-      <button disabled={cannotProve} onClick={()=>act(async()=>{const result=await api('account/cli-token',{...proof,revokeSessions:revokeAll});if(result.loginRequired){window.location.reload();return;}await refresh();notify('CLI 令牌已轮换。');})}>撤销旧令牌并生成新令牌</button>
-    </section>
     <section className="form-card"><h2>账户记录</h2><button disabled={busy} onClick={()=>act(async()=>{await refresh();})}>刷新记录</button>
       {account.events.length?<ol className="account-events">{account.events.map(event=><li key={event.id}><strong>{eventNames[event.event]??'账户操作'}</strong><span>{time(event.createdAt)} · {event.source==='cli'?'本机终端':'网页'}</span></li>)}</ol>:<p>暂无记录。</p>}
     </section>

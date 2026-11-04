@@ -6,7 +6,7 @@ export interface AutosaveOptions<R extends EditableRecord> {
   ready?: (record: R) => boolean;
   incompleteMessage?: string;
 }
-export type SavePhase = 'saved' | 'pending' | 'saving' | 'error';
+export type SavePhase = 'saved' | 'pending' | 'saving' | 'error' | 'incomplete';
 export interface AutosaveState { phase: SavePhase; error: string; retry: () => Promise<unknown> }
 
 export function useAutosave<R extends EditableRecord>(session: EditSession<R>, options?: boolean | AutosaveOptions<R>) {
@@ -56,7 +56,7 @@ export function useAutosave<R extends EditableRecord>(session: EditSession<R>, o
     clearTimer();
     if (!enabled) return;
     if (!session.dirty) { setState({ phase: 'saved', error: '' }); return; }
-    setState({ phase: 'pending', error: '' });
+    setState({ phase: ready ? 'pending' : 'incomplete', error: ready ? '' : config.incompleteMessage ?? '请补全当前内容。' });
     if (ready && !composing) timer.current = setTimeout(() => { void flushRef.current().catch(() => {}); }, latest.current.delay ?? 800);
     return clearTimer;
   }, [enabled, session, record?.id, record?.value, ready, composing]);

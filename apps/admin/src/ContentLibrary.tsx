@@ -56,7 +56,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
       </div>
       <div className="library-overview">
         <div className="library-status-tabs" role="group" aria-label="内容状态">
-          {Object.entries({ all: '全部', published: '已发布', draft: '草稿', changed: '有未发布修改', archived: '已归档' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}
+          {Object.entries({ all: '全部', published: '已发布', draft: '草稿' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}
         </div>
         <button className="primary library-create" aria-label="新建" title={'新建内容'} onClick={newEntry}>
           <Plus size={18} />新建内容
@@ -74,7 +74,9 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
         </div>
         <div className="library-filters">
           <details className="library-extra-filters"><summary><SlidersHorizontal size={17} aria-hidden="true" />筛选</summary><div className="library-secondary-filters">
-          <select
+          <select aria-label="更多内容状态" value={status} onChange={event => { setStatus(event.target.value); setLibraryPage(1); }}>
+            <option value="all">全部状态</option><option value="published">已发布</option><option value="draft">草稿</option><option value="changed">有未发布修改</option><option value="archived">已归档</option>
+          </select><select
             aria-label="内容可见性"
             value={visibility}
             onChange={(e) => setVisibility(e.target.value)}

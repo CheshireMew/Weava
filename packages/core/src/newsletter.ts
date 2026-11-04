@@ -13,9 +13,9 @@ function create(release:Release){
   const pages=release.entries.filter(item=>item.kind==='page'),counts=new Map<string,Set<string>>();
   for(const post of posts)for(const key of new Set([...(post.termIds?.categories??[]),...post.categories])){const members=counts.get(key)??new Set<string>();members.add(post.id);counts.set(key,members);}
   const paths=new Map<string,string>();for(const page of pages)for(const block of page.blocks)if(block.props.category&&!paths.has(block.props.category))paths.set(block.props.category,page.path);
-  const categories=release.settings.taxonomies.map(category=>({...category,count:new Set([...(counts.get(category.id)??[]),...(counts.get(category.label)??[])]).size,path:paths.get(category.id)??paths.get(category.label)})).filter(item=>item.count&&item.path);
+  const categories=[...new Map([...release.settings.taxonomies,...(release.terms??[]).filter(term=>term.kind==='category')].map(term=>[term.id,term])).values()].map(category=>({...category,count:new Set([...(counts.get(category.id)??[]),...(counts.get(category.label)??[])]).size,path:paths.get(category.id)??paths.get(category.label)??('/search/?category='+encodeURIComponent(category.id))})).filter(item=>item.count&&item.path);
   const archive=pages.find(item=>item.template==='newsletter-archive'||item.fields.newsletterLayout==='archive');
-  return {posts,byId:new Map(posts.map(post=>[post.id,post])),featured:featuredEntries(posts),categories,archiveUrl:archive?.path??'/search/',rankings:new WeakMap<Analytics,{at:number;popular:PublishedEntry[];totals:Map<string,number>}>()};
+  return {posts,byId:new Map(posts.map(post=>[post.id,post])),featured:featuredEntries(posts,release.settings.featuredOrder),categories,archiveUrl:archive?.path??'/search/',rankings:new WeakMap<Analytics,{at:number;popular:PublishedEntry[];totals:Map<string,number>}>()};
 }
 export function newsletterCatalog(release:Release){let value=catalogs.get(release);if(!value){value=create(release);catalogs.set(release,value);}return value;}
 export function newsletterRanking(release:Release,analytics:Analytics,clock=Date.now()){

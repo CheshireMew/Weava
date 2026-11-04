@@ -65,7 +65,7 @@ export function AnalyticsSidebar({
             onSelect={(v) => filter('country', v)}
           />
         </Card>
-        <Card title="浏览器">
+        <details className="settings-disclosure"><summary>设备详情</summary><Card title="浏览器">
           <Distribution rows={data.browsers} onSelect={(v) => filter('browser', v)} />
         </Card>
         <Card title="操作系统">
@@ -81,7 +81,7 @@ export function AnalyticsSidebar({
         <Card title="设备型号">
           <Distribution rows={data.models} onSelect={(v) => filter('model', v)} />
         </Card>
-        <div className="analytics-local-options">
+        </details><div className="analytics-local-options">
           <label>
             <input
               type="checkbox"

@@ -8,12 +8,12 @@ const Editor = lazy(() => import('./Editor.tsx').then(module => ({ default: modu
 
 /** Edit an imported HTML fragment in place, retaining its surrounding markup.
  * The isolated document cannot execute imported scripts or event handlers. */
-export function HtmlPageText({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+export function HtmlPageText({ value, onChange, minHeight = 260 }: { value: string; onChange: (value: string) => void; minHeight?: number }) {
   const frame = useRef<HTMLIFrameElement>(null), current = useRef({ value, onChange });
   current.current = { value, onChange };
   const applied = useRef(value), selectedImage = useRef<HTMLImageElement | null>(null);
   const savedSelection = useRef<Range | null>(null), observer = useRef<ResizeObserver | null>(null);
-  const [height, setHeight] = useState(260), [imageSelected, setImageSelected] = useState(false);
+  const [height, setHeight] = useState(minHeight), [imageSelected, setImageSelected] = useState(false);
   const [initial] = useState(value);
   const selectors = useSelectors();
   const body = () => frame.current?.contentDocument?.getElementById('page-text');
@@ -59,7 +59,7 @@ export function HtmlPageText({ value, onChange }: { value: string; onChange: (va
       }}>{imageSelected ? '更换图片' : '插入图片'}</button>
     </div>
     <iframe ref={frame} title="网页正文编辑器" sandbox="allow-same-origin" style={{ height }}
-      srcDoc={`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>html{font:16px/1.8 system-ui,sans-serif;color:#222;background:#fff}body{margin:0;padding:20px}main{min-height:210px;outline:none;overflow-wrap:anywhere}img,video{max-width:100%;height:auto}a{color:#285e9c}table{max-width:100%}pre{white-space:pre-wrap}</style></head><body><main id="page-text" contenteditable="true" role="textbox" aria-label="网页正文" aria-multiline="true">${initial}</main></body></html>`}
+      srcDoc={`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><style>html{font:16px/1.8 system-ui,sans-serif;color:#222;background:#fff}body{margin:0;padding:20px}main{min-height:${minHeight - 50}px;outline:none;overflow-wrap:anywhere}img,video{max-width:100%;height:auto}a{color:#285e9c}table{max-width:100%}pre{white-space:pre-wrap}</style></head><body><main id="page-text" contenteditable="true" role="textbox" aria-label="网页正文" aria-multiline="true">${initial}</main></body></html>`}
       onLoad={() => {
         const editor = body(), doc = frame.current?.contentDocument;
         if (!editor || !doc) return;
@@ -72,7 +72,7 @@ export function HtmlPageText({ value, onChange }: { value: string; onChange: (va
           selectedImage.current = image; setImageSelected(!!image);
         });
         observer.current?.disconnect();
-        observer.current = new ResizeObserver(() => setHeight(Math.max(260, doc.body.scrollHeight)));
+        observer.current = new ResizeObserver(() => setHeight(Math.max(minHeight, doc.body.scrollHeight)));
         observer.current.observe(doc.body);
       }} />
   </div>;

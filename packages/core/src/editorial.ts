@@ -5,7 +5,6 @@ import { releaseIndex, entryLabels, newestFirst } from './release-index.ts';
 const summaryText = (html: string) => plain(html.replace(/<button\b[^>]*\bdata-copy-code\b[^>]*>.*?<\/button>/gs, ''));
 
 export function entrySummary(entry: Entry, html?: string, renderPrefix?: (blocks: Block[]) => string) {
-  if (entry.summaryMode === undefined || entry.summaryMode === 'manual') return entry.description;
   if (entry.description.trim()) return entry.description;
   if (entry.summaryMode === 'marker') {
     if (entry.blocks.length) {
@@ -62,8 +61,9 @@ export function recommendedEntries(entry: Entry, release: Release, limit = 6) {
   }
   return selected;
 }
-export function featuredEntries(entries: PublishedEntry[]) {
-  return [...entries].sort((a, b) => Number(!!b.editorial?.featured) - Number(!!a.editorial?.featured) || (b.editorial?.weight ?? 0) - (a.editorial?.weight ?? 0) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
+export function featuredEntries(entries: PublishedEntry[], order: string[] = []) {
+  const positions = new Map(order.map((id, index) => [id, index]));
+  return [...entries].sort((a, b) => Number(!!b.editorial?.featured) - Number(!!a.editorial?.featured) || (positions.get(a.id) ?? Infinity) - (positions.get(b.id) ?? Infinity) || (b.editorial?.weight ?? 0) - (a.editorial?.weight ?? 0) || String(b.publishedAt).localeCompare(String(a.publishedAt)) || a.id.localeCompare(b.id));
 }
 export function documentNavigation(entry: Entry, release: Release) {
   if (!entry.documentation) return null;

@@ -5,22 +5,18 @@ import {
   Palette,
   ChartNoAxesCombined,
   Settings2,
-  Shapes,
   ArrowUpRight,
   Search,
   LogOut,
-  Check,
   MessageSquare,
   UserRound,
 } from 'lucide-react';
 
 export const tabs = [
   ['content', '内容', FileText],
-  ['types', '内容类型', Shapes],
   ['media', '媒体', Images],
   ['comments', '评论', MessageSquare],
   ['redirects', '网址别名', ArrowUpRight],
-  ['publication-plans', '批量发布计划', Check],
   ['appearance', '网站设置', Palette],
   ['analytics', '访问统计', ChartNoAxesCombined],
   ['search-tools', '网站检查', Search],
@@ -43,7 +39,7 @@ export function AdminNavigation({
   logout: () => Promise<void>;
 }) {
   const group = (keys: string[]) => keys.map(key => tabs.find(tab => tab[0] === key)!);
-  const tools = group(['types', 'redirects', 'publication-plans', 'search-tools']);
+  const tools = group(['redirects', 'search-tools']);
   const links = (items: (typeof tabs)[number][]) => items.map(([key, label, Icon]) => (
     <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''}
       key={key} onClick={() => navigate(key)}><Icon size={18} />{label}</button>

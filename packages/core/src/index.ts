@@ -20,6 +20,7 @@ export * from './query.ts';
 export * from './exchange.ts';
 export * from './schedules.ts';
 export * from './taxonomy.ts';
+export * from './settings-state.ts';
 export * from './layouts.ts';
 export * from './revisions.ts';
 export * from './wordpress-wxr.ts';

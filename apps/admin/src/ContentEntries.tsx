@@ -1,5 +1,6 @@
 import { FileText } from 'lucide-react';
 import type { ContentWorkspace } from './useContentWorkspace.ts';
+import { EntryStatus } from './EntryStatus.tsx';
 import { EntryActions } from './EntryActions.tsx';
 
 const date = (value: string) => new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -28,7 +29,7 @@ export function ContentEntries({ model, selectable = false }: { model: ContentWo
         {selectable && <label className="publication-selection"><input type="checkbox" disabled={disabled} aria-label={'批量选择 ' + row.value.title} checked={bulkIds.includes(row.id)} onChange={event => { const checked = event.currentTarget.checked; setBulkIds(ids => checked ? [...ids, row.id] : ids.filter(id => id !== row.id)); }} /></label>}
         <button className="publication-open" disabled={disabled} onClick={() => select(row.id)}>
           <span className="publication-cover" aria-hidden="true">{row.value.cover ? <img src={row.value.cover} alt="" loading="lazy" /> : <FileText size={26} strokeWidth={1.4} />}</span>
-          <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>
+          <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>{row.hasChanges && <EntryStatus row={row} />}
             {tab === 'pages' && <span className="publication-page-path">{row.value.path === '/' ? '首页' : row.value.path}</span>}
             <span className="publication-meta">
               {columns.includes('updatedAt') && <time dateTime={row.updatedAt}>更新于 {date(row.updatedAt)}</time>}

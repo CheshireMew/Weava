@@ -2,7 +2,7 @@
   --nl-ink: #292929;
   --nl-muted: #666666;
   --nl-line: #ededed;
-  background: #fff;
+  background: var(--paper, #fff);
   color: var(--nl-ink);
   font-size: 15px;
   line-height: 1.6;
@@ -289,3 +289,5 @@
 @media (prefers-reduced-motion: reduce) {
   .newsletter .nl-card img { transition: none; }
 }
+
+.nl-sidebar-links{display:flex;flex-direction:column;gap:8px}.nl-sidebar-links p{white-space:pre-line}.nl-sidebar-links>a{display:block;padding:10px 12px;border:1px solid var(--line,#e5e5e5);border-radius:6px;text-align:center;text-decoration:none}

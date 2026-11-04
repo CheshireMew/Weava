@@ -126,12 +126,14 @@ export function imageAttributes(site: Site, src: string) {
   const cache=imageCache(site),old=cache.attributes.get(src);if(old)return {...old};
   const id = /^\/media\/([a-f0-9]{24})\.[a-z]+$/i.exec(src)?.[1];
   const record = id ? site.store.get('media', id)?.value : null;
-  if (!Array.isArray(record?.derivatives) || !record.derivatives.length) return { src };
+  const position = record?.focalPoint ? { style: `object-position:${record.focalPoint.x}% ${record.focalPoint.y}%` } : {};
+  if (!Array.isArray(record?.derivatives) || !record.derivatives.length) return { src, ...position };
   const variants = record.derivatives
     .filter((d: any) => d.url && d.width)
     .sort((a: any, b: any) => a.width - b.width);
   if (!variants.length) return { src };
   const result={
+    ...position,
     src: (variants.find((v: any) => v.width >= 960) ?? variants.at(-1)).url,
     srcset: variants.map((v: any) => `${v.url} ${v.width}w`).join(', '),
     sizes: '(max-width: 720px) 100vw, 960px',
@@ -146,9 +148,11 @@ export function responsiveImages(site: Site, html: string) {
   const $ = load(html, null, false);
   $('img[src]').each((_i, el) => {
     const node = $(el);
+    const attributes = imageAttributes(site, node.attr('src')!);
+    if (attributes.style) node.attr('style', [node.attr('style'), attributes.style].filter(Boolean).join(';'));
     if (!node.attr('srcset'))
-      for (const [key, value] of Object.entries(imageAttributes(site, node.attr('src')!)))
-        if (value !== undefined) node.attr(key, String(value));
+      for (const [key, value] of Object.entries(attributes))
+        if (key !== 'style' && value !== undefined) node.attr(key, String(value));
   });
   const result=$.html();return cache.html.set(key,result,result.length*2);
 }

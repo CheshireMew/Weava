@@ -54,16 +54,6 @@ export function EntrySettings({
         </label>
     {record.value.kind === 'content' && <>
             <label>
-              内容类型
-              <select value={record.value.type} onChange={(e) => update({ type: e.target.value })}>
-                {state.types.map((t: any) => (
-                  <option key={t.id} value={t.id}>
-                    {t.value.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
               作者
               <input
                 value={record.value.author}
@@ -137,7 +127,7 @@ export function EntrySettings({
       { id: 'information', label: '文章信息', content: information },
       { id: 'presentation', label: '摘要与展示', content: <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} section="display" /> },
       { id: 'sharing', label: '搜索与分享', content: <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} section="sharing" expanded /> },
-      { id: 'advanced', label: '高级', content: <>{review}<EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} section="documentation" /><SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} section="evidence" /><EntryMoreActions model={model} /></> },
+      { id: 'advanced', label: '更多操作', content: <>{review}<EntryMoreActions model={model} /></> },
     ]} /> : <>
       {review}
         <label>
