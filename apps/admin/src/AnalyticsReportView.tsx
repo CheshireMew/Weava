@@ -23,6 +23,7 @@ export function AnalyticsReportView({ data, model, section = 'overview', onError
   const view = { ...model, data, filter, openVisitor: (id: string) => workspace.openVisitor(id, data), onError };
   return <>
     {section === 'overview' && <>
+      <Card title="搜索与 AI 来源趋势" dateRange><SourcesChart data={data} detail /></Card>
       <div className="analytics-dashboard">
         <ReportCard report="traffic">{(data, query) => <ReportContent report="traffic" data={data} query={query} />}</ReportCard>
         <aside className="analytics-sidebar"><Card title="流量概览">
@@ -36,7 +37,6 @@ export function AnalyticsReportView({ data, model, section = 'overview', onError
       <ReportCard report="pages">{(data, query) => <ReportContent report="pages" data={data} query={query} />}</ReportCard>
     </>}
     {section === 'sources' && <div className="analytics-main">
-      <Card title="搜索与 AI 来源趋势" dateRange><SourcesChart data={data} detail /></Card>
       <Card title="访问来源" dateRange><ReportContent report="sources" data={data} query={query} detail tableOnly /></Card>
       <div className="analytics-geography-grid"><AnalyticsGeography model={view} /><Card title="国家 / 地区" dateRange><ReportContent report="countries" data={data} query={query} /></Card></div>
     </div>}

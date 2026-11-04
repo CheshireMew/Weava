@@ -46,14 +46,14 @@ const selected = () => host.querySelector('[role="tab"][aria-selected="true"]')!
 it('keeps the native report groups and avoids loading every report into the overview', async () => {
   await render();
   expect([...host.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['概览', '来源', '访客', '设备', '行为']);
-  expect([...host.querySelectorAll('h2')].map(node => node.textContent)).toEqual(['流量趋势', '流量概览', '页面排行']);
+  expect([...host.querySelectorAll('h2')].map(node => node.textContent)).toEqual(['搜索与 AI 来源趋势', '流量趋势', '流量概览', '页面排行']);
   expect(host.querySelector('[role="tablist"]')!.classList.contains('library-status-tabs')).toBe(true);
   expect(host.querySelector('.panel-title .analytics-date-menu')).toBeNull();
   expect(host.querySelector('.analytics-toolbar')).toBeNull();
   expect(host.querySelector('.analytics-metrics')).toBeNull();
   expect(host.querySelector('section[aria-label="流量趋势"] footer .analytics-date-menu')).not.toBeNull();
   expect(host.querySelector('input[type="date"]')).toBeNull();
-  await tab('来源'); expect(host.textContent).toContain('搜索与 AI 来源趋势'); expect(host.textContent).toContain('全球访客分布');
+  await tab('来源'); expect(host.textContent).not.toContain('搜索与 AI 来源趋势'); expect(host.textContent).toContain('全球访客分布');
   await tab('设备'); expect(host.querySelectorAll('.analytics-section-grid > section')).toHaveLength(4);
   await tab('访客'); expect(host.textContent).toContain('最新访客'); expect(host.textContent).toContain('当前在线');
   await tab('行为'); expect(host.textContent).toContain('爬虫请求');

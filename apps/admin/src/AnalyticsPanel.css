@@ -37,6 +37,7 @@
 .analytics-error-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .analytics-card-footer > a:hover { color:var(--accent); }
 .analytics-dashboard + .analytics-card { margin-top:24px; }
+.analytics-card + .analytics-dashboard { margin-top:24px; }
 .analytics-loading { padding:24px 0; color:var(--ink-muted); }
 .analytics-card-error,.analytics-error { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--error-ink); background:var(--error-surface); padding:12px 14px; font-size:13px; border-radius:6px; }
 .analytics-card-error button,.analytics-error button { border:0; padding:4px 6px; min-height:28px; background:transparent; color:inherit; font-size:13px; }
