@@ -83,7 +83,8 @@ export async function publicApi(
   }
 
   if (route === 'v1/analytics' && method === 'POST') {
-    if (request.headers.get('dnt') === '1') return json({ accepted: 0 });
+    if (request.headers.get('dnt') === '1' || cookies.get('weava-exclude')?.value === '1' ||
+      site.authenticate(cookies.get('weava-session')?.value ?? '')) return json({ accepted: 0 });
     const ip = identity.network;
     return json(
       analytics.collect(

@@ -13,13 +13,14 @@ let root:Root,host:HTMLDivElement;
 const account={username:'owner',displayName:'站主',adminPath:'/admin',twoFactorEnabled:false,recoveryCodesRemaining:0,events:[],sessions:[]};
 const setError=vi.fn(),notify=vi.fn();
 beforeEach(()=>{
+  localStorage.clear();
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
   host=document.createElement('div');document.body.append(host);root=createRoot(host);
   mocks.api.mockReset();mocks.qr.mockReset();setError.mockClear();notify.mockClear();
   mocks.qr.mockResolvedValue('data:image/png;base64,qr');
   mocks.api.mockImplementation(async(path:string)=>path==='account'?structuredClone(account):{});
 });
-afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreAllMocks();vi.useRealTimers();});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();localStorage.clear();vi.restoreAllMocks();vi.useRealTimers();});
 async function renderAccount(){await act(async()=>root.render(<AccountPanel setError={setError} notify={notify} sessionGeneration={0}/>));}
 function input(label:string){const found=[...host.querySelectorAll('label')].find(node=>node.textContent?.startsWith(label));expect(found,label).toBeDefined();return found!.control as HTMLInputElement;}
 async function fill(label:string,value:string){await act(async()=>{const field=input(label);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(field,value);field.dispatchEvent(new Event('input',{bubbles:true}));});}
@@ -70,4 +71,16 @@ it('opens recovery instructions in a dialog without submitting or changing login
   expect(host.querySelector('dialog[open]')?.textContent).toContain('owner reset-link');
   await click('关闭'); expect(host.querySelector('dialog')).toBeNull();
   expect(mocks.api).toHaveBeenCalledTimes(1); expect(mocks.api).toHaveBeenCalledWith('session');
+});
+
+it('automatically excludes a restored owner browser and keeps the preference after logout', async () => {
+  const session = { authenticated: true, initialized: true, version: 'test' };
+  mocks.api.mockResolvedValue(session);
+  localStorage.setItem('weava-exclude', '0');
+  let model: ReturnType<typeof useAdminSession>;
+  function Screen() { model = useAdminSession(setError); return null; }
+  await act(async () => root.render(<Screen />));
+  expect(localStorage.getItem('weava-exclude')).toBe('1');
+  await act(async () => model.setSession({ ...session, authenticated: false }));
+  expect(localStorage.getItem('weava-exclude')).toBe('1');
 });

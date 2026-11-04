@@ -22,6 +22,10 @@ export function useAdminSession(setError: (message: string) => void) {
       .catch((error) => setError(error.message));
   }, []);
   useEffect(() => {
+    if (!session?.authenticated) return;
+    try { localStorage.setItem('weava-exclude', '1'); } catch {}
+  }, [session?.authenticated]);
+  useEffect(() => {
     const expire = () => {
       setSessionExpired(true);
       if (!reauthLater.current) setReauth(true);

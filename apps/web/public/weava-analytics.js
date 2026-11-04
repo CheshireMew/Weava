@@ -13,12 +13,15 @@
   const persistent = storage('localStorage'),
     local = storage('sessionStorage');
   const params = new URLSearchParams(location.search);
-  if (
+  const excluded = () =>
     navigator.doNotTrack === '1' ||
     persistent?.getItem('weava-exclude') === '1' ||
-    params.get('analytics') === 'off'
-  )
+    /(?:^|;\s*)weava-exclude=1(?:;|$)/.test(document.cookie) ||
+    params.get('analytics') === 'off';
+  if (excluded()) {
+    try { local?.removeItem('weava-events-v2'); } catch {}
     return;
+  }
   if (window.__weavaAnalytics) return;
   window.__weavaAnalytics = true;
   const path = location.pathname,
@@ -84,6 +87,7 @@
     return items;
   }
   async function send() {
+    if (excluded()) { queue = []; save(); return; }
     if (sending || !queue.length) return;
     sending = true;
     const items = batch();
@@ -108,6 +112,7 @@
     if (queue.length && acknowledged) setTimeout(send, 100);
   }
   function add(kind, extra = {}, transmit = true) {
+    if (excluded()) return '';
     const event = {
       id: uuid(),
       ts: new Date().toISOString(),
@@ -134,7 +139,7 @@
     return event.id;
   }
   function view() {
-    if (document.visibilityState !== 'visible') return;
+    if (excluded() || document.visibilityState !== 'visible') return;
     const current = sessionForPage();
     if (!viewed || current !== session) {
       session = current;
@@ -152,7 +157,7 @@
     wasVisible = document.visibilityState === 'visible';
   }
   function pulse(closed = false, beacon = false) {
-    if (!viewed) return;
+    if (excluded() || !viewed) return;
     measure();
     const height = Math.max(1, document.documentElement.scrollHeight);
     maxScroll = Math.max(

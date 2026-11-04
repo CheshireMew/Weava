@@ -509,14 +509,14 @@ try {
   const download = await downloadPromise;
   await download.saveAs(join(output, 'pages.csv'));
   assert(readFileSync(join(output, 'pages.csv'), 'utf8').includes('views'));
-  await dashboard.getByLabel('排除本机后续访问').check();
+  assert.equal(await dashboard.getByLabel('排除本机后续访问').count(), 0);
+  assert((await admin.cookies()).some(cookie => cookie.name === 'weava-exclude' && cookie.value === '1'));
   const excludedBefore = (await report()).views,
     excludedPage = await admin.newPage();
   await excludedPage.goto(url + '/');
   await excludedPage.waitForLoadState('networkidle');
   assert.equal((await report()).views, excludedBefore);
   await excludedPage.close();
-  await dashboard.getByLabel('排除本机后续访问').uncheck();
   checks.localExclusion = true;
   const cli = (args: string[]) => {
     const result = spawnSync(

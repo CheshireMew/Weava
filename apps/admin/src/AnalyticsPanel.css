@@ -130,8 +130,6 @@
 .analytics-detail .analytics-table .column-source { width:150px; }
 .analytics-detail .analytics-table .column-entryPath,.analytics-detail .analytics-table .column-exitPath { max-width:240px; }
 .analytics-detail > .analytics-card > .analytics-trend + .analytics-table-scroll { margin-top:10px; }
-.analytics-comparison { color:var(--ink-muted); font-size:11px; margin:14px 0; }
-.analytics-comparison span { margin-left:14px; }
 .analytics-note { color:var(--ink-muted); font-size:11px; line-height:1.7; margin:14px 0 0; }
 .analytics-url { display:block; max-width:240px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .analytics-panel .analytics-text-button,.analytics-visitor-dialog .analytics-text-button { padding:0; min-height:24px; border:0; background:transparent; color:var(--analytics-link,#5964b7); font-size:11px; white-space:nowrap; }
@@ -140,9 +138,6 @@
 .analytics-pagination { display:flex; align-items:center; justify-content:flex-end; gap:8px; padding:12px 0 0; font-size:12px; color:var(--ink-muted); }
 .analytics-pagination span { margin-right:auto; }
 .analytics-pagination button { min-height:28px; padding:3px 6px; }
-.analytics-local-options { color:var(--ink-muted); font-size:11px; padding:4px 5px; }
-.analytics-local-options label { display:flex; flex-direction:row; align-items:center; gap:7px; margin:0; }
-.analytics-local-options input { width:14px; height:14px; accent-color:var(--analytics-link); }
 .analytics-map { max-width:900px; margin:4px auto 0; }
 .analytics-map svg { display:block; width:100%; }
 .analytics-map [role='button'] { cursor:pointer; }
@@ -189,7 +184,6 @@
   .analytics-legend { gap:10px 20px; }
   .analytics-chart-heading { gap:10px; }
   .analytics-card-content .analytics-preview-table { min-width:510px; }
-  .analytics-comparison span { display:block; margin:5px 0 0; }
 }
 
 .analytics-main .analytics-table:has(.column-id) { min-width:850px; }

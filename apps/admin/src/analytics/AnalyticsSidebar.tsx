@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 import { Card } from './Card.tsx';
 
 import { Distribution } from './Distribution.tsx';
@@ -13,14 +11,7 @@ export function AnalyticsSidebar({
   section?: 'overview' | 'countries' | 'devices';
   model: Pick<AnalyticsView, 'data' | 'filters' | 'filter' | 'onError'>;
 }) {
-  const { data, filters, filter, onError } = model;
-  const [excluded, setExcluded] = useState(() => {
-    try {
-      return localStorage.getItem('weava-exclude') === '1';
-    } catch {
-      return false;
-    }
-  });
+  const { data, filters, filter } = model;
   return (
     <>
       {' '}
@@ -83,25 +74,6 @@ export function AnalyticsSidebar({
           <Distribution rows={data.models} onSelect={(v) => filter('model', v)} />
         </Card>
         </>}
-        {section === 'overview' && <div className="analytics-local-options">
-          <label>
-            <input
-              type="checkbox"
-              checked={excluded}
-              onChange={(e) => {
-                const next = e.target.checked;
-                try {
-                  localStorage.setItem('weava-exclude', next ? '1' : '0');
-                  setExcluded(next);
-                } catch {
-                  onError('浏览器不允许保存排除设置。');
-                }
-              }}
-            />
-            排除本机后续访问
-          </label>
-          <p>清除浏览器数据或换设备后会识别为新访客。</p>
-        </div>}
       </aside>
     </>
   );

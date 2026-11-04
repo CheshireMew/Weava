@@ -1,14 +1,19 @@
 import { VERSION as frameworkVersion } from '@weava/contracts';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
+import type { ApiServices, AdminHandlers, AdminContext } from './types.ts';
 import { authorized } from './transport.ts';
 export function sessionHandlers(services: Pick<ApiServices, 'site'>) {
   const { site } = services;
+  const excludeOwnVisits = (context: AdminContext) => context.cookies.set('weava-exclude', '1', {
+    path: '/', sameSite: 'lax', secure: context.identity.secure, maxAge: 31536000,
+  });
 
   return {
     session: async ({}, context) => {
+      const authenticated = authorized(services, context);
+      if (authenticated) excludeOwnVisits(context);
       return {
-        authenticated: authorized(services, context),
+        authenticated,
         initialized: site.ownerExists(),
         version: frameworkVersion,
         accountLinks:true as const,
@@ -25,6 +30,7 @@ export function sessionHandlers(services: Pick<ApiServices, 'site'>) {
         secure: identity.secure,
         maxAge: 604800,
       });
+      excludeOwnVisits(context);
       return { authenticated: true };
     },
     logout: async ({}, context) => {

@@ -51,6 +51,8 @@ it('keeps the native report groups and avoids loading every report into the over
   expect(host.querySelector('.panel-title .analytics-date-menu')).toBeNull();
   expect(host.querySelector('.analytics-toolbar')).toBeNull();
   expect(host.querySelector('.analytics-metrics')).toBeNull();
+  expect(host.querySelector('.analytics-local-options')).toBeNull();
+  expect(host.querySelector('.analytics-comparison')).toBeNull();
   expect(host.querySelector('section[aria-label="流量趋势"] footer .analytics-date-menu')).not.toBeNull();
   expect(host.querySelector('input[type="date"]')).toBeNull();
   await tab('来源'); expect(host.textContent).not.toContain('搜索与 AI 来源趋势'); expect(host.textContent).toContain('全球访客分布');

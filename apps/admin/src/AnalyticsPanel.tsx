@@ -53,7 +53,6 @@ function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Loc
             <div className="analytics-report-heading"><a href={reportUrl(null, appliedQuery, route.section)} onClick={event => internalClick(event, () => navigate(null, appliedQuery, route.section))}><ArrowLeft size={14} />返回{sections.find(([key]) => key === route.section)?.[1]}</a></div>
             <AnalyticsExportContext.Provider value={route.report === 'actions' ? appliedQuery : null}><AnalyticsDetail report={route.report} query={appliedQuery} model={model} onError={onError} /></AnalyticsExportContext.Provider>
           </> : <AnalyticsReportView data={data} model={model} section={route.section} onError={onError} />}
-          <p className="analytics-comparison">{data.range.start} — {data.range.end}<span>对比 {data.range.previousStart} — {data.range.previousEnd} · {data.range.timezone}</span></p>
         </AnalyticsExportContext.Provider>
         {visitor && <VisitorDetails key={visitor.id} visitor={visitor.id} setVisitor={() => setVisitor(null)} data={visitor.data} />}
       </ReportWorkspace.Provider>}

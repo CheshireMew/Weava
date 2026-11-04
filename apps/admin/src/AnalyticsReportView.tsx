@@ -17,7 +17,6 @@ export function Delta({ now, before }: { now: number; before: number }) {
 }
 export function AnalyticsReportView({ data, model, section = 'overview', onError }: { data: AnalyticsReport; model: AnalyticsController; section?: AnalyticsSection; onError: (message: string) => void }) {
   const workspace = useContext(ReportWorkspace)!, query = workspace.query;
-  const [excluded, setExcluded] = useState(() => localStorage.getItem('weava-exclude') === '1');
   const [visitorOrder, setVisitorOrder] = useState<'visitors' | 'active'>('visitors');
   const filter = (key: string, value: string) => { const p = new URLSearchParams(query); if (value) p.set(key, value); else p.delete(key); workspace.navigate(key === 'country' ? 'countries' : 'devices', p.toString()); };
   const view = { ...model, data, filter, openVisitor: (id: string) => workspace.openVisitor(id, data), onError };
@@ -46,8 +45,5 @@ export function AnalyticsReportView({ data, model, section = 'overview', onError
     </div>}
     {section === 'devices' && <div className="analytics-section-grid">{(['browsers', 'os', 'devices', 'models'] as const).map(report => <ReportCard key={report} report={report}>{(data, query) => <ReportContent report={report} data={data} query={query} />}</ReportCard>)}</div>}
     {section === 'actions' && <div className="analytics-main"><AnalyticsActions model={view} /></div>}
-    <div className="analytics-local-options"><label><input type="checkbox" checked={excluded} onChange={event => {
-      try { localStorage.setItem('weava-exclude', event.target.checked ? '1' : '0'); setExcluded(event.target.checked); } catch { onError('浏览器不允许保存排除设置。'); }
-    }} />排除本机后续访问</label></div>
   </>;
 }
