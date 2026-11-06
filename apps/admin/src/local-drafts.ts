@@ -53,6 +53,17 @@ export function localDrafts(id: string, storage: DraftStorage = localStorage): L
   }
   return copies;
 }
+/** Enumerate legacy recovery once; reading never migrates or rewrites storage. */
+export function allLocalDrafts(storage:DraftStorage=localStorage):LocalDraft[]{
+  const groups=new Map(Object.entries(read(storage).entries));
+  for(const name of sessionKeys(storage)){const copy=JSON.parse(storage.getItem(name)!);if(copy.record?.id)groups.set(copy.record.id,[...(groups.get(copy.record.id)??[]),copy]);}
+  for(let index=0;index<(storage.length??0);index++){
+    const name=storage.key?.(index);if(!name?.startsWith('weava-draft:'))continue;
+    const id=name.slice('weava-draft:'.length),record=JSON.parse(storage.getItem(name)!);
+    if(!groups.get(id)?.length&&record?.id===id&&record?.value)groups.set(id,[{id:'legacy',capturedAt:0,updatedAt:0,record}]);
+  }
+  return [...groups.values()].flatMap(latestPendingDraft);
+}
 export function saveLocalDraft(record: Revision<Entry>, storage: DraftStorage = localStorage, clock = Date.now(),sessionId='legacy') {
   if(sessionId!=='legacy'){
     const name=sessionKey(record.id,sessionId),value=JSON.stringify({id:record.id,sessionId,capturedAt:clock,updatedAt:clock,pending:true,record});

@@ -16,7 +16,8 @@ import {layouts,builtInLayouts,validateLayouts,visitBlocks} from './layouts.ts';
 import type {Layout} from '@weava/contracts';
 import {validateSeo} from './seo.ts';
 import {publicationModifiedAt} from './source-content.ts';
-import {immutableDigest,validatedReferences} from './publication-validation.ts';
+import {immutableDigest,validatedReferences,validationSnapshot,restoreValidation,validationRuntimeIdentity} from './publication-validation.ts';
+import {publishedHasBlocks,publishedObjectKey} from './release-reader.ts';
 import {invalidateReleaseIndex} from './release-index.ts';
 import {applySiteInfo} from './site-info.ts';
 import {siteRoutes} from './site-routes.ts';
@@ -114,13 +115,14 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   for (const entry of entries.values()) {
     if (paths.has(entry.path)) throw new WeavaError('网址重复：' + entry.path);
     paths.set(entry.path, entry.id);
-    entrySchema.parse(entry);
+    if(!publishedObjectKey(entry))entrySchema.parse(entry);
     validateSeo(entry, settings.domain);
-    site.validateBlocks(entry.blocks, true);
+    const entryBlocks=publishedHasBlocks(entry)?entry.blocks:[];
+    site.validateBlocks(entryBlocks, true);
     const definition = types.find((type) => type.id === entry.type);
     if (entry.kind === 'content' && !definition) throw new WeavaError('内容类型不存在：' + entry.type);
     if (definition) validateFields(effectiveFields(definition.fields, site.fieldWidgets), entry.fields);
-    if(entry.kind==='content'&&definition) { const blocked=contentBlockIssues(entry.blocks,definition); if(blocked.length)throw new WeavaError(blocked.map((issue)=>issue.message).join('；'),400,blocked); }
+    if(entry.kind==='content'&&definition) { const blocked=contentBlockIssues(entryBlocks,definition); if(blocked.length)throw new WeavaError(blocked.map((issue)=>issue.message).join('；'),400,blocked); }
   }
   for (const old of previous?.entries ?? []) {
     const changed = entries.get(old.id);
@@ -159,7 +161,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
   };
   for (const entry of release.entries) {
     include(entry.template ?? (entry.kind === 'content' ? types.find((type) => type.id === entry.type)?.template ?? 'article' : 'page'));
-    visitBlocks(entry.blocks, (block) => { if (block.type === 'shared') include(block.props.layoutId); });
+    if(publishedHasBlocks(entry))visitBlocks(entry.blocks, (block) => { if (block.type === 'shared') include(block.props.layoutId); });
   }
   for (const id of Object.values(settings.regions ?? {})) if (id) include(id);
   release.layouts = [...catalog.values()];
@@ -188,7 +190,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
     const alias = redirects[path];
     return !!alias && (!alias.entryId || entries.has(alias.entryId)) && validPath(alias.target, seen);
   };
-  const validationEnvironment = digest([settings, types, release.layouts, release.terms, Object.entries(site.blockRenderers).map(([key, render]) => [key,String(render)])]);
+  const validationEnvironment = digest([validationRuntimeIdentity,settings, types, release.layouts, release.terms, Object.entries(site.blockRenderers).map(([key, render]) => [key,String(render)])]);
   const mediaExists = new Map<string, boolean>();
   for (const entry of entries.values()) {
     const definition = types.find((type) => type.id === entry.type);
@@ -208,7 +210,7 @@ export function preparePublication(site: PublicationSite, options: PublishOption
         missing.push({ id: entry.id, blockId: block.id, reference: block.props.entryId });
       blocks(block.children ?? []);
     });
-    blocks(entry.blocks);
+    if(publishedHasBlocks(entry))blocks(entry.blocks);
   }
   if (missing.length) throw new WeavaError('内容或媒体引用无效。', 400, missing.slice(0, 30));
   try { resolveContentLinks(renderNavigation(settings.navigation), release, true); }
@@ -252,6 +254,7 @@ export function savePublicationReview(site: PublicationSite, options: PublishOpt
   const base=new Map(site.release()?.entries.map(entry=>[entry.id,entry])??[]);
   const {entries,...release}=prepared.release;
   const payload={release,entries:entries.map(entry=>base.get(entry.id)===entry||base.has(entry.id)&&immutableDigest(base.get(entry.id)!)===immutableDigest(entry)?entry.id:entry),changes:prepared.changes,
+    validations:entries.filter(entry=>base.get(entry.id)!==entry).map(entry=>({id:entry.id,value:validationSnapshot(entry)})).filter(item=>!!item.value),
     reviewRevision:prepared.reviewRevision,optionsKey:candidateOptions(reviewed),runtimeKey:publicationRuntimeKey(site)};
   const data=JSON.stringify(payload);
   site.store.raw.transaction(()=>{
@@ -271,6 +274,7 @@ export function readPublicationCandidate(site: PublicationSite, options: Publish
   const base=new Map(site.release()?.entries.map(entry=>[entry.id,entry])??[]);
   const prepared:PreparedPublication={release:{...data.release,entries:data.entries.map((entry:any)=>typeof entry==='string'?base.get(entry):entry)},changes:data.changes,reviewRevision:data.reviewRevision};
   assertPublicationCurrent(site,prepared);
+  for(const item of data.validations??[]){const entry=prepared.release.entries.find(entry=>entry.id===item.id);if(entry)restoreValidation(entry,item.value);}
   if(prepared.release.entries.some(entry=>!entry))throw new WeavaError('候选内容已不可用，请重新查看发布内容。',409);
   // Application validators can depend on external state and must not be skipped by caching.
   for(const validate of site.publicationValidators)validate(prepared.release);

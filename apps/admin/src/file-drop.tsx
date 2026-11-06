@@ -24,11 +24,12 @@ interface FailedUpload { file: File; insert: Insert; prepare?: () => Promise<unk
 const extensions = /\.(png|jpe?g|webp|gif|avif|pdf|txt|csv|vtt|srt|mp3|mp4|webm)$/i;
 const images = /\.(png|jpe?g|webp|gif|avif)$/i;
 export function useFileUploads(imagesOnly = true) {
-  const [progress, setProgress] = useState(''), [failed, setFailed] = useState<FailedUpload[]>([]);
+  const [progress, setProgress] = useState(''), [failed, setFailed] = useState<FailedUpload[]>([]), [busy, setBusy] = useState(false);
   const active = useRef<Promise<void> | null>(null), failure = useRef<Promise<void> | null>(null), mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   usePendingEditWork(() => active.current ?? failure.current);
   const run = (items: FailedUpload[]) => {
+    if (mounted.current) setBusy(true);
     const previous = active.current;
     const task = (previous ?? Promise.resolve()).catch(() => {}).then(async () => {
       let batchFailed = false;
@@ -51,11 +52,11 @@ export function useFileUploads(imagesOnly = true) {
       }
       if (batchFailed) await failure.current;
     }).finally(() => {
-      if (active.current === task) { active.current = null; if (mounted.current) setProgress(''); }
+      if (active.current === task) { active.current = null; if (mounted.current) { setProgress(''); setBusy(false); } }
     });
     active.current = task; void task.catch(() => {});
   };
-  return { progress, failed, busy: !!active.current,
+  return { progress, failed, busy,
     upload: (files: File[], insert: Insert, prepare?: () => Promise<unknown>) => { if (files.length) run(files.map(file => ({ file, insert, prepare, error: '' }))); },
     retry: () => { const items = failed; failure.current = null; setFailed([]); if (items.length) run(items); },
     ignore: () => { failure.current = null; setFailed([]); },

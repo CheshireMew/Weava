@@ -2,6 +2,7 @@ import {Plus,Search} from 'lucide-react';
 import type {ContentLibraryModel} from './content-models.ts';
 import {EntryActions} from './EntryActions.tsx';
 import {isNoteType} from '@weava/contracts';
+import {EntryStatus} from './EntryStatus.tsx';
 
 export function NotesLibrary({model}:{model:Pick<ContentLibraryModel,'items'|'library'|'libraryLoading'|'filter'|'setFilter'|'select'|'newEntry'|'libraryPage'|'setLibraryPage'|'pendingDrafts'|'record'|'state'|'busy'|'actions'>}){
  const {items,library,libraryLoading,filter,setFilter,select,newEntry,libraryPage,setLibraryPage}=model;
@@ -14,7 +15,7 @@ export function NotesLibrary({model}:{model:Pick<ContentLibraryModel,'items'|'li
    {libraryLoading&&!items.length&&<p className="library-status" role="status">正在载入笔记…</p>}
    {!libraryLoading&&!items.length&&<p className="library-status">{filter?'没有找到笔记。':'随手记点什么吧。'}</p>}
    {items.map((row:any)=><article className="notes-list-item" key={row.id}>
-    <button className="notes-list-open" onClick={()=>select(row.id)}><span>{row.value.title==='未命名笔记'?'继续写笔记…':row.value.title}</span><time dateTime={row.value.publishedAt||row.updatedAt}>{new Date(row.value.publishedAt||row.updatedAt).toLocaleString('zh-CN',{dateStyle:'medium',timeStyle:'short'})}</time></button>
+    <button className="notes-list-open" onClick={()=>select(row.id)}><span>{row.value.title==='未命名笔记'?'继续写笔记…':row.value.title}</span><div className="notes-list-meta"><time dateTime={row.value.publishedAt||row.updatedAt}>{new Date(row.value.publishedAt||row.updatedAt).toLocaleString('zh-CN',{dateStyle:'medium',timeStyle:'short'})}</time><EntryStatus row={row}/>{row.value.visibility==='private'&&<span>私密</span>}</div></button>
     <EntryActions row={row} model={model.actions} disabled={libraryLoading||model.busy}/>
    </article>)}
   </div>

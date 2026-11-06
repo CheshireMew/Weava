@@ -3,7 +3,8 @@ import { entrySchema } from '@weava/contracts';
 import { DraftRepository,type DraftDatabase,type DraftRow,type DraftMeta,type DraftChange } from '../apps/admin/src/draft-repository.ts';
 class Database implements DraftDatabase{
   rows=new Map<string,DraftRow>();fail=false;writes:string[]=[];
-  async list(){return [...this.rows.values()].map(({copies,...metadata})=>metadata);}
+  async read(id:string){return structuredClone(this.rows.get(id));}
+  async readAll(){return structuredClone([...this.rows.values()]);}
   async transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange){
     const row=structuredClone(this.rows.get(id)),meta=[...this.rows.values()].map(({copies,...item})=>item),result=change(row,meta);
     if(this.fail)throw new Error('quota');
@@ -13,6 +14,14 @@ class Database implements DraftDatabase{
   }
 }
 const record=(id:string,title:string)=>({id,revision:1,updatedAt:'',value:entrySchema.parse({id,title,kind:'page',path:'/'+id+'/'})});
+it('enumerates forty unchanged drafts with one readonly batch and no writes',async()=>{
+  const db=new Database(),repository=new DraftRepository(db);
+  for(let index=0;index<40;index++)await repository.save(record('draft-'+index,'正文'),index+1);
+  const written=db.writes.length;let reads=0;
+  const all=db.readAll.bind(db);db.readAll=async()=>{reads++;return all();};
+  expect(await repository.list()).toHaveLength(40);expect(reads).toBe(1);expect(db.writes).toHaveLength(written);
+  await repository.read('draft-0');expect(db.writes).toHaveLength(written);
+});
 it('keeps independent window copies, enumerates local-only records and acknowledges only the matching session',async()=>{
   const db=new Database(),one=new DraftRepository(db,undefined,'window-one'),two=new DraftRepository(db,undefined,'window-two');
   const draft={...record('note','first window'),revision:0};

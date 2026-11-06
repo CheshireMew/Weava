@@ -4,6 +4,7 @@ import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
 import { PanelSections } from './PanelSections.tsx';
 import { operationLabels, jobStatusLabels } from './admin-labels.ts';
+import {RollbackDialog} from './RollbackDialog.tsx';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
 const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
@@ -18,6 +19,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
   const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
   const [dialog, setDialog] = useState<'location' | 'verify' | null>(null), [nextPath, setNextPath] = useState('');
+  const [rollbackId,setRollbackId]=useState<string|null>(null);
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
   const contentEnabled = !state.features || state.features.includes('content');
   return <div className="panel operations-panel">
@@ -39,10 +41,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
           {!state.releases.length && <p className="muted">网站尚未发布。</p>}
           <div className="release-list">{state.releases.slice(0, 20).map((release: any) => <div key={release.id}>
             <time>{new Date(release.created_at).toLocaleString()}</time>
-            <button onClick={async () => {
-              try { await api('rollback', { id: release.id }); await refresh(); }
-              catch (error: any) { onError(error.message); }
-            }}>恢复这个公开版本</button>
+            <button onClick={()=>setRollbackId(release.id)}>恢复这个公开版本</button>
           </div>)}</div>
         </section>
       </> }] : []),
@@ -67,6 +66,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
 
       </> },
     ]} />
+    {rollbackId&&<RollbackDialog id={rollbackId} onClose={()=>setRollbackId(null)} onRestored={refresh} onError={onError}/>}
     {dialog && <Dialog label={dialog === 'location' ? '更改备份位置' : '检查已有备份'} onClose={() => setDialog(null)}>
       <div className="modal-title"><h2>{dialog === 'location' ? '更改备份位置' : '检查已有备份'}</h2><button onClick={() => setDialog(null)}>关闭</button></div>
       <form onSubmit={event => {

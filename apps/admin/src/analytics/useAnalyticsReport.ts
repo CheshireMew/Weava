@@ -6,7 +6,8 @@ import { useAdminQuery } from '../useAdminQuery.ts';
 
 import { shift, today } from './format.ts';
 import { watchVisible } from './polling.ts';
-export function useAnalyticsReport(initialQuery = '', realtime = true) {
+import type {AnalyticsSection} from './report-navigation.ts';
+export function useAnalyticsReport(initialQuery = '', realtime = true,section:AnalyticsSection|'all'='all') {
   const initial = new URLSearchParams(initialQuery);
   const [live, setLive] = useState<AnalyticsRealtime | null>(null),
     [geo, setGeo] = useState<GeoStatus | null>(null);
@@ -20,7 +21,9 @@ export function useAnalyticsReport(initialQuery = '', realtime = true) {
   const [liveError, setLiveError] = useState(''),
     [geoError, setGeoError] = useState('');
   const retryLive = useRef<() => void>(() => {});
-  const report = useAdminQuery<AnalyticsReport>(`analytics?${applied}`, 15000);
+  const requestQuery=new URLSearchParams(applied);
+  if(section!=='all')requestQuery.set('section',section);
+  const report = useAdminQuery<AnalyticsReport>(`analytics?${requestQuery}`, 15000);
   const data = report.data ?? null, loading = report.loading, error = report.error, loadedQuery = data ? applied : '';
   const query = (changes: Record<string, string> = {}) =>
     new URLSearchParams({

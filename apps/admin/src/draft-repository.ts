@@ -1,10 +1,10 @@
 import type { Entry,Revision } from '@weava/contracts';
-import { localDrafts,localDraftIds,acknowledgeLocalDrafts,latestPendingDraft,matchesDraft,type LocalDraft } from './local-drafts.ts';
+import { localDrafts,allLocalDrafts,acknowledgeLocalDrafts,latestPendingDraft,matchesDraft,type LocalDraft } from './local-drafts.ts';
 
 export interface DraftRow {id:string;copies:LocalDraft[];bytes:number;updatedAt:number}
 export type DraftMeta=Omit<DraftRow,'copies'>;
 export interface DraftChange {row?:DraftRow;remove?:string[]}
-export interface DraftDatabase {list():Promise<DraftMeta[]>;transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange):Promise<LocalDraft[]>}
+export interface DraftDatabase {read(id:string):Promise<DraftRow|undefined>;readAll():Promise<DraftRow[]>;transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange):Promise<LocalDraft[]>}
 const request=<T>(item:IDBRequest<T>)=>new Promise<T>((resolve,reject)=>{item.onsuccess=()=>resolve(item.result);item.onerror=()=>reject(item.error);});
 let channel:BroadcastChannel|undefined;
 function announce(){if(typeof window==='undefined')return;window.dispatchEvent(new Event('weava-drafts-change'));channel?.postMessage('changed');}
@@ -29,7 +29,8 @@ export class IndexedDraftDatabase implements DraftDatabase {
       await complete;return changes.row?.copies??((changes.remove??[]).includes(id)?[]:row?.copies??[]);
     }catch(error){try{tx.abort();}catch{}await complete.catch(()=>{});throw error;}
   }
-  async list(){const db=await this.open();return request<DraftMeta[]>(db.transaction('metadata','readonly').objectStore('metadata').getAll());}
+  async read(id:string){const db=await this.open();return request<DraftRow|undefined>(db.transaction('drafts','readonly').objectStore('drafts').get(id));}
+  async readAll(){const db=await this.open();return request<DraftRow[]>(db.transaction('drafts','readonly').objectStore('drafts').getAll());}
 }
 /** Bound by authored data, without stringify or rewriting unrelated articles. */
 function bytes(value:any):number{
@@ -62,11 +63,16 @@ export class DraftRepository {
     });
     this.tail=work.then(()=>{},()=>{});return work;
   }
-  read(id:string){return this.execute(id,copies=>copies);}
+  async read(id:string){await this.tail;if(this.legacy&&localDrafts(id,this.legacy).length)return this.execute(id,copies=>copies);return latestPendingDraft((await this.database.read(id))?.copies??[]);}
   async list(){
     await this.tail;
-    const ids=new Set([...(await this.database.list()).map(row=>row.id),...(this.legacy?localDraftIds(this.legacy):[])]);
-    return (await Promise.all([...ids].map(id=>this.read(id)))).flat();
+    // Compatibility migration is a write; ordinary reads remain one readonly batch.
+    const legacy=this.legacy?allLocalDrafts(this.legacy):[];
+    for(const id of new Set(legacy.map(copy=>copy.record.id)))await this.execute(id,copies=>copies);
+    const copies=(await this.database.readAll()).flatMap(row=>row.copies);
+    const grouped=new Map<string,LocalDraft[]>();
+    for(const copy of copies){const id=copy.record.id;grouped.set(id,[...(grouped.get(id)??[]),copy]);}
+    return [...grouped.values()].flatMap(latestPendingDraft);
   }
   save(record:Revision<Entry>,clock=Date.now()){
     const snapshot=structuredClone(record);

@@ -27,7 +27,7 @@ const preloadPanel = (panel: string) => { const load = panelModules[panel as key
 const SettingsPanel=lazy(panelModules.appearance);
 const Operations=lazy(panelModules.operations);
 import { AdminNavigation, tabs } from './AdminNavigation.tsx';
-import { adminPanel, panelUrl } from './admin-location.ts';
+import { adminPanel, panelUrl, entryUrl } from './admin-location.ts';
 import type { AdminSession } from './useAdminSession.ts';
 import { LoginScreen } from './LoginScreen.tsx';
 import { Reauthentication } from './Reauthentication.tsx';
@@ -60,7 +60,7 @@ export function App({authentication,error,setError}:AppProps) {
     [logJob, setLogJob] = useState<string | null>(null),
     [menu, setMenu] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const navigationVersion=useRef(0);
+  const navigationVersion=useRef(0),historyVersion=useRef(0);
   const { session } = authentication;
   const activeTab = useRef(tab), [statePanel, setStatePanel] = useState('');
   const panelPath = statePath(tab);
@@ -179,6 +179,7 @@ export function App({authentication,error,setError}:AppProps) {
     };
   }, [pendingSchedule]);
   async function navigate(next: string, recordHistory = true) {
+    if(recordHistory)++historyVersion.current;
     if (next === activeTab.current) { ++navigationVersion.current; setMenu(false); return true; }
     preloadPanel(next);
     const version=++navigationVersion.current;
@@ -186,7 +187,7 @@ export function App({authentication,error,setError}:AppProps) {
     try {
       await editors.flush();
       if(version!==navigationVersion.current)return true;
-      workspace.navigation.clear();
+      workspace.navigation.clear(false);
       activeTab.current = next;
       const cached = adminQueries.snapshot(statePath(next)).data;
       if (cached) next = receiveState(cached, next);
@@ -202,9 +203,19 @@ export function App({authentication,error,setError}:AppProps) {
   }
   useEffect(() => {
     const back = async () => {
+      const version=++historyVersion.current,href=window.location.href;
+      const current=()=>version===historyVersion.current&&href===window.location.href;
       const next = adminPanel(window.location.search);
-      if (next !== tab && !await navigate(next, false))
-        window.history.replaceState(null, '', panelUrl(window.location.href, tab));
+      const entryId=new URLSearchParams(window.location.search).get('entry');
+      const restore=()=>window.history.replaceState(null,'',entryUrl(panelUrl(window.location.href,activeTab.current),workspace.navigation.current()?.id??null));
+      try{
+        if(next!==tab&&!await navigate(next,false)){if(current())restore();return;}
+        if(!current())return;
+        if(['content','notes'].includes(next)){
+          if(entryId&&entryId!==workspace.navigation.current()?.id){await workspace.navigation.select(entryId,false);if(current()&&workspace.navigation.current()?.id!==entryId)restore();}
+          else if(!entryId&&workspace.navigation.current()){await editors.flush();if(current())workspace.navigation.clear(false);}
+        }
+      }catch(error:any){if(current()){setError(error.message);restore();}}
     };
     window.addEventListener('popstate', back);
     return () => window.removeEventListener('popstate', back);

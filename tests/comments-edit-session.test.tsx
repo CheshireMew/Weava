@@ -15,7 +15,17 @@ const mount=()=>act(async()=>root.render(<EditSessionsProvider><View/></EditSess
 const button=(label:string)=>[...host.querySelectorAll('button')].find(button=>button.textContent===label)!;
 async function write(value:string){await act(async()=>{const field=host.querySelector('textarea')!;Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value')!.set!.call(field,value);field.dispatchEvent(new Event('input',{bubbles:true}));});}
 beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;localStorage.clear();adminQueries.resume();host=document.createElement('div');document.body.append(host);root=createRoot(host);vi.mocked(api).mockReset().mockImplementation(async()=>({items,total:2,hasMore:false}) as any);});
-afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
+afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.useRealTimers();vi.restoreAllMocks();});
+it('refreshes new comments manually and while visible without losing a reply draft',async()=>{
+  vi.useFakeTimers();vi.spyOn(document,'visibilityState','get').mockReturnValue('visible');
+  await mount();await act(async()=>button('回复').click());await write('保留我的回复');
+  let current=[...items,{...items[0],id:'new',author:'新访客'}];
+  vi.mocked(api).mockImplementation(async()=>({items:current,total:current.length,hasMore:false}) as any);
+  await act(async()=>vi.advanceTimersByTimeAsync(15000));expect(host.textContent).toContain('新访客');expect(host.querySelector('textarea')?.value).toBe('保留我的回复');
+  current=[...current,{...items[0],id:'manual',author:'手动刷新访客'}];await act(async()=>button('刷新评论').click());expect(host.textContent).toContain('手动刷新访客');
+  const calls=vi.mocked(api).mock.calls.length;vi.spyOn(document,'visibilityState','get').mockReturnValue('hidden');
+  await act(async()=>vi.advanceTimersByTimeAsync(30000));expect(api).toHaveBeenCalledTimes(calls);
+});
 it('ARC-R17 guards navigation without publishing a reply and keeps the draft when leaving is cancelled',async()=>{
  await mount();await act(async()=>button('回复').click());await write('Unpublished reply');let blocked=false,leaving:Promise<void>;
  await act(async()=>{leaving=manager.flush().catch(()=>{blocked=true;});await Promise.resolve();});

@@ -1,5 +1,6 @@
 import { cloneBlocks, layoutSchema, WeavaError, type Layout, type Entry, type Release, type Block } from '@weava/contracts';
 import type { Site } from './site.ts';
+import {publishedHasBlocks} from './release-reader.ts';
 
 const block = (id: string, type: string, props: Record<string, any> = {}, children?: Block[]): Block => ({ id, type, props, ...(children ? { children } : {}) });
 export const builtInLayouts: Layout[] = [
@@ -44,7 +45,7 @@ export function referencedLayouts(entry: Entry | undefined, release: Pick<Releas
   };
   if (entry) {
     add(entry.template ?? (entry.kind === 'content' ? release.types.find((type) => type.id === entry.type)?.template ?? 'article' : 'page'));
-    visitBlocks(entry.blocks, (block) => { if (block.type === 'shared') add(block.props.layoutId); });
+    if(publishedHasBlocks(entry as import('@weava/contracts').PublishedEntry))visitBlocks(entry.blocks, (block) => { if (block.type === 'shared') add(block.props.layoutId); });
   }
   for (const id of Object.values(release.settings.regions ?? {})) add(id);
   return [...found.values()];

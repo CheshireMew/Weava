@@ -4,8 +4,8 @@ import type { Block, Release, PublishedEntry, Entry } from '@weava/contracts';
 import { plain, tokens } from './documents.ts';
 import { rememberPrivateMedia } from './media-policy.ts';
 import { indexPublishedRevisions } from './list-index.ts';
-import { publishedObjectKey, publishedMetadata, publishedHasBlocks, publishedResponsePath } from './release-reader.ts';
-import { publicationDependencies } from './publication-validation.ts';
+import { publishedObjectKey, publishedMetadata, publishedHasBlocks, publishedResponsePath, publishedMedia } from './release-reader.ts';
+import { publicationDependencies,entryDependencies,validationSnapshot } from './publication-validation.ts';
 import { entryMediaReferences, mediaReferencesIn } from './media-references.ts';
 import { referencedLayouts } from './layouts.ts';
 
@@ -60,14 +60,17 @@ export function prepareReleaseStorage(db: Database.Database, release: Release) {
   const members:{entryId:string;position:number;searchKey:string;searchText:string;indexable:boolean}[]=[];
   const sources:{entryKey:string;dependencyKey:string;searchKey:string}[]=[];
   const media:{entryId:string;paths:Set<string>;private:boolean}[]=[];
-  const catalog:{key:string;summary:any;hasBlocks:boolean;responsePath:string|null}[]=[];
+  const catalog:any[]=[];
+  const layoutKeys=new WeakMap<object,string>();
   const hasSourceCache=!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='publication_search_sources'").get();
   const sourceLookup=hasSourceCache?db.prepare('SELECT s.search_key FROM publication_search_sources s JOIN publication_search_keys k ON k.key=s.search_key WHERE s.entry_key=? AND s.dependency_key=?'):undefined;
   for (const [position, entry] of release.entries.entries()) {
     const key = publishedObjectKey(entry) ?? object(db, 'entry', entry);
     manifest.entryKeys.push(key);
     const hasBlocks=publishedHasBlocks(entry);
-    catalog.push({key,summary:publishedMetadata(entry),hasBlocks,responsePath:publishedResponsePath(entry)??null});
+    const layouts=referencedLayouts(entry,release),layoutKey=keyOf(layouts.map(layout=>{let value=layoutKeys.get(layout);if(!value){value=keyOf(layout);layoutKeys.set(layout,value);}return value;}));
+    const priorMedia=publishedMedia(entry),paths=priorMedia?.layouts===layoutKey?priorMedia.paths:[...entryMediaReferences(entry,release)];
+    catalog.push({key,summary:publishedMetadata(entry),hasBlocks,responsePath:publishedResponsePath(entry)??null,dependencies:entryDependencies(entry),validation:validationSnapshot(entry),media:{layouts:layoutKey,paths}});
     const dependencyKey=hasBlocks?keyOf([release.settings,release.layouts,publicationDependencies(entry,release)]):'';
     let searchKey=(sourceLookup?.get(key,dependencyKey) as {search_key:string}|undefined)?.search_key;
     let searchText='';
@@ -77,7 +80,7 @@ export function prepareReleaseStorage(db: Database.Database, release: Release) {
       if(hasSourceCache)sources.push({entryKey:key,dependencyKey,searchKey});
     }
     members.push({entryId:entry.id,position,searchKey,searchText,indexable:entry.indexable&&entry.visibility!=='private'});
-    media.push({entryId:entry.id,paths:entryMediaReferences(entry,release),private:entry.visibility==='private'});
+    media.push({entryId:entry.id,paths:new Set(paths),private:entry.visibility==='private'});
   }
   manifest.catalogKey=object(db,'catalog',catalog);
   return {release,objects,members,sources,media,manifest:JSON.stringify(manifest),globalMedia:mediaReferencesIn([release.settings,referencedLayouts(undefined,release)])};

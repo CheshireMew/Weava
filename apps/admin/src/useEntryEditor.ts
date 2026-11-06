@@ -3,6 +3,7 @@ import type { Entry, Revision } from '@weava/contracts';
 import { api } from './api.ts';
 import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
 import { drafts } from './draft-repository.ts';
+import {recordEntryLocation} from './admin-location.ts';
 import {
   matchesDraft,
   saveLocalDraft,
@@ -130,14 +131,16 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     const origin=recoveryOrigin.current;
     if(origin?.record.id===row.id){recoveryOrigin.current=null;void drafts().discard(origin).catch(error=>setDraftNotice(error.message));}
     session.adopt(row);
+    recordEntryLocation(row.id);
     resetConflict();
     setEditorEpoch((value) => value + 1);
     forgetDraft(row.id);
     setError('');
   }
-  function clear() {
+  function clear(recordHistory=true) {
     ++selection.current;
     session.adopt(null);
+    if(recordHistory)recordEntryLocation(null);
     setPreview('');
     setHistory(null);
     resetConflict();
@@ -156,7 +159,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     else {session.change(local);await showConflict(local);}
     setEditorEpoch(value=>value+1);setRestoreLocal(null);
   }
-  async function select(id: string) {
+  async function select(id: string,recordHistory=true) {
     const request = ++selection.current;
     try {
       let row: Revision<Entry>;
@@ -169,7 +172,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
           if(error.status===404){
             const copies=await drafts().read(id),local=copies.find(copy=>copy.record.revision===0);
             if(request!==selection.current)return;
-            if(local){session.adopt(null);await recoverDraft(local);setRecoveryCopies(copies.filter(copy=>copy!==local));return;}
+            if(local){session.adopt(null);await recoverDraft(local);if(recordHistory)recordEntryLocation(id);setRecoveryCopies(copies.filter(copy=>copy!==local));return;}
           }
           throw error;
         }
@@ -177,6 +180,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
         if (before === session.record) break;
       }
       session.adopt(row);
+      if(recordHistory)recordEntryLocation(id);
       resetConflict();
       setEditorEpoch((value) => value + 1);
       setPreview('');

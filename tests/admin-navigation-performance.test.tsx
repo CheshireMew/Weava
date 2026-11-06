@@ -47,3 +47,12 @@ it('does not navigate away when saving edits fails', async () => {
   mocks.api.mockResolvedValue(state); await render(); mocks.flush.mockRejectedValue(new Error('保存失败'));
   await act(async () => button('评论').click()); expect(host.textContent).toContain('文章列表'); expect(location.search).toBe(''); expect(mocks.api).toHaveBeenCalledTimes(1);
 });
+it('handles same-panel entry history and removes an old entry when switching panels',async()=>{
+  mocks.api.mockResolvedValue(state);mocks.select.mockReset().mockImplementation(async(id:string)=>{(mocks.session as {record:any}).record={id};});
+  await render();
+  await act(async()=>{window.history.replaceState(null,'','/admin/?entry=from-history');window.dispatchEvent(new PopStateEvent('popstate'));});
+  expect(mocks.select).toHaveBeenCalledWith('from-history',false);
+  expect(new URLSearchParams(location.search).get('entry')).toBe('from-history');
+  await act(async()=>button('评论').click());expect(location.search).toBe('?panel=comments');
+  (mocks.session as {record:any}).record=null;
+});

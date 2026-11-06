@@ -29,7 +29,7 @@ export default function AnalyticsPanel({ onError, timezone = 'Asia/Shanghai' }: 
   return <AnalyticsWorkspace key={route.query} route={route} navigate={navigate} onError={onError} timezone={timezone} />;
 }
 function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Location; navigate: (report: ReportName | null, query?: string, section?: AnalyticsSection) => void; onError: (message: string) => void; timezone: string }) {
-  const model = useAnalyticsReport(route.query);
+  const model = useAnalyticsReport(route.query,true,route.section);
   const [visitor, setVisitor] = useState<{ id: string; data: AnalyticsReport } | null>(null);
   const id = useId(), { data, loading, error } = model;
   const query = new URLSearchParams(route.query);

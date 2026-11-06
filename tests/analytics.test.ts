@@ -16,6 +16,23 @@ function fixture(name: string) {
   mkdirSync(dir, { recursive: true });
   return new Analytics(dir);
 }
+it('loads only the requested report section, reuses unchanged aggregates and invalidates on new events',()=>{
+  const a=fixture('section-cache');
+  try{
+    record(a,{visitor:'reader-one',session:'one'});record(a,{visitor:'reader-two',session:'two',path:'/two/'});
+    const params=new URLSearchParams({section:'overview'}),first=a.report(params);
+    expect(first.views).toBe(2);expect(first.pages).toHaveLength(2);expect(first.recentVisitors).toEqual([]);expect(first.browsers).toEqual([]);
+    expect(a.raw.prepare("SELECT 1 FROM temp.sqlite_master WHERE name='weava_report_visitors'").get()).toBeUndefined();
+    const exec=vi.spyOn(a.raw,'exec');first.pages[0].views=999;
+    const cached=a.report(params);expect(cached.pages.some(page=>page.views===999)).toBe(false);expect(exec).not.toHaveBeenCalled();
+    const devices=a.report(new URLSearchParams({section:'devices'}));expect(devices.browsers[0].name).toBe('Chrome');expect(devices.pages).toEqual([]);expect(devices.sources).toEqual([]);
+    const facets=a.report(new URLSearchParams({section:'filters'}));expect(facets.countries.length).toBeGreaterThan(0);expect(facets.browsers[0].name).toBe('Chrome');expect(facets.pages).toEqual([]);expect(facets.recentVisitors).toEqual([]);
+    const visitors=a.report(new URLSearchParams({section:'visitors'}));expect(visitors.recentVisitors).toHaveLength(2);
+    record(a,{visitor:'reader-three',session:'three'});expect(a.report(params).views).toBe(3);
+    const full=a.report(new URLSearchParams());expect(full.recentVisitors).toHaveLength(3);expect(full.pages).toHaveLength(2);expect(full.browsers.length).toBeGreaterThan(0);
+    exec.mockRestore();
+  }finally{a.close();}
+});
 function record(a: Analytics, overrides: Record<string, any> = {}, agent = windows) {
   const event = {
     id: crypto.randomUUID(),

@@ -5,6 +5,7 @@ import {api} from './api.ts';
 import type {ApiOutput} from '@weava/contracts/api';
 import {useAuthCooldown} from './useAuthCooldown.ts';
 import {PasswordField} from './PasswordField.tsx';
+import {useEditGuard} from './EditSessions.tsx';
 const eventNames:Record<string,string>={
   'account-initialized':'初始化账户','password-reset':'重置密码','account-recovered':'本机恢复账户',
   'account-updated':'修改账户资料或密码','login-succeeded':'登录成功','login-failed':'身份验证失败',
@@ -24,6 +25,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
   const [setup,setSetup]=useState<ApiOutput<'beginTwoFactor'>|null>(null),[qr,setQr]=useState('');
   const [codes,setCodes]=useState<string[]>([]),[savedCodes,setSavedCodes]=useState(false),[busy,setBusy]=useState(false);
   const [revokeAll,setRevokeAll]=useState(true),cooldown=useAuthCooldown(),loaded=useRef(false);
+  useEditGuard('账户资料',()=>!!account&&!codes.length&&(username!==account.username||displayName!==account.displayName||!!newPassword||!!repeat),async()=>{throw new Error('账户资料尚未保存，请先保存账户，或明确放弃修改。');},()=>{if(account){setUsername(account.username);setDisplayName(account.displayName);}setNewPassword('');setRepeat('');setPassword('');setCode('');},undefined,'账户资料尚未保存。');
   function receiveAccount(value:ApiOutput<'account'>){setAccount(value);setLoadError('');if(!loaded.current){setUsername(value.username);setDisplayName(value.displayName);setAdminPath(value.adminPath);loaded.current=true;}}
   async function refresh(){const value=await api('account');receiveAccount(value);return value;}
   useEffect(()=>{

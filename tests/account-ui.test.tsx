@@ -6,6 +6,7 @@ import AccountPanel from '../apps/admin/src/AccountPanel.tsx';
 import { LoginScreen } from '../apps/admin/src/LoginScreen.tsx';
 import { ApiClientError } from '@weava/contracts/api-client';
 import { useAdminSession } from '../apps/admin/src/useAdminSession.ts';
+import { EditSessionsProvider,useEditSessions } from '../apps/admin/src/EditSessions.tsx';
 const mocks=vi.hoisted(()=>({api:vi.fn(),qr:vi.fn()}));
 vi.mock('../apps/admin/src/api.ts',()=>({api:mocks.api}));
 vi.mock('qrcode',()=>({default:{toDataURL:mocks.qr}}));
@@ -21,7 +22,7 @@ beforeEach(()=>{
   mocks.api.mockImplementation(async(path:string)=>path==='account'?structuredClone(account):{});
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();localStorage.clear();vi.restoreAllMocks();vi.useRealTimers();});
-async function renderAccount(){await act(async()=>root.render(<AccountPanel setError={setError} notify={notify} sessionGeneration={0}/>));}
+async function renderAccount(){await act(async()=>root.render(<EditSessionsProvider><AccountPanel setError={setError} notify={notify} sessionGeneration={0}/></EditSessionsProvider>));}
 function input(label:string){const found=[...host.querySelectorAll('label')].find(node=>node.textContent?.startsWith(label));expect(found,label).toBeDefined();return found!.control as HTMLInputElement;}
 async function fill(label:string,value:string){await act(async()=>{const field=input(label);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(field,value);field.dispatchEvent(new Event('input',{bubbles:true}));});}
 function button(text:string){const found=[...host.querySelectorAll('button')].find(node=>node.textContent===text);expect(found,text).toBeDefined();return found!;}
@@ -67,6 +68,19 @@ it('uses native section tabs and preserves unsaved account fields when switching
   expect(document.activeElement).toBe(button('账户资料'));
   expect(input('显示名').value).toBe('新显示名');expect(input('当前密码').value).toBe('violet river lantern 2026!');
   expect(mocks.api).toHaveBeenCalledTimes(1);
+});
+it('guards leaving an unsaved account form without storing credentials or silently saving',async()=>{
+  let manager!:ReturnType<typeof useEditSessions>;
+  function Capture(){manager=useEditSessions();return <AccountPanel setError={setError} notify={notify} sessionGeneration={0}/>;}
+  await act(async()=>root.render(<EditSessionsProvider><Capture/></EditSessionsProvider>));
+  await fill('显示名','未保存的显示名');await fill('当前密码','proof stays in memory');
+  let leave!:Promise<void>;
+  await act(async()=>{leave=manager.flush();void leave.catch(()=>{});await Promise.resolve();});
+  expect(host.querySelector('dialog[open]')?.textContent).toContain('账户资料尚未保存');
+  await click('留在当前页');await expect(leave).rejects.toThrow('修改仍保留');expect(input('显示名').value).toBe('未保存的显示名');
+  await act(async()=>{leave=manager.flush();await Promise.resolve();});await click('放弃修改并继续');await leave;
+  expect(input('显示名').value).toBe('站主');expect(input('当前密码').value).toBe('');
+  expect(mocks.api.mock.calls.every(([path])=>path==='account')).toBe(true);expect(localStorage.length).toBe(0);
 });
 it('shows the server wait and prevents immediate resubmission on the login screen',async()=>{
   vi.useFakeTimers();mocks.api.mockImplementation(async(path:string)=>{if(path==='session')return {authenticated:false,initialized:true,version:'test'};throw new ApiClientError('请稍后重试',429,{retryAt:Date.now()+2000},2);});

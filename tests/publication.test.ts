@@ -15,6 +15,14 @@ const entry = (id: string, extra: Partial<Entry> = {}) => entrySchema.parse({ id
 afterEach(() => { sites.splice(0).forEach((site) => site.close()); });
 
 describe('publication boundaries and candidate validation', () => {
+  it('freezes reviewed rollback against concurrent publication and preserves working drafts',()=>{
+    const site=create(),first=site.saveEntry(entry('rollback-post'),null),older=site.publish();
+    const changed=site.saveEntry({...first.value,title:'新版文章'},first.revision);site.publish();
+    const review=site.previewRollback(older.id);expect(review.entries[0].title).toBe('rollback-post');
+    site.saveEntry({...changed.value,title:'未发布工作稿'},changed.revision);
+    site.rollback(older.id,{baseReleaseId:review.baseReleaseId,review:review.review});expect(site.store.get('entry',first.id)!.value.title).toBe('未发布工作稿');
+    expect(()=>site.rollback(older.id,{baseReleaseId:review.baseReleaseId,review:review.review})).toThrow(/公开版本已变化/);
+  });
   it('publishes settings without selecting an unrelated content revision, and freezes the reviewed state', () => {
     const site = create();
     const original = site.saveEntry(entry('one'), null);

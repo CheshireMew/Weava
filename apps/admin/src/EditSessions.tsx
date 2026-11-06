@@ -32,7 +32,7 @@ export function EditSessionsProvider({ children }: { children: ReactNode }) {
       }
     }
   }
-  async function preserve(){await prepare();await Promise.all([...records.current.values()].map(session=>session.preserve()));}
+  async function preserve(){await prepare();for(const guard of allGuards())if(guard.dirty()&&!guard.session)throw new Error(guard.label+'尚未保存，请先保存或明确放弃修改。');await Promise.all([...records.current.values()].map(session=>session.preserve()));}
   const api = useRef({records:records.current,preserve,register,registerPending,prepare,flush,changed}); api.current.flush = flush;api.current.preserve=preserve;
   useEffect(() => {
     const leave = (event: BeforeUnloadEvent) => {

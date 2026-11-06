@@ -103,6 +103,7 @@ export class Site {
     this.publication.withdrawalOptions(...args);
   withdraw = (...args: Parameters<SiteReleases['withdraw']>) => this.publication.withdraw(...args);
   rollback = (...args: Parameters<SiteReleases['rollback']>) => this.publication.rollback(...args);
+  previewRollback = (...args: Parameters<SiteReleases['previewRollback']>) => this.publication.previewRollback(...args);
   validateReleaseExtensions = (...args: Parameters<SiteReleases['validateReleaseExtensions']>) =>
     this.publication.validateReleaseExtensions(...args);
   search = (...args: Parameters<SiteReleases['search']>) => this.publication.search(...args);

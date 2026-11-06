@@ -33,8 +33,10 @@ export function publicationHandlers(
       return jobs.query('withdraw',data);
     },
     rollback: async ({ body: data }) => {
-      return site.rollback(data.id);
+      if((data.review===undefined)!==(data.baseReleaseId===undefined))throw new DomainError('请重新检查恢复内容。');
+      return site.rollback(data.id,data.review===undefined?undefined:{baseReleaseId:data.baseReleaseId!,review:data.review});
     },
+    previewRollback:async({body})=>site.previewRollback(body.id),
     schedules: async ({}, context) => {
       const { url } = context;
       return schedules(site, url.searchParams.get('entryId') ?? undefined);
@@ -89,6 +91,7 @@ export function publicationHandlers(
     | 'publish'
     | 'withdraw'
     | 'rollback'
+    | 'previewRollback'
     | 'schedules'
     | 'schedule'
     | 'cancelSchedule'

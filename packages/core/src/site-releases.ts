@@ -17,6 +17,9 @@ import {
 } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { releaseIndex } from './release-index.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {immutableDigest} from './publication-validation.ts';
+import {publishedHasBlocks} from './release-reader.ts';
 export class SiteReleases {
   private releaseCache = new Map<string, Release>();
   private publicCache = new WeakMap<Release,Release>();
@@ -160,11 +163,28 @@ export class SiteReleases {
       })
       .immediate();
   }
-  rollback(id: string) {
+  private rollbackToken(id:string){
+    const baseReleaseId=this.site.store.state('release')??null;
+    const target=this.site.store.raw.prepare('SELECT data FROM releases WHERE id=?').get(id) as {data:string}|undefined;
+    if(!target)throw new WeavaError('公开版本不存在。',404);
+    return {baseReleaseId,review:digest([baseReleaseId,id,target.data])};
+  }
+  previewRollback(id:string){
+    const token=this.rollbackToken(id),target=this.site.release(id)!,current=token.baseReleaseId?this.site.release(token.baseReleaseId):null;
+    const before=new Map(current?.entries.map(entry=>[entry.id,entry])??[]),after=new Set(target.entries.map(entry=>entry.id));
+    const changed=(key:'settings'|'layouts'|'types'|'terms'|'redirects')=>digest(current?.[key]??null)!==digest(target[key]??null);
+    return {...token,id,createdAt:target.createdAt,label:target.label,settingsChanged:changed('settings'),layoutsChanged:changed('layouts'),typesChanged:changed('types'),termsChanged:changed('terms'),routesChanged:changed('redirects'),
+      entries:target.entries.filter(entry=>!before.has(entry.id)||immutableDigest(before.get(entry.id)!)!==immutableDigest(entry)).map(entry=>({id:entry.id,title:entry.title,path:entry.path,action:before.has(entry.id)?'update' as const:'add' as const})),
+      removed:[...before.values()].filter(entry=>!after.has(entry.id)).map(({id,title,path})=>({id,title,path}))};
+  }
+  rollback(id: string,review?:{baseReleaseId:string|null;review:string}) {
     const release = this.site.release(id);
     if (!release) throw new WeavaError('公开版本不存在。', 404);
     this.site.validateReleaseExtensions(release);
-    this.site.store.raw.transaction(() => this.site.store.setState('release', id)).immediate();
+    this.site.store.raw.transaction(() => {
+      if(review){const current=this.rollbackToken(id);if(current.baseReleaseId!==review.baseReleaseId||current.review!==review.review)throw new WeavaError('公开版本已变化，请重新检查恢复内容。',409);}
+      this.site.store.setState('release', id);
+    }).immediate();
     return { releaseId: id };
   }
   validateReleaseExtensions(release: Release) {
@@ -173,7 +193,7 @@ export class SiteReleases {
       if (!blockTypes.includes(block.type) && !this.site.blockRenderers[block.type])
         missing.add(block.type);
     };
-    for (const entry of release.entries) visitBlocks(entry.blocks, check);
+    for (const entry of release.entries) if(publishedHasBlocks(entry))visitBlocks(entry.blocks, check);
     for (const layout of release.layouts ?? []) visitBlocks(layout.blocks, check);
     if (!['weava', 'newsletter', ...this.site.extensionThemes].includes(release.settings.theme))
       missing.add('主题 ' + release.settings.theme);

@@ -39,6 +39,14 @@ function closePage() {
   window.dispatchEvent(event);
   return event as BeforeUnloadEvent;
 }
+it('keeps editor selection and returning to the list in sync with the URL',async()=>{
+  window.history.replaceState(null,'','/admin/?panel=notes&entry=old');
+  await mount();expect(new URLSearchParams(location.search).get('entry')).toBe(server.id);
+  expect(new URLSearchParams(location.search).get('panel')).toBe('notes');
+  await act(async()=>model.clear());expect(new URLSearchParams(location.search).has('entry')).toBe(false);
+  const listUrl=location.href;await act(async()=>model.select(server.id,false));expect(location.href).toBe(listUrl);
+  await act(async()=>model.clear(false));expect(location.href).toBe(listUrl);
+});
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   vi.useFakeTimers();
@@ -47,7 +55,7 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host);
   server = { id: 'article', revision: 1, updatedAt: '', value: entrySchema.parse({ id: 'article', kind: 'page', path: '/article/', title: '原文' }) };
   rows = new Map();
-  const database: DraftDatabase = {async list(){return [...rows.values()].map(({copies,...metadata})=>metadata);}, async transact(id, change) {
+  const database: DraftDatabase = {async read(id){return structuredClone(rows.get(id));},async readAll(){return structuredClone([...rows.values()]);}, async transact(id, change) {
     const result = change(structuredClone(rows.get(id)), [...rows.values()].map(({ copies, ...metadata }) => metadata));
     for (const key of result.remove ?? []) rows.delete(key);
     if (result.row) rows.set(id, structuredClone(result.row));

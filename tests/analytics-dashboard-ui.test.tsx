@@ -44,6 +44,21 @@ async function source(value: string) {
   await act(async () => { const select = document.querySelector<HTMLSelectElement>('[aria-label="来源筛选"]')!; select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); });
 }
 const selected = () => host.querySelector('[role="tab"][aria-selected="true"]')!.textContent;
+it('loads dimension choices on demand when the visible report is projected',async()=>{
+  mocks.api.mockImplementation(async(path:string)=>{
+    if(!path.startsWith('analytics?'))return fixture().realtime;
+    const params=new URLSearchParams(path.split('?')[1]),data=fixture(params.toString());data.section=params.get('section');
+    if(data.section==='filters'){data.countries=[{name:'CN',visitors:2,share:1}];data.browsers=[{name:'Chrome',visitors:2,share:1}];}
+    return data;
+  });
+  await render();expect(mocks.api.mock.calls.filter(([path])=>path.startsWith('analytics?'))).toHaveLength(1);
+  await click(button('筛选报表'));
+  expect(document.querySelector('select[aria-label="国家 / 地区筛选"] option[value="CN"]')).not.toBeNull();
+  expect(document.querySelector('select[aria-label="浏览器筛选"] option[value="Chrome"]')).not.toBeNull();
+  expect(mocks.api.mock.calls.some(([path])=>path.includes('section=filters'))).toBe(true);
+  await act(async()=>{const field=document.querySelector<HTMLSelectElement>('select[aria-label="国家 / 地区筛选"]')!;field.value='CN';field.dispatchEvent(new Event('change',{bubbles:true}));});
+  expect(new URLSearchParams(location.search).get('country')).toBe('CN');expect(host.textContent).toContain('国家 / 地区：中国');
+});
 
 it('keeps the native report groups and avoids loading every report into the overview', async () => {
   await render();
@@ -61,7 +76,7 @@ it('keeps the native report groups and avoids loading every report into the over
   await tab('设备'); expect(host.querySelectorAll('.analytics-section-grid > section')).toHaveLength(4);
   await tab('访客'); expect(host.textContent).toContain('最新访客'); expect(host.textContent).toContain('当前在线');
   await tab('行为'); expect(host.textContent).toContain('爬虫请求');
-  expect(mocks.api.mock.calls.filter(([path]) => path.startsWith('analytics?'))).toHaveLength(1);
+  expect(mocks.api.mock.calls.filter(([path]) => path.startsWith('analytics?')).map(([path])=>new URLSearchParams(path.split('?')[1]).get('section'))).toEqual(['overview','sources','devices','visitors','actions']);
 });
 
 it('switches the visitor ordering without duplicating tables or querying again', async () => {

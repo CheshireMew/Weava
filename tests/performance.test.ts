@@ -10,12 +10,23 @@ import { maintenanceReferences } from '../packages/core/src/maintenance-referenc
 import { EntryWorkspace } from '../packages/core/src/staged-entries.ts';
 import { createBackup,verifyBackup } from '../packages/core/src/backup.ts';
 import { wordpressArchiveEntry } from '../packages/core/src/wordpress-archives.ts';
+import {prepareReleaseStorage} from '../packages/core/src/publication-store.ts';
 
 const base='D:/Tools/cache/weava/tests/performance-'+Date.now();
 const sites:Site[]=[],runners:JobRunner[]=[];let sequence=0;
 function fixture(){const site=new Site(join(base,String(sequence++)));sites.push(site);site.saveType({id:'post',label:'Post',fields:[],pathPrefix:'/posts/',template:'article'},null);return site;}
 const entry=(id:string,source='## Heading\n\nText')=>entrySchema.parse({id,title:id,kind:'content',type:'post',path:'/posts/'+id+'/',status:'published',document:{version:1,format:'markdown',source}});
 afterEach(()=>{runners.splice(0).forEach(runner=>runner.stop());sites.splice(0).forEach(site=>site.close());});
+it('reuses persisted publication projections after reopening without reading unchanged article bodies',()=>{
+  const initial=fixture();for(let index=0;index<16;index++)initial.saveEntry(entry('projection-'+index,'正文与链接\n\n'.repeat(100)),null);const release=initial.publish();
+  const manifest=JSON.parse((initial.store.raw.prepare('SELECT data FROM releases WHERE id=?').get(release.id) as any).data);
+  const unchanged=new Set(manifest.entryKeys.slice(1));
+  const site=new Site(initial.root);sites.push(site);let bodyReads=0;
+  const prepare=site.store.raw.prepare.bind(site.store.raw);
+  site.store.raw.prepare=((sql:string)=>{const statement=prepare(sql);if(sql==='SELECT data FROM publication_objects WHERE key=?'){const get=statement.get.bind(statement);statement.get=((key:string)=>{if(unchanged.has(key)){bodyReads++;throw new Error("Unchanged article body was read");}return get(key);}) as any;}return statement;}) as any;
+  const prepared=preparePublication(site,{ids:['projection-0']});prepareReleaseStorage(site.store.raw,prepared.release);
+  expect(bodyReads).toBe(0);
+});
 
 it('loads a public directory without fetching any entry bodies, then loads only the requested body',()=>{
   const site=fixture();for(let index=0;index<20;index++)site.saveEntry(entry('item-'+index,'Body '.repeat(1000)),null);const published=site.publish();

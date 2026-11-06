@@ -1,10 +1,16 @@
 import type Database from 'better-sqlite3';
 import type { Release, PublishedEntry } from '@weava/contracts';
 import { BoundedCache } from './cache.ts';
-interface CatalogEntry {key:string;summary:any;hasBlocks:boolean;responsePath?:string|null}
+export interface EntryDependencies {targets:string[];catalog:boolean}
+export interface ValidationSnapshot {key:string;refs:{media:string[];links:string[]}}
+export interface MediaProjection {layouts:string;paths:string[]}
+interface CatalogEntry {key:string;summary:any;hasBlocks:boolean;responsePath?:string|null;dependencies?:EntryDependencies;validation?:ValidationSnapshot;media?:MediaProjection}
 const details = new WeakMap<object,CatalogEntry & {readResponsePaths:()=>void}>();
 const caches = new WeakMap<Database.Database,BoundedCache<string,any>>();
 export function publishedObjectKey(entry:object){return details.get(entry)?.key;}
+export const publishedDependencies=(entry:object)=>details.get(entry)?.dependencies;
+export const publishedValidation=(entry:object)=>details.get(entry)?.validation;
+export const publishedMedia=(entry:object)=>details.get(entry)?.media;
 export function publishedMetadata(entry:PublishedEntry):Omit<PublishedEntry,'document'|'blocks'|'html'|'compatibility'|'source'>{
   const known=details.get(entry);if(known)return known.summary;
   return Object.fromEntries(Object.keys(entry).filter(key=>!['document','blocks','html','compatibility','source'].includes(key)).map(key=>[key,(entry as any)[key]])) as any;

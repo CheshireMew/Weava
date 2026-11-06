@@ -167,6 +167,17 @@ it('shows task names and statuses in Chinese and keeps maintenance out of the ba
   expect(current.textContent).toContain('创建备份 · 失败');
   expect(current.textContent).not.toContain('backup'); expect(current.textContent).not.toContain('failed');
 });
+it('reviews rollback differences and submits only after an explicit confirmation',async()=>{
+  const review={id:'older',baseReleaseId:'current',review:'review-token',createdAt:'2026-11-01T00:00:00Z',label:'之前的发布',settingsChanged:true,layoutsChanged:false,typesChanged:false,termsChanged:false,routesChanged:false,entries:[{id:'old-post',title:'恢复的文章',path:'/old/',action:'add'}],removed:[{id:'new-post',title:'将被撤下的文章',path:'/new/'}]};
+  mocks.api.mockImplementation(async path=>path==='rollback/preview'?review:{releaseId:'older'});
+  await render(<Operations state={{releases:[{id:'older',created_at:review.createdAt}],jobs:[]}} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()}/>);
+  await click('发布记录');await click('恢复这个公开版本');
+  expect(host.querySelector('dialog[open]')?.textContent).toContain('恢复的文章');expect(host.querySelector('dialog[open]')?.textContent).toContain('将被撤下的文章');
+  expect(mocks.api.mock.calls.some(([path])=>path==='rollback')).toBe(false);
+  await click('取消');expect(host.querySelector('dialog[open]')).toBeNull();
+  await click('恢复这个公开版本');await click('确认恢复');
+  expect(mocks.api).toHaveBeenCalledWith('rollback',{id:'older',baseReleaseId:'current',review:'review-token'});
+});
 
 it('presents imported search results as readable rows with pagination rather than raw JSON', async () => {
   const pages = Array.from({ length: 21 }, (_, index) => ({ url: 'https://example.com/' + index, date: '2026-11-03', clicks: index, impressions: 30 }));

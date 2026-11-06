@@ -1600,6 +1600,7 @@ form > .dialog-actions { margin-top: 24px; }
 .notes-list-open { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; justify-items: start; align-items: start; gap: 8px; text-align: left; border: 0; border-radius: 6px; background: transparent; padding: 18px 8px; line-height: 1.65; }
 .notes-list-open > span { width: 100%; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 15px; }
 .notes-list-open time { font-size: 12px; color: var(--ink-muted); }
+.notes-list-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12px; color: var(--ink-muted); }
 .note-composer { display: flex; flex-direction: column; width: min(680px, calc(100vw - 40px)); max-height: min(86dvh, 900px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); overflow: hidden; box-shadow: 0 16px 64px #00000024; }
 .note-composer::backdrop { background: #20202066; }
 .note-composer-header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }

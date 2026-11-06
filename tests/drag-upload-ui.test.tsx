@@ -76,6 +76,16 @@ it('keeps failed files available for retry and blocks unsupported files from ope
   await act(async () => drag(editor, [file()])); expect(host.querySelector('[role="alert"]')!.textContent).toContain('网络中断');
   await act(async () => host.querySelector<HTMLButtonElement>('.file-upload-error button')!.click()); expect(editor.querySelector('img')?.getAttribute('src')).toBe('/media/photo.png'); expect(host.querySelector('[role="alert"]')).toBeNull();
   vi.mocked(uploadFile).mockClear(); await act(async () => expect(drag(editor, [file('wrong.exe')]).defaultPrevented).toBe(true)); expect(uploadFile).not.toHaveBeenCalled();
+  expect([...host.querySelectorAll<HTMLButtonElement>('.file-upload-error button')].every(button=>!button.disabled)).toBe(true);
+});
+it('recovers from validation failure before progress starts without an unrelated render',async()=>{
+  await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));
+  await act(async()=>drag(host.querySelector('.media-panel')!,[file('unsupported.svg')]));
+  const controls=[...host.querySelectorAll<HTMLButtonElement>('button')];
+  for(const label of ['上传文件','重试上传','取消这些上传'])expect(controls.find(button=>button.textContent===label)?.disabled).toBe(false);
+  await act(async()=>controls.find(button=>button.textContent==='取消这些上传')!.click());
+  await act(async()=>drag(host.querySelector('.media-panel')!,[file('valid.png')]));
+  expect(host.querySelector('.media-grid')!.textContent).toContain('valid.png');
 });
 it('pauses the rest of a batch after failure so retry retains the original image order', async () => {
   let fail = true;

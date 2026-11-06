@@ -12,7 +12,7 @@ const byId=z.object({ id }), byVersion=byId.extend({ revision }), pathId=z.objec
 const queryPage={ page:z.coerce.number<string|number>().int().min(1).optional(),pageSize:z.coerce.number<string|number>().int().min(1).max(100).optional() };
 const optional=z.string().optional();
 const contentQuery=z.object({ ...queryPage,limit:z.coerce.number<string|number>().int().min(1).max(100).optional(),kind:z.enum(['content','page','']).optional(),q:optional,type:optional,author:optional,category:optional,tag:optional,sort:z.enum([...contentSorts,'']).optional(),status:z.enum(['all','published','changed','draft','archived','']).optional(),visibility:z.enum(['all','public','private','']).optional() }).catchall(z.string()).describe('Additional field.KEY parameters filter fields declared filterable by the selected type.');
-const analyticsQuery=z.object({ start:optional,end:optional,path:optional,channel:optional,country:optional,browser:optional,os:optional,device:optional,model:optional,page:z.coerce.number<string|number>().int().min(0).optional(),dataset:optional,group:optional,id:optional });
+const analyticsQuery=z.object({ section:z.enum(["all","overview","sources","visitors","devices","actions","filters"]).optional(),start:optional,end:optional,path:optional,channel:optional,country:optional,browser:optional,os:optional,device:optional,model:optional,page:z.coerce.number<string|number>().int().min(0).optional(),dataset:optional,group:optional,id:optional });
 const totals=z.object({ count:z.number(),bytes:z.number() });
 const rowList=z.array(jsonObject);
 const references=z.object({ working:z.array(z.object({ id,title:z.string(),path:z.string() })),published:z.array(z.object({ id,title:z.string(),path:z.string() })),layouts:z.array(z.object({ id,label:z.string() })),settings:z.boolean(),historicalRevisions:z.number() });
@@ -75,7 +75,8 @@ export const adminApi = {
   publication:post('publication','预检冻结的发布内容',m.publishOptions,m.publicationReview),
   publish:post('publish','执行发布任务',m.publishOptions,jobSchema,202),
   withdraw:post('withdraw','撤下内容或归档',byVersion.extend({ archive:z.boolean().optional() }),entryRecord),
-  rollback:post('rollback','切换至历史公开版本',byId,z.object({ releaseId:id })),
+  previewRollback:post('rollback/preview','查看历史公开版本恢复差异',byId,m.rollbackReview),
+  rollback:post('rollback','切换至历史公开版本',byId.extend({baseReleaseId:id.nullable().optional(),review:z.string().optional()}),z.object({ releaseId:id })),
   schedules:get('schedules','列出单篇定时发布',z.array(scheduleRecord),z.object({entryId:z.string().optional()})),
   schedule:post('schedule','安排固定修订的定时发布',byVersion.extend({ dueAt:z.string() }),scheduleRecord),
   cancelSchedule:post('schedule/cancel','取消定时发布',byVersion,scheduleRecord),

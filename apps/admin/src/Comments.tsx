@@ -4,6 +4,7 @@ import { api } from './api.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { CommentSettings, type SiteSettingProps } from './SiteSettingControls.tsx';
 import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
+import { watchVisible } from './analytics/polling.ts';
 
 type Row = ArticleComment & { title: string; path: string };
 export default function Comments(props: SiteSettingProps) {
@@ -23,6 +24,10 @@ export default function Comments(props: SiteSettingProps) {
     if(value)replyEditor.setRecord({id:value.parentId,revision:null,value});else replyEditor.session.adopt(null);
   };
   const refresh = () => query.refresh();
+  useEffect(() => {
+    const watch = watchVisible(() => query.refresh(), () => {}, () => {}, 15000);
+    return watch.stop;
+  }, [query.refresh]);
   useEffect(() => { if (loadError) onError(loadError); }, [loadError]);
   async function moderate(row: Row) {
     setBusy(true);
@@ -35,6 +40,7 @@ export default function Comments(props: SiteSettingProps) {
   const composer=(author:string)=>reply&&<form onSubmit={async event=>{event.preventDefault();if(busy)return;setBusy(true);try{await api('comment/reply',reply);replyEditor.session.discard();setReply(null);await refresh();}catch(error:any){onError(error.message);}finally{setBusy(false);}}}><label>回复 {author}<textarea required disabled={busy} maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><button disabled={busy}>发布回复</button><button type="button" disabled={busy} onClick={()=>{replyEditor.session.discard();setReply(null);}}>取消</button></form>;
   return <div className="panel comments-panel">
     <div className="panel-title"><h1>评论{data ? ` · ${data.total}` : ''}</h1>
+      <button disabled={busy || query.loading} onClick={() => refresh().catch(() => {})}>刷新评论</button>
       <select aria-label="评论状态" value={status} disabled={busy} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option><option value="pending">待审核</option>
       </select>

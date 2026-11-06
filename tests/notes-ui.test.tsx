@@ -27,9 +27,9 @@ it('opens imported notes as readable HTML without exposing source or article set
  expect(host.querySelector('dialog[open]')?.getAttribute('aria-label')).toBe('编辑笔记');expect(host.querySelector('textarea')).toBeNull();expect(host.textContent).not.toMatch(/保留的来源|封面|草稿|预览/);expect(update).not.toHaveBeenCalled();
  await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='保存修改')!.click());expect(publish).toHaveBeenCalledOnce();
 });
-it('shows a plain notes list without cover placeholders or article status controls',async()=>{
- const model={items:[row],library:{pages:1},filter:'',setFilter:vi.fn(),select:vi.fn(),newEntry:vi.fn(),tab:'notes'};
- await act(async()=>root.render(<NotesLibrary model={model as any}/>));expect(host.textContent).toContain('写笔记');expect(host.textContent).not.toMatch(/草稿|有未发布修改|已发布|筛选|封面/);expect(host.querySelector('img,.publication-cover,select')).toBeNull();
+it('distinguishes note drafts, published notes and unpublished changes without article filters or covers',async()=>{
+ const model={items:[{...row,id:'draft',published:false},{...row,id:'published',published:true,hasChanges:false},{...row,id:'changed',published:true,hasChanges:true}],library:{pages:1},filter:'',setFilter:vi.fn(),select:vi.fn(),newEntry:vi.fn(),tab:'notes'};
+ await act(async()=>root.render(<NotesLibrary model={model as any}/>));expect(host.textContent).toContain('写笔记');expect([...host.querySelectorAll('.entry-state')].map(node=>node.textContent)).toEqual(['草稿','已发布','有未发布修改']);expect(host.textContent).not.toMatch(/筛选|封面/);expect(host.querySelector('img,.publication-cover,select')).toBeNull();
 });
 it('publishes a note in one step and leaves the editor only after success',async()=>{
  let workspace:any;const task=vi.fn(async()=>({status:'complete'})),notify=vi.fn();const state={settings:{value:{name:'站点'}},types:[{id:'wordpress-moment',value:{id:'wordpress-moment'}}]};
