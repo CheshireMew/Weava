@@ -52,6 +52,7 @@ export default function SettingsPanel({
   initialSection,
   application,
   applyTerms = unchanged,
+  contentEnabled = true,
 }: {
   row: any;
   themes: any[];
@@ -65,6 +66,7 @@ export default function SettingsPanel({
   initialSection?: string;
   application?: AutosaveState;
   applyTerms?: () => void;
+  contentEnabled?: boolean;
 }) {
   const selectors = useSelectors();
   const taxonomy = useTaxonomyEditor(terms, refresh, applyTerms);
@@ -173,8 +175,8 @@ export default function SettingsPanel({
         <FeaturedSettings order={value.featuredOrder} onChange={featuredOrder => set({ featuredOrder })} onError={onError} />
         {value.theme === 'newsletter' && <SidebarSettings value={value} onChange={sidebar => set({ sidebar })} />}
 </> },
-        { id: 'navigation', label: '导航与分类', content: <>
-        <TaxonomyManager model={taxonomy} onError={onError} />
+        { id: 'navigation', label: contentEnabled ? '导航与分类' : '导航', content: <>
+        {contentEnabled && <TaxonomyManager model={taxonomy} onError={onError} />}
         <section className="form-card">
           <h2>导航</h2>
           <NavigationEditor

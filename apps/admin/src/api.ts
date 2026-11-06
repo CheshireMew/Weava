@@ -1,13 +1,17 @@
 import type { AdminClient } from '@weava/contracts/api-client';
 import { ApiClientError } from '@weava/contracts/api-error';
+import { adminQueries } from './query-cache.ts';
+import {affectedQueries,mutationDomains,jobDomains} from './query-effects.ts';
 import { sessionResult, loginBody, loginResult, logoutResult, apiErrorSchema,accountAccessBody,accountAccessResult,completeAccountAccessBody,completeAccountAccessResult } from '@weava/contracts/session-api';
 export { ApiClientError as ApiError } from '@weava/contracts/api-error';
 const unauthorized=()=>{
+  adminQueries.suspend();
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('weava-session-expired'));
 };
+const signedOut=()=>{adminQueries.suspend();if(typeof window!=='undefined')window.dispatchEvent(new Event('weava-session-ended'));};
 let fullClient:Promise<AdminClient>|undefined;
 const client=()=>fullClient??=import('@weava/contracts/api-client').then(module=>module.createAdminClient({onUnauthorized:unauthorized}));
-async function request(path:string,body?:unknown):Promise<any>{
+async function transport(path:string,body?:unknown):Promise<any>{
   if(!['session','login','logout','account-access','account-access/complete'].includes(path))return (await client()).request(path,body);
   try{
     if(path==='session'&&body!==undefined||path!=='session'&&body===undefined)throw new Error('method');
@@ -25,7 +29,33 @@ async function request(path:string,body?:unknown):Promise<any>{
   if(!parsed.success)throw new ApiClientError('网站返回的数据与接口定义不一致。',502,parsed.error.issues);
   return parsed.data;
 }
-export const api=Object.assign(request,{request,call:async(...args:Parameters<AdminClient['call']>)=>(await client()).call(...args)}) as AdminClient;
+async function perform(path:string,body:unknown,execute:()=>Promise<any>):Promise<any>{
+  const mutation = body !== undefined;
+  const authentication = ['login','logout','account-access/complete'].includes(path);
+  if (path === 'logout') adminQueries.suspend();
+  else if(authentication&&mutation)adminQueries.invalidate(true);
+  const end=mutation&&!authentication?adminQueries.beginWrite(affectedQueries(mutationDomains(path,body))):()=>{};
+  try {
+    const value = await execute();
+    if (path === 'login' || path === 'account-access/complete') adminQueries.resume();
+    if(path==='logout')signedOut();
+    return value;
+  }
+  catch(error){
+    if(path==='logout'){
+      // The response may have been lost after commit. Resolve the session, not a guess.
+      try{const session=await transport('session');if(session.authenticated)adminQueries.resume();else signedOut();}
+      catch{unauthorized();}
+    }
+    throw error;
+  }
+  finally { end(); }
+}
+async function request(path:string,body?:unknown):Promise<any>{return perform(path,body,()=>transport(path,body));}
+export const api=Object.assign(request,{request,call:async(...args:Parameters<AdminClient['call']>)=>{
+  const {adminApi}=await import('@weava/contracts/api');
+  return perform(adminApi[args[0]].path,'body' in args[1]?args[1].body:undefined,async()=>(await client()).call(...args));
+}}) as AdminClient;
 export async function waitJob(job: any, onProgress: (job: any) => void) {
   while (['queued', 'running'].includes(job.status)) {
     onProgress(job);
@@ -33,6 +63,7 @@ export async function waitJob(job: any, onProgress: (job: any) => void) {
     job = await api(`job/${job.id}`);
   }
   onProgress(job);
-  if (job.status !== 'complete') throw new Error(job.message);
+  adminQueries.invalidate(false,affectedQueries(jobDomains(job.operation??'')));
+  if (job.status !== 'complete') throw new ApiClientError(job.message,job.errorStatus??400,{jobId:job.id,cause:job.errorDetails});
   return job;
 }

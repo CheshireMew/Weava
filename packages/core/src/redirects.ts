@@ -1,7 +1,8 @@
-import { WeavaError } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { digest } from './storage.ts';
-import { normalizePath } from './paths.ts';
+import {WeavaError} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {normalizePath} from './paths.ts';
+import {siteRoutes} from './site-routes.ts';
 export interface RedirectEdit { source: string; target: string; entryId?: string; disabled?: boolean; revision: number | null }
 export function redirectRecords(site: Site) {
   const saved = new Map(site.store.list('redirect').map((row) => [row.id, row]));
@@ -29,7 +30,7 @@ export function previewRedirects(site: Site, input: { items: RedirectEdit[] }) {
     const value = { target, ...(item.entryId ? { entryId: item.entryId } : {}), ...(item.disabled ? { disabled: true } : {}) };
     records.set(source, value); return { ...item, source, target, value };
   });
-  const release = site.release(), paths = new Set(release?.entries.map((entry) => entry.path) ?? []);
+  const release = site.release(), paths = new Set(release?.entries.map((entry) => entry.path) ?? []), custom=siteRoutes(site.root);
   // Imported aliases may refer to working drafts. They are dormant until those
   // entries are public; an unrelated edit must not require publishing them.
   for (const [source, value] of records) if (value.entryId) {
@@ -47,7 +48,7 @@ export function previewRedirects(site: Site, input: { items: RedirectEdit[] }) {
       visited.add(target); target = records.get(target).target;
     }
     if (visited.has(target)) throw new WeavaError('网址跳转形成循环：' + source);
-    if (!paths.has(target)) throw new WeavaError('别名目标未对应公开页面：' + target);
+    if (!paths.has(target)&&!custom.matches(target)) throw new WeavaError('别名目标未对应公开页面：' + target);
   }
   return { items, review: digest({ items, release: release?.id }) };
 }

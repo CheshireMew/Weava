@@ -1,5 +1,6 @@
 ---
-import { metadataHead, type PageMetadata } from '@weava/core';
+import { metadataHead, imageAttributes, type PageMetadata } from '@weava/core';
+import { site } from '../runtime.ts';
 const { metadata } = Astro.props as { metadata: PageMetadata };
 ---
-<Fragment set:html={metadataHead(metadata)} />
+<Fragment set:html={metadataHead({...metadata, icon: imageAttributes(site, metadata.icon ?? '', 64).src})} />

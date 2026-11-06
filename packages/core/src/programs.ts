@@ -1,32 +1,26 @@
 import Database from 'better-sqlite3';
-import { join, resolve, relative } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync, renameSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { WeavaError, VERSION, API_VERSION } from '@weava/contracts';
-import { inside, walk, digest, uuid, now, atomicJson, SCHEMA_VERSION } from './storage.ts';
-import { verifyBackup, copyVerifiedBackup } from './backup.ts';
-import { withInstanceMaintenance, maintenanceEnvironment } from './instance-access.ts';
-import { freezeProgramDependencies, verifyProgramDependencies } from './program-dependencies.ts';
-import { pathWithin, canonicalPath } from './paths.ts';
+import {join,resolve,relative} from 'node:path';
+import {existsSync,readFileSync,mkdirSync,copyFileSync,renameSync} from 'node:fs';
+import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {WeavaError,VERSION,API_VERSION} from '@weava/contracts';
 
-interface ProgramManifest { version:1;id:string;framework:string;apiVersion:number;schemaVersion:number;nodeMajor:number;createdAt:string;dependencies:string;dependencyPackages:{name:string;hash:string}[];dependencyFiles:{path:string;hash:string}[];dependencyLinks:{path:string;target:string}[];files:{path:string;hash:string}[] }
+import {walk,atomicJson} from '../../runtime-common/src/files.ts';
+import {digest,uuid,now} from '../../runtime-common/src/identity.ts';
+import {SCHEMA_VERSION} from './schema-version.ts';
+import {verifyBackup,copyVerifiedBackup} from './backup.ts';
+import {withInstanceMaintenance,maintenanceEnvironment} from './instance-access.ts';
+import {freezeProgramDependencies} from './program-dependencies.ts';
+
+
+import {verifyProgram,type ProgramManifest} from '../../runtime-common/src/program-manifest.ts';
+export {verifyProgram,type ProgramManifest} from '../../runtime-common/src/program-manifest.ts';
 export function writeProgramManifest(output:string,dependencies:string) {
   const root=resolve(output), files=['admin','web','runtime'].flatMap((folder)=>walk(join(root,folder))).map((file)=>({path:relative(root,file).replaceAll('\\','/'),hash:digest(readFileSync(file))}));
   const snapshot=freezeProgramDependencies(root,dependencies);
   const pkg=JSON.parse(readFileSync(join(resolve(dependencies),'..','package.json'),'utf8'));
   const dependencyPackages=Object.keys({...pkg.dependencies,...pkg.devDependencies}).filter((name)=>!String(pkg.dependencies?.[name]??pkg.devDependencies?.[name]).startsWith('workspace:')).map((name)=>({name,hash:digest(readFileSync(join(dependencies,name,'package.json')))}));
-  const manifest:ProgramManifest={version:1,id:uuid(),framework:VERSION,apiVersion:API_VERSION,schemaVersion:SCHEMA_VERSION,nodeMajor:24,createdAt:now(),dependencies:join(root,'node_modules'),dependencyPackages,dependencyFiles:snapshot.files,dependencyLinks:snapshot.links,files};atomicJson(join(root,'program.json'),manifest);return manifest;
-}
-export function verifyProgram(input:string) {
-  const root=resolve(input), manifest=JSON.parse(readFileSync(join(root,'program.json'),'utf8')) as ProgramManifest;
-  if(manifest.version!==1||manifest.apiVersion!==API_VERSION||!Number.isSafeInteger(manifest.schemaVersion)||manifest.nodeMajor!==Number(process.versions.node.split('.')[0])||!Array.isArray(manifest.files)||!manifest.files.length)throw new WeavaError('程序清单或 Node/API 版本不兼容。');
-  for(const file of manifest.files){if(!file.path||!file.path.startsWith('admin/')&&!file.path.startsWith('web/')&&!file.path.startsWith('runtime/'))throw new WeavaError('程序清单包含非程序文件。');if(digest(readFileSync(inside(root,file.path)))!==file.hash)throw new WeavaError('程序文件校验失败：'+file.path);}
-  for(const required of ['runtime/weava.mjs','runtime/worker.mjs','runtime/check.mjs','web/server/entry.mjs','admin/index.html'])if(!manifest.files.some((file)=>file.path===required))throw new WeavaError('程序缺少入口：'+required);
-  if(!existsSync(join(root,'node_modules','better-sqlite3','package.json')))throw new WeavaError('程序依赖未就绪，请在构建时配置 Node 依赖目录。');
-  if(!Array.isArray(manifest.dependencyFiles)||!manifest.dependencyFiles.length||!Array.isArray(manifest.dependencyLinks))throw new WeavaError('此旧程序版本尚未固定运行依赖，请重新构建并检查后再选择。');
-  verifyProgramDependencies(root,{files:manifest.dependencyFiles,links:manifest.dependencyLinks});
-  return {root,manifest,manifestHash:digest(readFileSync(join(root,'program.json')))};
+  const manifest:ProgramManifest={version:1,id:uuid(),framework:VERSION,apiVersion:API_VERSION,schemaVersion:SCHEMA_VERSION,nodeMajor:24,platform:process.platform,upgradeProtocol:2,createdAt:now(),dependencies:'node_modules',dependencyPackages,dependencyFiles:snapshot.files,dependencyLinks:snapshot.links,files};atomicJson(join(root,'program.json'),manifest);return manifest;
 }
 function instanceFingerprint(root:string) {
   const databaseHash=(file:string)=>{const db=new Database(file,{readonly:true});try{const hash=createHash('sha256');const schema=db.prepare("SELECT name,sql FROM sqlite_master WHERE type='table' ORDER BY name").all() as {name:string;sql:string}[];hash.update(JSON.stringify(schema));for(const table of schema){for(const row of db.prepare('SELECT * FROM "'+table.name.replaceAll('"','""')+'"').iterate())hash.update(JSON.stringify(row));}return hash.digest('hex');}finally{db.close();}};
@@ -34,7 +28,10 @@ function instanceFingerprint(root:string) {
 }
 export function selectedProgram(siteRoot:string) {
   const path=join(siteRoot,'program.json');if(!existsSync(path))return null;
-  const pointer=JSON.parse(readFileSync(path,'utf8')), program=verifyProgram(pointer.root);
+  const pointer=JSON.parse(readFileSync(path,'utf8'));
+  const registered = pointer.version===2 ? JSON.parse(readFileSync(join(pointer.installationRoot,'installation.json'),'utf8')).programs[pointer.programId] : null;
+  if(pointer.version===2 && !registered)throw new WeavaError('网站程序尚未在本机登记。');
+  const program=verifyProgram(registered?.root??pointer.root);
   if(program.manifestHash!==pointer.manifestHash)throw new WeavaError('已选择的程序清单发生变化，请重新检查升级。');return {...program,pointer};
 }
 export function defaultProgram(framework:string){
@@ -92,4 +89,18 @@ export function recoverProgramUpgrade(siteRoot:string,force=false): {recovered:b
   atomicJson(path,{...journal,status:'rolled-back',retained,completedAt:now()});return {recovered:true,target,retained,restoredBackup:journal.plan.backup};
   });
 }
-export function programStatus(siteRoot:string){const root=resolve(siteRoot),path=join(root,'program.json');if(!existsSync(path))return {selected:false,framework:VERSION};const pointer=JSON.parse(readFileSync(path,'utf8'));return {selected:true,id:pointer.id,framework:pointer.framework,root:pointer.root,upgradePlanId:pointer.upgradePlanId};}
+/** Read display metadata; startup and upgrades perform full program verification. */
+export function programStatus(siteRoot:string){
+  const root=resolve(siteRoot),path=join(root,'program.json');
+  if(!existsSync(path))return {selected:false,framework:VERSION};
+  const pointer=JSON.parse(readFileSync(path,'utf8'));
+  if(pointer.version!==2)return {selected:true,id:pointer.id,framework:pointer.framework,root:pointer.root,siteBuildId:pointer.siteBuildId,upgradePlanId:pointer.upgradePlanId};
+  const registered=JSON.parse(readFileSync(join(pointer.installationRoot,'installation.json'),'utf8')).programs[pointer.programId];
+  if(!registered)throw new WeavaError('网站程序尚未在本机登记。');
+  // The manifest is sufficient for status. Walking and hashing every dependency
+  // here blocks the HTTP process on every admin page load and navigation.
+  const source=readFileSync(join(registered.root,'program.json'),'utf8');
+  if(digest(source)!==pointer.manifestHash)throw new WeavaError('已选择的程序清单发生变化，请重新检查升级。');
+  const manifest=JSON.parse(source) as ProgramManifest;
+  return {selected:true,id:manifest.id,framework:manifest.framework,root:resolve(registered.root),siteBuildId:pointer.siteBuildId,upgradePlanId:pointer.upgradePlanId};
+}

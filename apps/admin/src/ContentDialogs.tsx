@@ -1,124 +1,65 @@
-import { lazy, Suspense } from 'react';
-
-import { api } from './api.ts';
-
-
+import { Suspense } from 'react';
+import { retryableLazy as lazy } from './ErrorBoundary.tsx';
 import { Dialog } from './Dialog.tsx';
-
-import type { ContentWorkspace } from './useContentWorkspace.ts';
-
+import type { ContentDialogsModel } from './content-models.ts';
 const BulkEditor = lazy(() => import('./BulkEditor.tsx'));
-
 const RevisionDialog = lazy(() =>
   import('./Revisions.tsx').then((module) => ({ default: module.RevisionDialog })),
 );
 const MergeDialog = lazy(() =>
   import('./Revisions.tsx').then((module) => ({ default: module.MergeDialog })),
 );
-export function ContentDialogs({ model }: { model: ContentWorkspace }) {
-  const {
-    record,
-    session,
-    conflict,
-    setConflict,
-    history,
-    setHistory,
-    preview,
-    setPreview,
-    narrow,
-    setNarrow,
-    adopt,
-    showConflict,
-    state,
-    setError,
-    notify,
-    refresh,
-    bulkIds,
-    setBulkIds,
-    bulkOpen,
-    setBulkOpen,
-    items,
-  } = model;
-
+export function ContentDialogs({ model }: { model: ContentDialogsModel }) {
+  const { bulk, history, conflict, preview, setError } = model;
   return (
     <>
-      {bulkOpen && (
+      {bulk.open && (
         <Suspense fallback={null}>
           <BulkEditor
-            rows={items.filter((row: any) => bulkIds.includes(row.id))}
-            types={state.types}
-            terms={state.terms ?? []}
-            close={() => setBulkOpen(false)}
-            done={async () => {
-              await refresh();
-              if (record && bulkIds.includes(record.id)) adopt(await api(`entry/${record.id}`));
-              setBulkIds([]);
-            }}
+            rows={bulk.rows}
+            types={bulk.types}
+            terms={bulk.terms}
+            close={bulk.close}
+            done={bulk.done}
           />
         </Suspense>
       )}
-      {history && record && (
+      {history.items && history.record && (
         <Suspense fallback={null}>
           <RevisionDialog
-            id={record.id}
-            history={history}
-            onClose={() => setHistory(null)}
+            id={history.record.id}
+            history={history.items}
+            onClose={history.close}
             onError={setError}
-            onRestore={async (version) => {
-              const row = await api('restore', {
-                id: record.id,
-                version,
-                revision: record.revision,
-              });
-              adopt(row);
-              setHistory(null);
-              await refresh();
-              notify('历史版本已恢复为工作稿，公开页面保持原版本。');
-            }}
+            onRestore={history.restore}
           />
         </Suspense>
       )}
-      {conflict && (
+      {conflict.plan && (
         <Suspense fallback={null}>
           <MergeDialog
-            plan={conflict}
-            onClose={() => setConflict(null)}
+            plan={conflict.plan}
+            onClose={conflict.close}
             onError={setError}
-            onRemote={() => adopt(conflict.remote)}
-            onSave={async (choices) => {
-              try {
-                const row = await api('entry/merge/save', {
-                  id: conflict.id,
-                  baseRevision: conflict.base.revision,
-                  currentRevision: conflict.remote.revision,
-                  value: conflict.local,
-                  choices,
-                });
-                adopt(row);
-                await refresh();
-                notify('已保存合并结果。');
-              } catch (error: any) {
-                if (error.status === 409 && session.record) await showConflict(session.record);
-                throw error;
-              }
-            }}
+            onRemote={conflict.useRemote}
+            onSave={conflict.save}
           />
         </Suspense>
       )}
-      {preview && (
-        <Dialog className="preview-modal" label="实际页面预览" onClose={() => setPreview('')}>
+      {preview.url && (
+        <Dialog className="preview-modal" label="实际页面预览" onClose={preview.close}>
           <div className="modal-title">
             <h2>实际页面预览</h2>
-            <button aria-pressed={narrow} onClick={() => setNarrow(!narrow)}>
-              {narrow ? '桌面宽度' : '窄屏宽度'}
+            <button aria-pressed={preview.narrow} onClick={preview.toggle}>
+              {preview.narrow ? '桌面宽度' : '窄屏宽度'}
             </button>
-            <button onClick={() => setPreview('')}>关闭</button>
+            <button onClick={preview.close}>关闭</button>
           </div>
           <iframe
             title="实际页面预览"
-            src={preview}
+            src={preview.url}
             sandbox="allow-same-origin"
-            style={{ width: narrow ? 390 : '100%' }}
+            style={{ width: preview.narrow ? 390 : '100%' }}
           />
         </Dialog>
       )}

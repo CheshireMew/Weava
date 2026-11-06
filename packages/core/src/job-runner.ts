@@ -4,19 +4,28 @@ import { join } from 'node:path';
 import { WeavaError, type Job } from '@weava/contracts';
 import type { Site } from './site.ts';
 import { TaskService } from './task-service.ts';
-export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number }
+import {siteFeatures,operationFeature} from './site-features.ts';
+export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number; startPaused?: boolean }
 export class JobRunner {
   private children = new Map<string,ChildProcess>();
   private timer: ReturnType<typeof setInterval>;
   private stopped = false;
+  private paused = true;
+  pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); }
+  get pendingQueries() { return this.service.pending; }
+  get queryProcessCount() { return this.service.processCount; }
+  stopQueries() { this.service.stop(); }
   private concurrency: number;
   private service:TaskService;
   constructor(private site: Site, private options: JobRunnerOptions) {
+    this.paused = options.startPaused ?? true;
     this.service=new TaskService(site.root,options);
     this.concurrency = Math.max(1,Math.min(4,options.concurrency??2));
     this.timer=setInterval(()=>this.pump(),250); this.timer.unref();
   }
   enqueue(operation: string, payload: any, key?: string): Job {
+    const feature=operationFeature(operation);
+    if(feature&&!siteFeatures(this.site.root).includes(feature))throw new WeavaError('网站未启用此任务所需功能。',404);
     if (this.stopped) throw new WeavaError('服务正在停止，请稍后重试。',503);
     const job = this.site.store.raw.transaction(()=>{
       if (key) {
@@ -31,7 +40,7 @@ export class JobRunner {
     this.pump(); return this.site.job(job.id);
   }
   pump() {
-    if(this.stopped)return;
+    if(this.stopped || this.paused)return;
     // An idle poll is a read, not a write-lock acquisition. SQLite can answer this through jobs_status.
     if(!this.site.store.raw.prepare("SELECT 1 FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 LIMIT 1").get())return;
     for(;;){
@@ -82,7 +91,11 @@ export class JobRunner {
       await new Promise(resolve=>setTimeout(resolve,100));
     }
   }
-  query(operation:string,payload:any){return this.service.run(operation,payload);}
+  query(operation:string,payload:any){
+    const feature=operationFeature(operation);
+    if(feature&&!siteFeatures(this.site.root).includes(feature))return Promise.reject(new WeavaError('网站未启用此任务所需功能。',404));
+    return this.service.run(operation,payload);
+  }
   /** Running workers finish independently. Never close their instance leases or kill unrelated processes. */
   stop() {this.stopped=true;clearInterval(this.timer);this.service.stop();}
 }

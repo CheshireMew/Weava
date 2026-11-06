@@ -1,9 +1,10 @@
-import { useEffect, useState, useRef, useId } from 'react';
+import {TabList} from './TabList.tsx';
+import {useEffect,useState,useRef,useId} from 'react';
 import QRCode from 'qrcode';
-import { api } from './api.ts';
-import type { ApiOutput } from '@weava/contracts/api';
-import { useAuthCooldown } from './useAuthCooldown.ts';
-import { PasswordField } from './PasswordField.tsx';
+import {api} from './api.ts';
+import type {ApiOutput} from '@weava/contracts/api';
+import {useAuthCooldown} from './useAuthCooldown.ts';
+import {PasswordField} from './PasswordField.tsx';
 const eventNames:Record<string,string>={
   'account-initialized':'初始化账户','password-reset':'重置密码','account-recovered':'本机恢复账户',
   'account-updated':'修改账户资料或密码','login-succeeded':'登录成功','login-failed':'身份验证失败',
@@ -64,10 +65,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
       {!!cooldown.seconds&&<p role="status">请在 {cooldown.seconds} 秒后重试。</p>}
     </div>;
   return <div className="panel account-panel" aria-busy={busy}><div className="panel-title"><h1>账户</h1></div>
-    <div className="account-section-navigation"><nav className="library-status-tabs account-tabs" role="tablist" aria-label="账户分区">{sections.map(([key,label],index)=><button key={key} role="tab" id={id+key} aria-selected={section===key} aria-controls={id+'panel'} tabIndex={section===key?0:-1} onClick={()=>setSection(key)} onKeyDown={event=>{
-      const next=event.key==='ArrowRight'?(index+1)%sections.length:event.key==='ArrowLeft'?(index+sections.length-1)%sections.length:event.key==='Home'?0:event.key==='End'?sections.length-1:-1;
-      if(next>=0){event.preventDefault();setSection(sections[next][0]);document.getElementById(id+sections[next][0])?.focus();}
-    }}>{label}</button>)}</nav></div>
+    <div className="account-section-navigation"><TabList className="library-status-tabs account-tabs" label="账户分区" items={sections.map(([id,label])=>({id,label}))} selected={section} onSelect={setSection} idFor={key=>id+key} panelFor={()=>id+'panel'}/></div>
     <section className="panel-section" role="tabpanel" id={id+'panel'} aria-labelledby={id+section}>
     {section==='profile'&&<section className="form-card"><h2>账户资料</h2><form onSubmit={event=>{event.preventDefault();act(async()=>{
       if(newPassword!==repeat)throw new Error('两次新密码不一致。');

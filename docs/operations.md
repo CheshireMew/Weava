@@ -1,16 +1,42 @@
 # 运行、备份与恢复
 
+0.2 的正式运行入口为安装目录的 `weava.cmd`，创建、启动、升级和接管方法见[共用程序与多个网站](shared-runtime.md)。网站不再隐式跟随默认构建；普通打开不会升级旧数据库。本文原有备份和维护 API 仍可通过安装入口按 `--site 网站编号` 调用，具体数据操作由网站选定的编译版本执行。
+
 本地和服务器使用同一份生产程序及站点数据。Node 服务同时提供 Astro 前台、React 后台静态资源及 API。默认监听 127.0.0.1，显式设置 HOST 可更改；服务器 HTTPS 可由已有反向代理提供。当前交付只在 Windows 验收，没有执行公网切换。
 
-每次构建先完整写入 D:/Tools/cache/weava/programs 下的新目录，成功核验后才原子更新 dist/current.json。原有命令入口读取这一个选择，失败构建保留现场，当前程序和后台资源继续可用。源码、站点数据库和媒体不放进公开静态目录；媒体通过受控路径响应。运行目录内的 runtime.json 记录本实例进程，不允许同一个实例并行启动。
+正式构建写入新程序目录，核验成功后用 `program add` 登记，再逐站 `site update`。源码开发仍保留 `dist/current.json`，它不改变已接管网站的部署选择。失败构建保留现场，当前程序和后台资源继续可用。源码、站点数据库和媒体不放进公开静态目录；媒体通过受控路径响应。托管器结合进程身份与健康响应判断存活，不仅凭旧 `runtime.json`，也不允许同一个实例并行启动。
 
 ```powershell
-$env:WEAVA_FRAMEWORK='E:\Code\Weava'
-$env:WEAVA_SITE='E:\Code\WeavaSites\demo'
-$env:HOST='127.0.0.1'
-$env:PORT='4322'
-& 'D:\Tools\NodeJS\node.exe' E:\Code\Weava\apps\web\dist\server\entry.mjs
+E:\WeavaRuntime\weava.cmd site start demo --autostart
+E:\WeavaRuntime\weava.cmd site status demo
 ```
+
+## Windows 服务器部署
+
+多站后台运行和开机恢复使用安装 CLI 的 `host` 命令；反向代理片段通过 `site deployment-info` 输出。原有 `scripts/server.ps1` 和 [nginx 配置模板](../deploy/nginx.conf.example) 保留用于检查公网部署环境和权限。此入口固定 Node 监听 `127.0.0.1`，只信任本机代理并启用 HTTPS 请求检查。证书和防火墙由服务器实际配置，普通本地 `start` 继续支持 HTTP。
+
+先修复、构建生产程序并初始化站点。旧站点升级到数据库版本 12 时，由现有离线迁移机制先保存数据库副本，再补建私密媒体和引用索引，包括旧修订和已经归档的内容；归档文件不改写。升级时必须停站并等待任务退出，不要让旧服务和新程序同时访问该站点。
+
+在 Windows 创建专用普通账户，例如 `weava`；不要用管理员账户运行网站。站点、备份和程序分别存放，站点和备份目录预先创建，不允许目录链接或互相嵌套。由管理员为指定的两个数据目录设置权限；这一步会替换其文件权限，保留服务账户、SYSTEM 和 Administrators：
+
+```powershell
+.\scripts\server.ps1 -Site E:\WeavaSites\my-site -BackupRoot D:\WeavaBackups -PublicOrigin https://example.com -Account "$env:COMPUTERNAME\weava" -Prepare
+```
+
+服务账户只需要读取已构建的程序和 Node 工具；程序目录不要给其它普通用户写权限。证书私钥只允许代理服务账户和管理员读取。完整备份包含账户密钥和 CLI 令牌，与站点采用相同的私有权限，不放在公开网页目录。
+
+复制模板作为 nginx 配置，替换 `example.com`、证书路径和需要时的 Node 端口，使用代理自己的 `nginx -t` 检查。模板只将请求转交 Node，不直接公开任何本地目录；覆盖客户端提供的转发头，设置连接、请求频率、请求大小和超时限制。防火墙仅向公网开放代理的 80/443 端口，保留服务器必需的远程管理规则；Node 端口不得向公网开放。模板中的 HSTS 要求域名持续提供有效 HTTPS，证书续期由服务器维护。
+
+以服务账户先检查，再启动；进程管理器使用同一入口：
+
+```powershell
+.\scripts\server.ps1 -Site E:\WeavaSites\my-site -BackupRoot D:\WeavaBackups -PublicOrigin https://example.com -CheckOnly
+.\scripts\server.ps1 -Site E:\WeavaSites\my-site -BackupRoot D:\WeavaBackups -PublicOrigin https://example.com
+```
+
+`-CheckOnly` 只核对参数、目录与权限，不代表证书或公网防火墙已经验证。启动入口设置 `WEAVA_REQUIRE_HTTPS=1`：未通过可信代理报告 HTTPS 的网页和 API 请求返回 403；只保留不含秘密的健康/会话状态探针，以及来自本机回环地址、持有正确 Bearer 凭据的 CLI 请求。伪造 `X-Forwarded-Proto` 的外部来源不能绕过检查。`PublicOrigin` 用于生成 HTTPS 账户链接，网站设置中的域名也应配置为同一地址。
+
+上线时从另一台机器核实 HTTP 跳转 HTTPS、证书链有效、Node 端口不可达、匿名管理接口返回 401、私密页面和附件返回 404、登录 Cookie 带 Secure；用本站小样本确认统计正常。项目本机验证不会代替这一步真实服务器检查。
 
 站点没有通用默认密码，也不开放注册。新站点使用不带 `--password-file` 的 `init` 后，第一次 `start` 或 `dev` 会在终端显示后台地址和一次性设置链接。打开链接，在网页中选择自己的账户名和密码，再用新账户登录。普通后台地址不能直接初始化账户；只有持有本机生成链接的人才能设置。
 
@@ -70,6 +96,10 @@ scripts/run.ps1 --site E:\Code\WeavaSites\restored backup recover
 
 恢复日志保存在站点旁边的 .restore.json。文件占用或中断时保留暂存、旧目录和日志，使用 recover 核对恢复，不能直接删掉旧目录。缓存、历史修订、媒体、备份和旧构建没有自动清理策略；需要整理时先归档并核对。
 
+恢复会核对备份选定的已安装程序，重新建立网站构建的依赖关联，并实际加载、检查专用页面和业务数据版本。缺少对应程序或依赖时不会报告恢复成功。在线备份不复制未完成上传的暂存字节，因此恢复后的这些上传会明确过期，相关未完成媒体任务以 409 结束；请重新选择文件上传，不能从旧偏移继续。原网站的上传进度不受影响。
+
+源码验证使用 `pnpm check` 检查 TypeScript、生成的 API 文档和 Astro 模板，`pnpm verify` 继续运行架构回归及编译后 HTTP 生命周期检查。HTTP 检查只编译测试服务，不生成或选择正式程序版本；缺少入口时不会默默跳过。`scripts/setup.ps1` 在 D 盘准备固定版本的模板校验工具，可通过 `WEAVA_VALIDATION_TOOLS` 指定位置；测试目录可通过 `WEAVA_TEST_OUTPUT` 指定，默认位于 `D:/Tools/cache/weava/tasks/architecture-repair-20261106`。已有相同源码的 HTTP 编译结果经校验后复用。
+
 ## 历史维护
 
 后台“历史归档”先按时间和至少保留数量预检，保护当前工作稿、当前公开版本、近期版本和定时计划需要的修订。执行时把旧修订、公开清单及所需不可变对象写到 `archives/history`，核对校验值后才从日常数据库移出。没有文件删除，媒体和完整备份继续保留。历史中用到的私密媒体仍受保护。
@@ -109,7 +139,7 @@ scripts/run.ps1 --site E:\WeavaSites\my-site start
 
 有反向代理时设置 WEAVA_TRUST_PROXY=1，并用 WEAVA_TRUSTED_PROXIES 指定直接连接服务的代理 IP，多个地址用逗号分隔，默认只信任本机回环地址。只有受信任代理提供的 X-Forwarded-For 和 X-Forwarded-Proto 会影响互动额度、统计来源、登录限制及 HTTPS Cookie。未启用时始终使用直接连接来源和实际请求协议。
 
-写请求在扩展调用之前检查来源，正式数据接口只接收 JSON。管理页面限制同源嵌入、脚本和连接，保留同源设计画布；响应禁止类型嗅探，敏感接口和已登录页面不缓存。公开 `/__health` 只提供就绪状态和公开版本编号；本机路径、进程编号须通过已登录会话或 CLI Bearer 令牌读取。意外服务错误只在服务日志记录细节，网页不显示本机路径。HTML 附件使用隔离沙箱，SVG 禁止脚本，PDF 等附件作为下载提供；上传会检查基础文件签名。
+写请求在扩展调用之前检查来源，正式数据接口只接收 JSON。管理页面限制同源嵌入、脚本和连接，保留同源设计画布；响应禁止类型嗅探，敏感接口和已登录页面不缓存。后台列表和报表仅在当前登录会话的内存中短期复用，保存或发布后重新读取，退出或会话失效时清除。公开媒体在浏览器和 CDN 缓存一小时，登录状态不会禁用公开图片缓存；私密媒体仍验证权限并使用 private, no-store。公开 `/__health` 只提供就绪状态和公开版本编号；本机路径、进程编号须通过已登录会话或 CLI Bearer 令牌读取。意外服务错误只在服务日志记录细节，网页不显示本机路径。HTML 附件使用隔离沙箱，SVG 禁止脚本，PDF 等附件作为下载提供；上传会检查基础文件签名。
 
 实例旁边的 `.access.sqlite` 记录网页服务、任务和统计连接的进程占用；恢复、程序升级、数据库升级、压缩和离线导入持有排他占用，期间新写入连接会被拒绝。这个协调库不进入备份，恢复换目录后仍使用同一个规范路径。正常重启允许服务与仍在运行的任务同时连接，不会把存活任务误判为中断；进程退出后的记录在下次准入时回收。不要手动改写占用记录。
 

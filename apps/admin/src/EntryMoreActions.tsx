@@ -1,9 +1,8 @@
-import { Archive } from 'lucide-react';
-import { api } from './api.ts';
-import type { ContentWorkspace } from './useContentWorkspace.ts';
+import {Archive} from 'lucide-react';
+import type {EntryMoreActionsModel} from './content-models.ts';
 
-export function EntryMoreActions({ model }: { model: Pick<ContentWorkspace, 'record' | 'state' | 'session' | 'update' | 'persist' | 'setError' | 'refresh' | 'notify' | 'select'> }) {
-  const { record, state, session, update, persist, setError, refresh, notify, select } = model;
+export function EntryMoreActions({model}:{model:EntryMoreActionsModel}) {
+  const {record,withdraw}=model;
   if (!record) return null;
   return <div className="entry-more-actions">
 
@@ -29,28 +28,12 @@ export function EntryMoreActions({ model }: { model: Pick<ContentWorkspace, 'rec
           导出内容
         </button>
         <button
-          onClick={async () => {
-            const row = await persist();
-            if (!row) return;
-            await api('withdraw', { id: row.id, revision: row.revision });
-            await refresh();
-            await select(row.id);
-          }}
+          onClick={()=>withdraw()}
         >
           撤下为草稿
         </button>
         <button
-          onClick={async () => {
-            const row = await persist();
-            if (!row) return;
-            await api('withdraw', {
-              id: row.id,
-              revision: row.revision,
-              archive: true,
-            });
-            await refresh();
-            await select(row.id);
-          }}
+          onClick={()=>withdraw(true)}
         >
           <Archive size={14} />
           归档

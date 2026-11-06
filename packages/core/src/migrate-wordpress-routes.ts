@@ -1,15 +1,17 @@
-import { readFileSync, existsSync, mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
-import { load } from 'cheerio';
-import { z, entrySchema, WeavaError, type Entry } from '@weava/contracts';
-import { Site } from './site.ts';
-import { withInstanceMaintenance } from './instance-access.ts';
-import { normalizePath } from './paths.ts';
-import { digest, atomicJson, now } from './storage.ts';
-import { sourceContentHash } from './source-content.ts';
-import { wordpressCompatibilityExtension } from './wordpress-compat.ts';
-import { bindBlockTerms } from './taxonomy.ts';
+import {readFileSync,existsSync,mkdirSync,copyFileSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
+import {load} from 'cheerio';
+import {z,entrySchema,WeavaError,type Entry} from '@weava/contracts';
+import {Site} from './site.ts';
+import {withInstanceMaintenance} from './instance-access.ts';
+import {normalizePath} from './paths.ts';
+import {digest,now} from '../../runtime-common/src/identity.ts';
+import {atomicJson} from '../../runtime-common/src/files.ts';
+import {sourceContentHash} from './source-content.ts';
+import {importedDocument} from './imported-document.ts';
+import {wordpressCompatibilityExtension} from './wordpress-compat.ts';
+import {bindBlockTerms} from './taxonomy.ts';
 
 const archiveSchema = z.object({
   contentType: z.string().default('post'), category: z.string().optional(), tag: z.string().optional(),
@@ -117,7 +119,7 @@ export async function migrateWordPressRoutes(input: string, target: string, dryR
         if ((route.kind === 'article' || route.kind === 'moment') && route.html !== undefined) {
           if (!unchangedImport) conflicts.push({ path, reason: '目标正文已被编辑，不能用旧站渲染结果替换' });
           else {
-            value.document = { version: 1, format: 'html', source: rewrite(route.html, path, true) };
+            value.document = importedDocument(rewrite(route.html, path, true));
             const originals: Record<string, string> = {}, $ = load(route.html, null, false);
             $('img').each((_i, node) => {
               const original = $(node).attr('data-src') || $(node).attr('data-original') || $(node).attr('data-lazy-src') || $(node).attr('src');

@@ -2,7 +2,7 @@ import { build as viteBuild } from 'vite';
 import { build } from 'esbuild';
 import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
-import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
 import { inside, uuid } from '../packages/core/src/storage.ts';
 import { extensionManifestSchema } from '../packages/core/src/extension-manager.ts';
 import { writeProgramManifest, verifyProgram, selectDefaultProgram } from '../packages/core/src/programs.ts';
@@ -55,27 +55,12 @@ await build({
   outfile: join(runtimeOutput, 'weava.mjs'),
 });
 await build({...shared,entryPoints:[join(root,'packages/core/src/program-check.ts')],outfile:join(runtimeOutput,'check.mjs')});
-const siteRoot = process.env.WEAVA_SITE;
-if (siteRoot) {
-  const folder = join(siteRoot, 'extensions'), manifest = join(folder, 'manifest.json');
-  const outputs = existsSync(manifest) ? extensionManifestSchema.parse(JSON.parse(readFileSync(manifest, 'utf8'))).extensions.map((item) => inside(folder, item.file)) : [join(folder, 'index.mjs')];
-  for (const outfile of outputs) {
-    const source = outfile.replace(/\.mjs$/, '.ts');
-    if (!existsSync(source)) { if (existsSync(manifest) && !existsSync(outfile)) throw new Error('扩展源码或编译结果不存在：' + source); continue; }
-    await build({
-    entryPoints: [source],
-    outfile,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    target: 'node24',
-    nodePaths: [join(root, 'node_modules')],
-    banner: {
-      js: 'import {createRequire as _createRequire} from "node:module"; const require=_createRequire(import.meta.url);',
-    },
-  });
-  }
-}
+await build({...shared,entryPoints:[join(root,'packages/core/src/site-maintenance.ts')],outfile:join(runtimeOutput,'site-maintenance.mjs')});
+await build({...shared,entryPoints:[join(root,'packages/core/src/site-public.ts')],outfile:join(runtimeOutput,'site-public.mjs')});
+await build({...shared,entryPoints:[join(root,'packages/site-runtime/src/build.ts')],outfile:join(runtimeOutput,'site-build.mjs')});
+await build({...shared,entryPoints:[join(root,'packages/site-runtime/src/entry.ts')],outfile:join(runtimeOutput,'site-entry.mjs')});
+await build({...shared,packages:undefined,banner:{js:'import {createRequire as _managerRequire} from "node:module";const require=_managerRequire(import.meta.url);'},entryPoints:[join(root,'packages/manager/src/index.ts')],outfile:join(runtimeOutput,'manager.mjs')});
+copyFileSync(join(root,'packages/site-runtime/src/sdk.d.ts'),join(runtimeOutput,'site-public.d.ts'));
 writeProgramManifest(output,join(root,'node_modules'));
 verifyProgram(output);
 // The CLI also exposes offline migration commands. Their imports must resolve
@@ -83,6 +68,9 @@ verifyProgram(output);
 const smoke=spawnSync(process.execPath,[join(runtimeOutput,'weava.mjs'),'--help'],{cwd:output,windowsHide:true,encoding:'utf8',env:{...process.env,WEAVA_FRAMEWORK:root}});
 if(smoke.error)throw smoke.error;
 if(smoke.status!==0)throw new Error('独立 CLI 启动检查失败：'+smoke.stderr);
+
+const managerSmoke=spawnSync(process.execPath,[join(runtimeOutput,'manager.mjs'),'--help'],{cwd:output,windowsHide:true,encoding:'utf8'});
+if(managerSmoke.error||managerSmoke.status!==0)throw new Error('独立管理入口启动检查失败：'+(managerSmoke.error?.message??managerSmoke.stderr));
 if(selectDefault){
   mkdirSync(join(root,'dist'),{recursive:true});
   selectDefaultProgram(root,output);

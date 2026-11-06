@@ -1,9 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as storage from '../packages/core/src/storage.ts';
 import { Site, createContent, saveContentView, contentViews, saveCreationTemplate, creationTemplates, exportSite, importSite, queryDrafts } from '@weava/core';
-const sites: Site[] = [], root = 'D:/Tools/cache/weava/tests/authoring-tools-' + Date.now(); let sequence = 0;
+const sites: Site[] = [], root = 'D:/Tools/cache/weava/tasks/random-permalinks-20261105/authoring-' + Date.now(); let sequence = 0;
 const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); site.saveType({ id: 'note', label: '笔记', pathPrefix: '/notes/', template: 'article', fields: [{ key: 'topic', label: '主题', type: 'select', options: ['写作', '代码'], filterable: true, defaultValue: '写作' }] }, null); return site; };
-afterEach(() => sites.splice(0).forEach((site) => site.close()));
+afterEach(() => {vi.restoreAllMocks();sites.splice(0).forEach((site) => site.close());});
 describe('saved authoring tools', () => {
+  it('keeps eight hexadecimal characters and retries a collision with another draft',()=>{
+    const site=create(),first=createContent(site,{kind:'content',type:'note'});expect(first.value.path).toBe('/notes/'+first.id.slice(0,8)+'/');
+    const random=vi.spyOn(storage,'uuid').mockReturnValueOnce((first.id.slice(0,8)+'-aaaa-4aaa-aaaa-aaaaaaaaaaaa') as ReturnType<typeof storage.uuid>).mockReturnValueOnce('abcdef12-bbbb-4bbb-bbbb-bbbbbbbbbbbb');
+    const second=createContent(site,{kind:'content',type:'note'});expect(second.value.path).toBe('/notes/abcdef12/');expect(random).toHaveBeenCalledTimes(2);
+    expect(site.store.get('entry',first.id)?.value.path).toBe(first.value.path);
+  });
+  it('does not reuse a published old address or an existing redirect',()=>{
+    const site=create(),first=createContent(site,{kind:'content',type:'note',path:'/notes/11223344/'});site.saveEntry({...first.value,status:'published'},first.revision);site.publish();
+    const current=site.store.get('entry',first.id)!;site.saveEntry({...current.value,path:'/notes/moved/'},current.revision);
+    site.store.put('redirect','/notes/55667788/',{target:'/notes/11223344/',entryId:first.id},null);
+    const random=vi.spyOn(storage,'uuid').mockReturnValueOnce('11223344-aaaa-4aaa-aaaa-aaaaaaaaaaaa').mockReturnValueOnce('55667788-bbbb-4bbb-bbbb-bbbbbbbbbbbb').mockReturnValueOnce('99aabbcc-cccc-4ccc-cccc-cccccccccccc');
+    expect(createContent(site,{kind:'content',type:'note'}).value.path).toBe('/notes/99aabbcc/');expect(random).toHaveBeenCalledTimes(3);
+  });
+  it('fails cleanly if random generation repeatedly returns occupied addresses',()=>{
+    const site=create();createContent(site,{kind:'content',type:'note',path:'/notes/11223344/'});const count=site.store.list('entry').length;
+    vi.spyOn(storage,'uuid').mockReturnValue('11223344-aaaa-4aaa-aaaa-aaaaaaaaaaaa');expect(()=>createContent(site,{kind:'content',type:'note'})).toThrow(/未使用的网址/);expect(site.store.list('entry').length).toBe(count);
+  });
   it('persists named typed filters with conflict checks, archive and restore', () => {
     const site = create(); createContent(site, { kind: 'content', type: 'note', title: '写作笔记' });
     const view = saveContentView(site, { id: 'writing', name: '写作草稿', query: { kind: 'content', type: 'note', status: 'draft', fields: { topic: '写作' } } }, null);

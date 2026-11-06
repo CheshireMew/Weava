@@ -1,4 +1,5 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, Suspense } from 'react';
+import {retryableLazy as lazy} from './ErrorBoundary.tsx';
 import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
 import { PanelSections } from './PanelSections.tsx';
@@ -18,6 +19,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
   const [dialog, setDialog] = useState<'location' | 'verify' | null>(null), [nextPath, setNextPath] = useState('');
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
+  const contentEnabled = !state.features || state.features.includes('content');
   return <div className="panel operations-panel">
     <div className="panel-title"><h1>备份与维护</h1><button onClick={refresh}>刷新</button></div>
     <PanelSections label="备份与维护分类" sections={[
@@ -27,7 +29,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
         <button className="primary" disabled={!path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
         <button onClick={() => setDialog('verify')}>检查已有备份</button>
       </section> },
-      { id: 'import', label: '导入与导出', content: <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense> },
+      ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense> },
       { id: 'publication', label: '发布记录', content: <>
         <section className="form-card"><h2>网站更新</h2>
           <p>一次发布已有公开内容和网站设置的修改。新文章请在编辑页发布。</p>
@@ -43,7 +45,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
             }}>恢复这个公开版本</button>
           </div>)}</div>
         </section>
-      </> },
+      </> }] : []),
       { id: 'tasks', label: '任务记录', content: <section className="form-card">
         <h2>任务记录</h2>{!state.jobs.length && <p className="muted">暂无任务记录。</p>}
         <div className="release-list">{state.jobs.map((job: any) => <div key={job.id}>
@@ -61,7 +63,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
             {!!usage.backups.length && <section className="backup-locations"><h3>备份位置</h3>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</section>}
           </>}
         </section>
-        <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>
+        {contentEnabled && <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>}
 
       </> },
     ]} />

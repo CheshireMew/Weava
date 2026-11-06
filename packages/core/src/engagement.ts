@@ -13,6 +13,8 @@ export interface ArticleComment {
   parentId?: string | null;
   replyTo?: string | null;
   isOwner?: boolean;
+  likes?: number;
+  liked?: boolean;
 }
 export class Engagement {
   private clock: () => number;
@@ -49,8 +51,22 @@ export class Engagement {
     const counts = this.counts(entryId);
     const liked = token ? !!this.db.prepare('SELECT 1 FROM article_likes WHERE entry_id=? AND reader_key=?').get(entryId, this.reader(token)) : false;
     const offset = (Math.max(1, Math.min(10000, Math.floor(page) || 1)) - 1) * 20;
-    const rows = this.db.prepare(`SELECT id,entry_id entryId,author,body,created_at createdAt FROM article_comments WHERE entry_id=? AND status='visible' ORDER BY created_at ${sort === 'oldest' ? 'ASC' : 'DESC'},rowid ${sort === 'oldest' ? 'ASC' : 'DESC'} LIMIT 20 OFFSET ?`).all(entryId, offset) as ArticleComment[];
-    return { ...counts, liked, items: rows.map(row=>this.decorate(row)), hasMore: offset + rows.length < counts.comments };
+    const rows = this.db.prepare(`SELECT c.id,c.entry_id entryId,c.author,c.body,c.created_at createdAt,
+      (SELECT COUNT(*) FROM comment_likes WHERE comment_id=c.id) likes,
+      EXISTS(SELECT 1 FROM comment_likes WHERE comment_id=c.id AND reader_key=?) liked
+      FROM article_comments c WHERE c.entry_id=? AND c.status='visible' ORDER BY c.created_at ${sort === 'oldest' ? 'ASC' : 'DESC'},c.rowid ${sort === 'oldest' ? 'ASC' : 'DESC'} LIMIT 20 OFFSET ?`).all(token ? this.reader(token) : '', entryId, offset) as (Omit<ArticleComment,'liked'> & {liked:number})[];
+    return { ...counts, liked, items: rows.map(row=>this.decorate({...row,liked:!!row.liked})), hasMore: offset + rows.length < counts.comments };
+  }
+  setCommentLike(entryId:string,commentId:string,token:string,liked:boolean,network='unknown') {
+    const reader=this.reader(token);
+    this.rate('comment-likes',this.hash('network:'+network),120,60000);
+    return this.db.transaction(()=>{
+      if(!this.db.prepare("SELECT 1 FROM article_comments WHERE id=? AND entry_id=? AND status='visible'").get(commentId,entryId))throw new WeavaError('评论不存在或暂不可见。',404);
+      if(liked)this.db.prepare('INSERT OR IGNORE INTO comment_likes VALUES(?,?,?)').run(commentId,reader,new Date(this.clock()).toISOString());
+      else this.db.prepare('DELETE FROM comment_likes WHERE comment_id=? AND reader_key=?').run(commentId,reader);
+      const count=(this.db.prepare('SELECT COUNT(*) count FROM comment_likes WHERE comment_id=?').get(commentId) as {count:number}).count;
+      return {id:commentId,likes:count,liked};
+    }).immediate();
   }
   setLike(entryId: string, token: string, liked: boolean, network = 'unknown') {
     const reader = this.reader(token);

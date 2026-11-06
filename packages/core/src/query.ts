@@ -1,71 +1,35 @@
-import { WeavaError, referenceMatches, fieldSchema, type FieldDefinition, type ContentQuery, type PageResult, type PublishedEntry, type ContentType, type Term } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { wordpressArchivePage, wordpressPagePath } from './wordpress-archives.ts';
-import type { Entry } from '@weava/contracts';
-import { queryPublicCatalog } from './public-query.ts';
-import { entryCover } from './entry-cover.ts';
+import {WeavaError,fieldSchema,isNoteType,type FieldDefinition,type ContentQuery,type PageResult,type PublishedEntry,type ContentType,type Term} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {wordpressArchivePage,wordpressPagePath} from './wordpress-archives.ts';
+import type {Entry} from '@weava/contracts';
+import {queryPublicCatalog} from './public-query.ts';
+import {paginate,validateQueryFields,taxonomyIds,queryOrder,compareContent,contentSqlFilters} from './query-rules.ts';
+export {paginate,validateQueryFields,taxonomyIds} from './query-rules.ts';
 export function queryPublished(site: Site, input: ContentQuery = {}, search = false, releaseId?: string) {
   const release=site.visibleRelease(false,releaseId);
   return release?queryPublicCatalog(site.store.raw,release,input,search):paginate([],input.page??1,input.pageSize??24);
 }
-export function queryDrafts(site: Site, input: ContentQuery & { status?: string; visibility?: string } = {}) {
+export function queryDrafts(site: Site, input: ContentQuery & { status?: string; visibility?: string; format?:'article'|'note' } = {}) {
   const page=input.page??1,pageSize=input.pageSize??24;paginate([],page,pageSize);
   const types=site.store.list('type').map(row=>row.value as ContentType),terms=site.terms().map(row=>row.value as Term);
   validateQueryFields(input,types);
-  const clauses:string[]=[],args:any[]=[];
+  const {clauses,args}=contentSqlFilters(input,terms,{kind:'l.kind',type:'l.type',author:"json_extract(l.summary,'$.author')",search:'l.search',metadata:'l.summary',fields:'l.fields'});
   const eq=(sql:string,value:any)=>{clauses.push(sql);args.push(value);};
-  if(input.kind)eq('l.kind=?',input.kind);
-  if(input.type)eq('l.type=?',input.type);
+  if(input.format){const ids=types.filter(type=>input.format==='note'?isNoteType(type):!isNoteType(type)).map(type=>type.id);if(ids.length){clauses.push('l.type IN ('+ids.map(()=>'?').join(',')+')');args.push(...ids);}else clauses.push('0=1');}
   if(input.visibility&&input.visibility!=='all')eq('l.visibility=?',input.visibility);
   if(input.status==='published')clauses.push('p.entry_id IS NOT NULL');
   else if(input.status==='changed')clauses.push('p.entry_id IS NOT NULL AND p.revision<>l.revision');
   else if(input.status&&input.status!=='all')eq('p.entry_id IS NULL AND l.status=?',input.status);
-  if(input.query)eq('instr(l.search,?)>0',input.query.normalize('NFKC').toLowerCase());
-  for(const [kind,key,filter]of [['category','categories',input.category],['tag','tags',input.tag]] as const)if(filter){
-    const ids=[...taxonomyIds(terms,kind,filter),filter];
-    clauses.push(`(EXISTS(SELECT 1 FROM json_each(l.summary,?) WHERE value=?) OR EXISTS(SELECT 1 FROM json_each(l.summary,?) WHERE value IN (${ids.map(()=>'?').join(',')})))`);
-    args.push('$.'+key,filter,'$.termIds.'+key,...ids);
-  }
-  for(const [key,value]of Object.entries(input.fields??{})){
-    clauses.push(`EXISTS(SELECT 1 FROM json_each(l.fields,?) WHERE CASE type WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' ELSE CAST(value AS TEXT) END=?)`);
-    args.push('$.'+JSON.stringify(key),String(value));
-  }
-  const orders:Record<string,string>={title:'l.title COLLATE NOCASE ASC','-title':'l.title COLLATE NOCASE DESC',updatedAt:'l.updated_at ASC','-updatedAt':'l.updated_at DESC',publishedAt:'l.published_at ASC','-publishedAt':'l.published_at DESC',date:'l.published_at DESC',oldest:'l.published_at ASC'};
-  if(input.sort&&!orders[input.sort])throw new WeavaError('排序方式无效。');
+  const order=queryOrder(input.sort);
   const from=`FROM entry_list l LEFT JOIN published_entry_revisions p ON p.entry_id=l.id AND p.release_id=(SELECT value FROM state WHERE key='release')${clauses.length?' WHERE '+clauses.join(' AND '):''}`;
   const total=(site.store.raw.prepare('SELECT COUNT(*) n '+from).get(...args) as {n:number}).n;
-  const selected=site.store.raw.prepare('SELECT l.id,l.revision,l.summary,l.fields,l.updated_at,p.revision published_revision '+from+' ORDER BY '+orders[input.sort??'date']+',l.id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;summary:string;fields:string;updated_at:string;published_revision:number|null}[];
+  const selected=site.store.raw.prepare('SELECT l.id,l.revision,l.summary,l.fields,l.updated_at,p.revision published_revision '+from+' ORDER BY '+order.draft+',l.id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;summary:string;fields:string;updated_at:string;published_revision:number|null}[];
   return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:selected.map(row=>{
     const value=JSON.parse(row.summary),fields=JSON.parse(row.fields),columns=types.find(type=>type.id===value.type)?.admin?.columns??[];
-    if (!value.cover && value.kind === 'content') {
-      const entry = site.store.get('entry', row.id);
-      if (entry) value.cover = entryCover(entry.value);
-    }
     return {id:row.id,revision:row.revision,updatedAt:row.updated_at,published:row.published_revision!==null,hasChanges:row.published_revision!==row.revision,value:{...value,fields:Object.fromEntries(columns.filter(key=>Object.hasOwn(fields,key)).map(key=>[key,fields[key]]))}};
   })};
 }
 
-export function paginate<T>(items: T[], page = 1, pageSize = 24): PageResult<T> {
-  if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100)
-    throw new WeavaError('页码或每页数量无效，每页最多 100 项。');
-  return { items: items.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total: items.length, pages: Math.ceil(items.length / pageSize) };
-}
-
-export function validateQueryFields(input: ContentQuery, types: ContentType[]) {
-  const fields = Object.entries(input.fields ?? {}); if (!fields.length) return;
-  const type = types.find((type) => type.id === input.type);
-  if (!type) throw new WeavaError('字段筛选需要选择内容类型。');
-  for (const [key, value] of fields) {
-    const field = type.fields.find((field) => field.key === key && field.filterable);
-    if (!field) throw new WeavaError('字段未声明为可筛选：' + key);
-    if (field.type === 'number' && !Number.isFinite(Number(value)) || field.type === 'boolean' && !['true', 'false'].includes(String(value)) || field.type === 'date' && !Number.isFinite(Date.parse(String(value))) || field.type === 'select' && !field.options?.includes(String(value))) throw new WeavaError('字段筛选值无效：' + field.label);
-  }
-}
-export function taxonomyIds(catalog: Term[], kind: Term['kind'], value: string) {
-  const ids = new Set(catalog.filter((term) => term.kind === kind && [term.id, term.label, term.slug].includes(value)).map((term) => term.id));
-  if (kind === 'category') { let changed = true; while (changed) { changed = false; for (const term of catalog) if (term.kind === kind && term.parentId && ids.has(term.parentId) && !ids.has(term.id)) { ids.add(term.id); changed = true; } } }
-  return ids;
-}
 export function selectEntries(entries: PublishedEntry[], input: ContentQuery = {}, types?: ContentType[], terms: Term[] = []): PublishedEntry[] {
   if (types) validateQueryFields(input, types);
   const categories = input.category ? taxonomyIds(terms, 'category', input.category) : null, tags = input.tag ? taxonomyIds(terms, 'tag', input.tag) : null;
@@ -82,15 +46,9 @@ export function selectEntries(entries: PublishedEntry[], input: ContentQuery = {
 }
 export function queryEntries(entries: PublishedEntry[], input: ContentQuery = {}, types?: ContentType[], terms: Term[] = []): PageResult<PublishedEntry> {
   const page = input.page ?? 1, pageSize = input.pageSize ?? 24;
-  if (input.sort && !['date', 'oldest', 'title', '-title', 'publishedAt', '-publishedAt', 'updatedAt', '-updatedAt'].includes(input.sort)) throw new WeavaError('排序方式无效。');
+  const order=queryOrder(input.sort);
   const items = selectEntries(entries, input, types, terms);
-  items.sort((a, b) => {
-    const value = input.sort === 'title' || input.sort === '-title' ? a.title.localeCompare(b.title) * (input.sort === '-title' ? -1 : 1) :
-      input.sort === 'updatedAt' || input.sort === '-updatedAt' ? String(a.updatedAt ?? '').localeCompare(String(b.updatedAt ?? '')) * (input.sort.startsWith('-') ? -1 : 1) :
-      input.sort === 'publishedAt' ? String(a.publishedAt ?? '').localeCompare(String(b.publishedAt ?? '')) :
-      String(b.publishedAt ?? '').localeCompare(String(a.publishedAt ?? '')) * (input.sort === 'oldest' ? -1 : 1);
-    return value || a.id.localeCompare(b.id);
-  });
+  items.sort((a,b)=>compareContent(a,b,order));
   return paginate(items, page, pageSize);
 }
 
@@ -116,7 +74,7 @@ export function contentQuery(params: URLSearchParams): ContentQuery {
   if (kind && !['content', 'page'].includes(kind)) throw new WeavaError('内容种类无效。');
   return { page: Number(params.get('page') ?? 1), pageSize: Number(params.get('pageSize') ?? params.get('limit') ?? 24),
     kind: (kind ?? undefined) as ContentQuery['kind'], type: params.get('type') ?? undefined,
-    category: params.get('category') ?? undefined, tag: params.get('tag') ?? undefined,
+    author: params.get('author') ?? undefined, category: params.get('category') ?? undefined, tag: params.get('tag') ?? undefined,
     query: params.get('q') ?? undefined, sort: (params.get('sort') ?? 'date') as ContentQuery['sort'], fields };
 }
 

@@ -58,7 +58,7 @@ export const ALL: APIRoute = async (context) => {
   } catch (error: any) {
     if(error instanceof WeavaError){
       const retry=(error.details as {retryAfter?:number}|undefined)?.retryAfter;
-      return json({error:error.message,details:error.details},error.status,retry&&error.status===429?{'Retry-After':String(retry)}:{});
+      return json({error:error.message,details:error.details},error.status,retry&&[429,503].includes(error.status)?{'Retry-After':String(retry)}:{});
     }
     if(error instanceof ZodError)return json({error:'请求参数无效。',details:error.issues.map(issue=>({path:issue.path,message:issue.message}))},400);
     console.error('API request failed',error);

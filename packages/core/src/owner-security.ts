@@ -1,5 +1,6 @@
-import { WeavaError } from '@weava/contracts';
-import { Storage, digest } from './storage.ts';
+import {WeavaError} from '@weava/contracts';
+import {Storage} from './storage.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
 
 export type SecurityEvent = 'account-initialized' | 'password-reset' | 'account-recovered' | 'account-updated' |
   'login-succeeded' | 'login-failed' | 'logout' | 'sessions-revoked' | 'two-factor-enabled' |

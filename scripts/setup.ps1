@@ -8,4 +8,9 @@ New-Item -ItemType Directory -Path 'D:\Tools\cache\weava','D:\Tools\weava-toolin
 $pnpmPath='D:\Tools\weava-tooling\node_modules\pnpm\bin\pnpm.mjs'
 if (!(Test-Path -LiteralPath $pnpmPath)) { & (Join-Path (Split-Path -Parent $nodePath) 'npm.cmd') install --prefix 'D:\Tools\weava-tooling' pnpm@12.4.2 --no-audit --no-fund; if($LASTEXITCODE) { exit $LASTEXITCODE } }
 Push-Location -LiteralPath $frameworkRoot
-try { & $nodePath $pnpmPath install --frozen-lockfile --store-dir 'D:\Tools\pnpm-store'; exit $LASTEXITCODE } finally { Pop-Location }
+try {
+    & $nodePath $pnpmPath install --frozen-lockfile --store-dir 'D:\Tools\pnpm-store'
+    if($LASTEXITCODE) { exit $LASTEXITCODE }
+    & $nodePath --import tsx (Join-Path $frameworkRoot 'scripts\setup-validation.ts') --install
+    exit $LASTEXITCODE
+} finally { Pop-Location }

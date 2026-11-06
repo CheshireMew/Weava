@@ -16,10 +16,21 @@ export class EditSession<R extends EditableRecord> {
   private baseRecord: R | null;
   private running: Promise<R | null> | null = null;
   private generation = 0;
-  constructor(initial: R | null, private write: (record: R) => Promise<R>, private notify: () => void, private storage?: RecoveryStore, private prefix = '', private afterSave?: (row: R, snapshot: R, unchanged: boolean) => void) {
+  private edits = 0;
+  checkpoint() { return { generation: this.generation, edits: this.edits }; }
+  unchanged(checkpoint: ReturnType<EditSession<R>['checkpoint']>) { return checkpoint.generation === this.generation && checkpoint.edits === this.edits; }
+  constructor(initial: R | null, private write: (record: R) => Promise<R>, private notify: () => void, private storage?: RecoveryStore, private prefix = '', private afterSave?: (row: R, snapshot: R, unchanged: boolean) => void, private externalRecovery?: (row:R)=>Promise<void>) {
     this.record = initial; this.baseRecord = initial ? structuredClone(initial) : null; this.baselineValue = initial?.value; this.findRecovery(true);
   }
   get dirty() { return !!this.record && this.modified; }
+  get saving() { return !!this.running; }
+  rebind(write:(record:R)=>Promise<R>,notify:()=>void,afterSave?: (row:R,snapshot:R,unchanged:boolean)=>void,externalRecovery?:(row:R)=>Promise<void>){this.write=write;this.notify=notify;this.afterSave=afterSave;this.externalRecovery=externalRecovery;}
+  async preserve(){
+    if(!this.dirty||!this.record)return;
+    if(this.externalRecovery)return this.externalRecovery(structuredClone(this.record));
+    if(!this.storage)throw new Error('浏览器无法保留这份修改，请保持页面打开并保存。');
+    this.storage.setItem(this.key(),JSON.stringify(this.record));this.storage.setItem(this.prefix+':last',this.key());
+  }
   private changed(){this.modified=!!this.record&&!sameEditableValue(this.record.value,this.baselineValue);}
   private key(row = this.record) { return this.prefix + ':' + (row?.id ?? row?.value.id ?? 'new'); }
   private remember() {
@@ -37,7 +48,9 @@ export class EditSession<R extends EditableRecord> {
     catch { this.notice = '浏览器副本无法读取，请保留浏览器数据。'; }
   }
   change = (next: R | null | ((previous: R | null) => R | null)) => {
-    this.record = typeof next === 'function' ? next(this.record) : next; this.changed(); this.remember(); this.notify();
+    const record = typeof next === 'function' ? next(this.record) : next;
+    if (!sameEditableValue(this.record?.value, record?.value)) this.edits++;
+    this.record = record; this.changed(); this.remember(); this.notify();
   };
   adopt = (row: R | null) => {
     this.generation++; this.record = row; this.baseRecord = row ? structuredClone(row) : null; this.baselineValue = row?.value; this.modified=false; this.findRecovery(); this.notify();

@@ -1,10 +1,11 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { ChevronDown, Folder, Image, Settings2, SlidersHorizontal, Tags, X } from 'lucide-react';
-import { TermPicker } from './TermPicker.tsx';
-import { EntrySchedule } from './EntrySchedule.tsx';
-import { useSelectors } from './Selectors.tsx';
-import type { ContentWorkspace } from './useContentWorkspace.ts';
+import {usePopover} from './usePopover.ts';
+import {useEffect,useId,useRef,useState} from 'react';
+import {createPortal} from 'react-dom';
+import {ChevronDown,Folder,Image,Settings2,SlidersHorizontal,Tags,X} from 'lucide-react';
+import {TermPicker} from './TermPicker.tsx';
+import {EntrySchedule} from './EntrySchedule.tsx';
+import {useSelectors} from './Selectors.tsx';
+import type {EntrySettingsModel} from './content-models.ts';
 
 type Option = 'category' | 'tag' | 'cover' | 'publication';
 const labels: Record<Option, string> = { category: '分类', tag: '标签', cover: '封面', publication: '发布选项' };
@@ -12,46 +13,14 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   return <div className="entry-option-toggle"><span>{label}</span><button type="button" role="switch" aria-label={label} aria-checked={checked} className="entry-toggle" onClick={() => onChange(!checked)}><span /></button></div>;
 }
 
-export function EntryOptionsBar({ model, onMore }: { model: ContentWorkspace; onMore: () => void }) {
+export function EntryOptionsBar({ model, onMore }: { model: Pick<EntrySettingsModel,'record'|'update'|'state'|'setError'|'schedule'>; onMore: () => void }) {
   const { record, update, state, setError } = model;
   const selectors = useSelectors();
   const [open, setOpen] = useState<Option | null>(null);
-  const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 500 });
   const trigger = useRef<HTMLButtonElement | null>(null), popup = useRef<HTMLDivElement>(null);
   const popupId = useId();
-  function close(restoreFocus = false) {
-    setOpen(null);
-    if (restoreFocus) trigger.current?.focus();
-  }
+  const {position,close,portalTarget}=usePopover({open,trigger,popup,onClose:()=>setOpen(null),align:'start',initialFocus:'input'});
   useEffect(() => { setOpen(null); }, [record?.id]);
-  useLayoutEffect(() => {
-    if (!open || !popup.current || !trigger.current) return;
-    const anchor = trigger.current.getBoundingClientRect(), width = popup.current.getBoundingClientRect().width;
-    const top = anchor.bottom + 8;
-    setPosition({ top, left: Math.max(12, Math.min(anchor.left, window.innerWidth - width - 12)), maxHeight: Math.max(160, window.innerHeight - top - 16) });
-    (popup.current.querySelector<HTMLElement>('input') ?? popup.current.querySelector<HTMLElement>('button,select'))?.focus({ preventScroll: true });
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: Event) => {
-      if (event.target instanceof Node && !popup.current?.contains(event.target) && !trigger.current?.contains(event.target)) close();
-    };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close(true); } };
-    const resize = () => close();
-    const scroll = (event: Event) => { if (!(event.target instanceof Node) || !popup.current?.contains(event.target)) close(); };
-    document.addEventListener('pointerdown', outside);
-    document.addEventListener('focusin', outside);
-    document.addEventListener('keydown', escape);
-    window.addEventListener('resize', resize);
-    window.addEventListener('scroll', scroll, true);
-    return () => {
-      document.removeEventListener('pointerdown', outside);
-      document.removeEventListener('focusin', outside);
-      document.removeEventListener('keydown', escape);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('scroll', scroll, true);
-    };
-  }, [open]);
   if (!record) return null;
   const value = record.value;
   async function chooseCover() {
@@ -81,8 +50,8 @@ export function EntryOptionsBar({ model, onMore }: { model: ContentWorkspace; on
       {open === 'publication' && <section className="entry-publication-option"><h2>发布选项</h2>
         <Toggle label="私密文章" checked={value.visibility === 'private'} onChange={checked => update({ visibility: checked ? 'private' : 'public' })} />
         <Toggle label="允许评论" checked={value.allowComments !== false} onChange={checked => update({ allowComments: checked })} />
-        <div className="entry-option-schedule"><h3>定时发布</h3><EntrySchedule model={model} /></div>
+        <div className="entry-option-schedule"><h3>定时发布</h3><EntrySchedule model={model.schedule} /></div>
       </section>}
-    </div>, document.body)}
+    </div>, portalTarget)}
   </>;
 }

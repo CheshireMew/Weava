@@ -1,13 +1,13 @@
-import type { Release, PublishedEntry, Block } from '@weava/contracts';
-import { load } from 'cheerio';
-import { digest } from './storage.ts';
-import { BoundedCache } from './cache.ts';
-import { renderSharedRegion, renderEntryTemplate, resolveContentLinks } from './render.ts';
-import { referencedLayouts } from './layouts.ts';
-import { mediaReferencesIn } from './media-references.ts';
-import { releaseIndex } from './release-index.ts';
-import { normalizePath } from './paths.ts';
-import { publishedObjectKey } from './release-reader.ts';
+import type {Release,PublishedEntry,Block} from '@weava/contracts';
+import {load} from 'cheerio';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {BoundedCache} from './cache.ts';
+import {renderSharedRegion,renderEntryTemplate,resolveContentLinks} from './render.ts';
+import {referencedLayouts} from './layouts.ts';
+import {mediaReferencesIn} from './media-references.ts';
+import {releaseIndex} from './release-index.ts';
+import {normalizePath} from './paths.ts';
+import {publishedObjectKey} from './release-reader.ts';
 
 const fingerprints = new WeakMap<object, string>();
 /** Only use on published immutable objects, never on an in-progress editor value. */

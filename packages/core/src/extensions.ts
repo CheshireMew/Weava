@@ -12,6 +12,9 @@ export interface Extension {
   dependencies?: { id: string; minVersion?: string }[];
   schemaVersion?: number;
   migrations?: { version: number; up: (context: { site: Site }) => void }[];
+  /** Managed updates require [] for database-only migrations, or exact extension state files. */
+  migrationFiles?: string[];
+  jobs?: Record<string, (payload: unknown) => Promise<unknown> | unknown>;
   contentTypes?: ContentType[];
   themes?: { id: string; label: string }[];
   fieldWidgets?: Record<string, FieldWidget>;
@@ -29,9 +32,9 @@ const cache = new WeakMap<Site, Promise<ExtensionManager>>();
 export async function extension(
   site: Site,
   services: Record<string, any> = {},
-  options: { mode?: 'runtime' | 'worker' } = {},
+  options: { mode?: 'runtime' | 'worker'; migrate?: boolean } = {},
 ): Promise<ExtensionManager> {
   let manager = cache.get(site);
-  if (!manager) { manager = ExtensionManager.open(site, services, options.mode ?? 'runtime'); cache.set(site, manager); }
+  if (!manager) { manager = ExtensionManager.open(site, services, options.mode ?? 'runtime', options.migrate ?? false); cache.set(site, manager); }
   return manager;
 }

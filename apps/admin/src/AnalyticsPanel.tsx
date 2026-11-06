@@ -1,15 +1,16 @@
-import { useEffect, useId, useState } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
-import type { AnalyticsReport } from '@weava/contracts';
-import { AnalyticsReportView } from './AnalyticsReportView.tsx';
-import { AnalyticsControls, AnalyticsFilterTags } from './analytics/AnalyticsControls.tsx';
-import { useAnalyticsReport } from './analytics/useAnalyticsReport.ts';
-import { ReportWorkspace, internalClick } from './analytics/report-workspace.ts';
-import { reportLocation, reportSection, sections, reportUrl, type AnalyticsSection, type ReportName } from './analytics/report-navigation.ts';
-import { AnalyticsDetail } from './analytics/AnalyticsDetail.tsx';
-import { AnalyticsExportContext } from './analytics/Card.tsx';
-import { VisitorDetails } from './analytics/VisitorDetails.tsx';
-import { DateRangeMenu } from './analytics/DateRangeMenu.tsx';
+import {TabList} from './TabList.tsx';
+import {useEffect,useId,useState} from 'react';
+import {ArrowLeft,RefreshCw} from 'lucide-react';
+import type {AnalyticsReport} from '@weava/contracts';
+import {AnalyticsReportView} from './AnalyticsReportView.tsx';
+import {AnalyticsControls,AnalyticsFilterTags} from './analytics/AnalyticsControls.tsx';
+import {useAnalyticsReport} from './analytics/useAnalyticsReport.ts';
+import {ReportWorkspace,internalClick} from './analytics/report-workspace.ts';
+import {reportLocation,reportSection,sections,reportUrl,type AnalyticsSection,type ReportName} from './analytics/report-navigation.ts';
+import {AnalyticsDetail} from './analytics/AnalyticsDetail.tsx';
+import {AnalyticsExportContext} from './analytics/Card.tsx';
+import {VisitorDetails} from './analytics/VisitorDetails.tsx';
+import {DateRangeMenu} from './analytics/DateRangeMenu.tsx';
 import './AnalyticsPanel.css';
 
 type Location = ReturnType<typeof reportLocation>;
@@ -36,10 +37,7 @@ function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Loc
   const appliedQuery = query.toString();
   const changeQuery = (query: string) => navigate(route.report, query, route.section);
   const changeRange = (start: string, end: string) => { const next = new URLSearchParams(appliedQuery); next.set('start', start); next.set('end', end); changeQuery(next.toString()); };
-  const tabs = <div className="analytics-section-navigation"><nav className="library-status-tabs analytics-tabs" role="tablist" aria-label="统计报表">{sections.map(([key, label], index) => <button key={key} role="tab" id={id + key} aria-selected={route.section === key} aria-controls={id + 'panel'} tabIndex={route.section === key ? 0 : -1} onClick={() => navigate(null, route.query, key)} onKeyDown={event => {
-    const next = event.key === 'ArrowRight' ? (index + 1) % sections.length : event.key === 'ArrowLeft' ? (index + sections.length - 1) % sections.length : event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : -1;
-    if (next >= 0) { event.preventDefault(); navigate(null, route.query, sections[next][0]); document.getElementById(id + sections[next][0])?.focus(); }
-  }}>{label}</button>)}</nav></div>;
+  const tabs = <div className="analytics-section-navigation"><TabList className="library-status-tabs analytics-tabs" label="统计报表" items={sections.map(([id,label])=>({id,label}))} selected={route.section} onSelect={key=>navigate(null,route.query,key)} idFor={key=>id+key} panelFor={()=>id+'panel'}/></div>;
   return <div className="panel analytics-panel">
     <header className="panel-title"><h1>访问统计</h1><div className="analytics-header-actions"><AnalyticsControls model={model} report={route.report} query={appliedQuery} onChange={changeQuery} /><button disabled={loading} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading ? 'spin' : ''} />刷新</button></div></header>
     {tabs}

@@ -4,7 +4,7 @@ import type { Block, Release, PublishedEntry, Entry } from '@weava/contracts';
 import { plain, tokens } from './documents.ts';
 import { rememberPrivateMedia } from './media-policy.ts';
 import { indexPublishedRevisions } from './list-index.ts';
-import { publishedObjectKey, publishedMetadata, publishedHasBlocks } from './release-reader.ts';
+import { publishedObjectKey, publishedMetadata, publishedHasBlocks, publishedResponsePath } from './release-reader.ts';
 import { publicationDependencies } from './publication-validation.ts';
 import { entryMediaReferences, mediaReferencesIn } from './media-references.ts';
 import { referencedLayouts } from './layouts.ts';
@@ -60,14 +60,14 @@ export function prepareReleaseStorage(db: Database.Database, release: Release) {
   const members:{entryId:string;position:number;searchKey:string;searchText:string;indexable:boolean}[]=[];
   const sources:{entryKey:string;dependencyKey:string;searchKey:string}[]=[];
   const media:{entryId:string;paths:Set<string>;private:boolean}[]=[];
-  const catalog:{key:string;summary:any;hasBlocks:boolean}[]=[];
+  const catalog:{key:string;summary:any;hasBlocks:boolean;responsePath:string|null}[]=[];
   const hasSourceCache=!!db.prepare("SELECT 1 FROM sqlite_master WHERE name='publication_search_sources'").get();
   const sourceLookup=hasSourceCache?db.prepare('SELECT s.search_key FROM publication_search_sources s JOIN publication_search_keys k ON k.key=s.search_key WHERE s.entry_key=? AND s.dependency_key=?'):undefined;
   for (const [position, entry] of release.entries.entries()) {
     const key = publishedObjectKey(entry) ?? object(db, 'entry', entry);
     manifest.entryKeys.push(key);
     const hasBlocks=publishedHasBlocks(entry);
-    catalog.push({key,summary:publishedMetadata(entry),hasBlocks});
+    catalog.push({key,summary:publishedMetadata(entry),hasBlocks,responsePath:publishedResponsePath(entry)??null});
     const dependencyKey=hasBlocks?keyOf([release.settings,release.layouts,publicationDependencies(entry,release)]):'';
     let searchKey=(sourceLookup?.get(key,dependencyKey) as {search_key:string}|undefined)?.search_key;
     let searchText='';

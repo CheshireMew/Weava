@@ -1,7 +1,7 @@
-import { WeavaError, type Entry } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { digest } from './storage.ts';
-import { prepareEntryCandidate } from './content-validation.ts';
+import {WeavaError,type Entry} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {prepareEntryCandidate} from './content-validation.ts';
 
 export interface MetadataChange { field: string; mode: 'replace' | 'append' | 'clear'; value?: unknown }
 export interface BulkEditInput { items: { id: string; revision: number }[]; changes: MetadataChange[]; review?: string }

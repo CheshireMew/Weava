@@ -182,7 +182,7 @@ describe('compact immutable publication storage and upgrades', () => {
       CREATE TABLE state(key TEXT PRIMARY KEY,value TEXT NOT NULL);`);
     db.prepare('INSERT INTO releases VALUES(?,?,?)').run(release.id, JSON.stringify(release), release.createdAt);
     db.prepare('INSERT INTO state VALUES(?,?)').run('release', release.id); db.close();
-    const upgraded = new Site(folder); sites.push(upgraded);
+    const upgraded = new Site(folder,{mode:'migrate'}); sites.push(upgraded);
     expect(upgraded.release()!.id).toBe(release.id);
     expect(upgraded.search('旧版区块词')).toHaveLength(1);
     expect(upgraded.store.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get()).toEqual({ v: SCHEMA_VERSION });

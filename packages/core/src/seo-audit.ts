@@ -1,11 +1,11 @@
-import { load } from 'cheerio';
-import type { Entry, Release } from '@weava/contracts';
-import { digest } from './storage.ts';
-import { pageMetadata, metadataHead, composeMetadata, evidenceCurrent, type PageMetadata } from './seo.ts';
-import { renderEntryTemplate } from './render.ts';
-import type { Site } from './site.ts';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import {load} from 'cheerio';
+import type {Entry,Release} from '@weava/contracts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {pageMetadata,metadataHead,composeMetadata,evidenceCurrent,type PageMetadata} from './seo.ts';
+import {renderEntryTemplate} from './render.ts';
+import type {Site} from './site.ts';
+import {existsSync,readdirSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
 export async function fetchAuditResponses(release: Release, origin: string, maxPages = 200, fetcher: typeof fetch = fetch) {
   const responses: Record<string, { html?: string; status: number; error?: string }> = {};
   const entries = release.entries.filter((entry) => entry.visibility !== 'private').slice(0, maxPages);

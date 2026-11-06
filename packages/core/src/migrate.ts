@@ -1,21 +1,16 @@
-import { withInstanceMaintenance } from './instance-access.ts';
-import { join, relative, resolve, extname } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, copyFileSync } from 'node:fs';
-import { load } from 'cheerio';
-import { parse as yaml } from 'yaml';
-import { build } from 'esbuild';
+import {withInstanceMaintenance} from './instance-access.ts';
+import {join,relative,resolve} from 'node:path';
+import {existsSync,readFileSync,mkdirSync,copyFileSync} from 'node:fs';
+import {load} from 'cheerio';
+import {parse as yaml} from 'yaml';
+import {build} from 'esbuild';
 import Database from 'better-sqlite3';
-import { Site } from './site.ts';
-import { walk, digest, atomicJson, now } from './storage.ts';
-import {
-  entrySchema,
-  defaultSettings,
-  type Entry,
-  type Settings,
-  WeavaError,
-} from '@weava/contracts';
-import { Analytics } from './analytics.ts';
-import { extension } from './extensions.ts';
+import {Site} from './site.ts';
+import {walk,atomicJson} from '../../runtime-common/src/files.ts';
+import {digest,now} from '../../runtime-common/src/identity.ts';
+import {entrySchema,defaultSettings,type Entry,type Settings,WeavaError} from '@weava/contracts';
+import {Analytics} from './analytics.ts';
+import {extension} from './extensions.ts';
 function read(path: string, fallback: any = null) {
   return existsSync(path)
     ? JSON.parse(readFileSync(path, 'utf8').replace(/^\ufeff/, ''))

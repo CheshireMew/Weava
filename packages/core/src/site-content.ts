@@ -1,27 +1,16 @@
-import { normalizePath } from './paths.ts';
+import {normalizePath} from './paths.ts';
 
-import { prepareEntryCandidate } from './content-validation.ts';
-import type { EntryReferences } from './content-validation.ts';
+import {prepareEntryCandidate} from './content-validation.ts';
+import type {EntryReferences} from './content-validation.ts';
 
-import { now, digest } from './storage.ts';
+import {now,digest} from '../../runtime-common/src/identity.ts';
 
-import { attachTerms } from './taxonomy.ts';
+import {attachTerms} from './taxonomy.ts';
 
-import { validateSeo } from './seo.ts';
+import {validateSeo} from './seo.ts';
 
-import {
-  typeSchema,
-  WeavaError,
-  type Entry,
-  type ContentType,
-  blockDefinitions,
-  fieldDefinitionIssues,
-  fieldIssues,
-  effectiveFields,
-  contentBlockIssues,
-  isReservedContentPath,
-} from '@weava/contracts';
-import type { Site } from './site.ts';
+import {typeSchema,WeavaError,type Entry,type ContentType,blockDefinitions,fieldDefinitionIssues,fieldIssues,effectiveFields,contentBlockIssues,isReservedContentPath} from '@weava/contracts';
+import type {Site} from './site.ts';
 export class SiteContent {
   constructor(
     private site: Pick<

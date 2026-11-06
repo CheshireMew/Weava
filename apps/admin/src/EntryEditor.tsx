@@ -1,52 +1,27 @@
-import { Popover } from './Popover.tsx';
-import { EntrySettings } from './EntrySettings.tsx';
-import { EntryStatus } from './EntryStatus.tsx';
-import { EntryRecovery } from './EntryRecovery.tsx';
-import { EntryOptionsBar } from './EntryOptionsBar.tsx';
-import { Dialog } from './Dialog.tsx';
-import { lazy, Suspense, useState, useLayoutEffect, useRef } from 'react';
+import {Popover} from './Popover.tsx';
+import {EntrySettings} from './EntrySettings.tsx';
+import {EntryStatus} from './EntryStatus.tsx';
+import {EntryRecovery} from './EntryRecovery.tsx';
+import {EntryOptionsBar} from './EntryOptionsBar.tsx';
+import {Dialog} from './Dialog.tsx';
+import {Suspense,useState,useLayoutEffect,useRef} from 'react';
+import {retryableLazy as lazy} from './ErrorBoundary.tsx';
 
-import { FileText, ArrowLeft, Plus, Loader2, Settings2, ChevronDown, MoreHorizontal, X } from 'lucide-react';
+import {FileText,ArrowLeft,Plus,Loader2,Settings2,ChevronDown,MoreHorizontal,X} from 'lucide-react';
 
-import { api } from './api.ts';
-import { drafts } from './draft-repository.ts';
 
-import { useSelectors } from './Selectors.tsx';
+import {useSelectors} from './Selectors.tsx';
 
-import { Fields } from './Fields.tsx';
+import {Fields} from './Fields.tsx';
 
-import type { ContentWorkspace } from './useContentWorkspace.ts';
+import type {EntryEditorModel} from './content-models.ts';
 
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 
 const ImportedContentEditor = lazy(() => import('./ImportedContentEditor.tsx').then(module => ({ default: module.ImportedContentEditor })));
 
-export function EntryEditor({ model }: { model: ContentWorkspace }) {
-  const {
-    record,
-    dirty,
-    saving,
-    session,
-    editorEpoch,
-    setHistory,
-    setPreview,
-    setRestoreLocal,
-    setRecoveryCopies,
-    setDraftNotice,
-    contentCheck,
-    setContentCheck,
-    persist,
-    update,
-    clear,
-    state,
-    tab,
-    busy,
-    setError,
-    notify,
-    refresh,
-    newEntry,
-    publish,
-  } = model;
+export function EntryEditor({ model }: { model: EntryEditorModel }) {
+  const {record,dirty,saving,editorEpoch,contentCheck,persist,update,clear,state,busy,setError,newEntry,publish}=model;
   const selectors = useSelectors();
   const article = record?.value.kind === 'content';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -57,7 +32,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
     if (settings && settings.parentElement!.getBoundingClientRect().width <= 800)
       settings.scrollIntoView({ block: 'start' });
   }, [settingsOpen, record?.id]);
-  const publication = record ? model.items.find((row: any) => row.id === record.id) : null;
+  const publication=model.publication;
   const titleInput = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const input = titleInput.current;
@@ -118,8 +93,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                 disabled={busy || saving}
                 onClick={async () => {
                   try {
-                    const result = await api('entry/check', { value: session.record!.value });
-                    setContentCheck({ ...result, id: record.id });
+                    await model.check();
                     setSettingsOpen(true);
                   } catch (error: any) {
                     setError(error.message);
@@ -134,8 +108,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                 className="editor-plain"
                 onClick={async () => {
                   try {
-                    await persist();
-                    setHistory(await api(`history?id=${record.id}`));
+                    await model.openHistory();
                   } catch (error: any) {
                     setError(error.message);
                   }
@@ -147,12 +120,9 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                 className="editor-plain"
                 onClick={async () => {
                   try {
-                    const copies = await drafts().read(record.id);
-                    setRecoveryCopies(copies);
-                    setRestoreLocal(copies[0]?.record ?? null);
-                    if (!copies.length) notify('没有未保存的本地草稿。');
+                    await model.openLocalDrafts();
                   } catch (error: any) {
-                    setDraftNotice(error.message);
+                    setError(error.message);
                   }
                 }}
               >
@@ -162,8 +132,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               </div>
               <button className="editor-preview" onClick={async () => {
                 try {
-                  const row = await persist();
-                  if (row) setPreview('/__preview/' + record.id + '?revision=' + row.revision);
+                  await model.openPreview();
                 } catch (error: any) { setError(error.message); }
               }}>预览</button>
               <button
@@ -175,9 +144,9 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
               </button>
             </div>
           </div>
-          {article && <><EntryOptionsBar model={model} onMore={() => setSettingsOpen(true)} /><div className="editor-toolbar-slot" ref={setToolbarTarget} /></>}
+          {article && <><EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} /><div className="editor-toolbar-slot" ref={setToolbarTarget} /></>}
           </div>
-          <EntryRecovery model={model} />
+          <EntryRecovery model={model.recovery} />
 
           <div
             className={
@@ -227,7 +196,7 @@ export function EntryEditor({ model }: { model: ContentWorkspace }) {
                 />
               )}
             </div>
-            {settingsOpen && (article ? <Dialog label="文章设置" className="modal article-options-dialog" onClose={() => setSettingsOpen(false)}><div className="article-options-heading"><h2>文章设置</h2><button type="button" aria-label="关闭文章设置" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div><EntrySettings model={model} mode="more" /></Dialog> : <Dialog label="内容设置" className="article-settings-dialog" onClose={() => setSettingsOpen(false)}><EntrySettings model={model} onClose={() => {
+            {settingsOpen && (article ? <Dialog label="文章设置" className="modal article-options-dialog" onClose={() => setSettingsOpen(false)}><div className="article-options-heading"><h2>文章设置</h2><button type="button" aria-label="关闭文章设置" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div><EntrySettings model={model.settings} mode="more" /></Dialog> : <Dialog label="内容设置" className="article-settings-dialog" onClose={() => setSettingsOpen(false)}><EntrySettings model={model.settings} onClose={() => {
               setSettingsOpen(false);
               document.querySelector<HTMLButtonElement>('[aria-controls="entry-settings"]')?.focus();
             }} /></Dialog>)}

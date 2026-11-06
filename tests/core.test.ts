@@ -217,7 +217,7 @@ describe('media, analytics and backup', () => {
         status: 'displaced',
       }),
     );
-    expect(recoverRestore(target).recovered).toBe(true);
+    expect((await recoverRestore(target)).recovered).toBe(true);
     const restored = new Site(target);
     expect(restored.release()!.id).toBe(release.id);
     restored.close();

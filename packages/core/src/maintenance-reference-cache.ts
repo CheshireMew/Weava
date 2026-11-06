@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import {mkdirSync,statSync} from 'node:fs';
 import {join} from 'node:path';
 import type {Site} from './site.ts';
-import {walk} from './storage.ts';
+import {walk} from '../../runtime-common/src/files.ts';
 import {mediaReferencesIn} from './media-references.ts';
 import {jsonLines} from './file-io.ts';
 

@@ -1,7 +1,13 @@
 {
   "name": "@weava/contracts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "AGPL-3.0-only",
-  "exports": { ".": "./src/index.ts", "./api": "./src/admin-api.ts", "./api-client": "./src/api-client.ts", "./api-error":"./src/api-error.ts", "./session-api":"./src/session-api.ts" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/admin-api.ts",
+    "./api-client": "./src/api-client.ts",
+    "./api-error": "./src/api-error.ts",
+    "./session-api": "./src/session-api.ts"
+  }
 }

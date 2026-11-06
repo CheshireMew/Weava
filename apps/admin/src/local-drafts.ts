@@ -1,16 +1,22 @@
 import type { Entry, Revision } from '@weava/contracts';
 import { sameEditableValue } from './edit-session.ts';
 
-interface DraftStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
-export interface LocalDraft { id: string; capturedAt: number; updatedAt: number; pending?: boolean; record: Revision<Entry> }
+interface DraftStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void; readonly length?:number; key?(index:number):string|null }
+export interface LocalDraft { id: string; sessionId?:string; capturedAt: number; updatedAt: number; pending?: boolean; record: Revision<Entry> }
 interface DraftArchive { version: 2; entries: Record<string, LocalDraft[]> }
 const key = 'weava-drafts:v2', byteLimit = 3 * 1024 * 1024;
+const sessionPrefix='weava-draft-session:v1:';
+const sessionKey=(id:string,sessionId:string)=>sessionPrefix+encodeURIComponent(sessionId)+':'+encodeURIComponent(id);
+const sessionKeys=(storage:DraftStorage)=>Array.from({length:storage.length??0},(_,index)=>storage.key?.(index)).filter((key):key is string=>!!key&&key.startsWith(sessionPrefix));
 export function latestPendingDraft(copies: LocalDraft[]): LocalDraft[] {
-  return copies.filter(copy => copy.pending !== false).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 1);
+  const sessions=new Map<string,LocalDraft>();
+  for(const copy of copies.filter(copy=>copy.pending!==false).sort((a,b)=>b.updatedAt-a.updatedAt))if(!sessions.has(copy.sessionId??'legacy'))sessions.set(copy.sessionId??'legacy',copy);
+  return [...sessions.values()];
 }
 export function matchesDraft(copy: Pick<LocalDraft, 'record'>, record: Revision<Entry>) {
   // Saving changes metadata; recovery is needed only when authored content differs.
-  return sameEditableValue({...copy.record.value, updatedAt: undefined}, {...record.value, updatedAt: undefined});
+  const local=copy.record.value;
+  return sameEditableValue({...local, updatedAt: undefined}, {...record.value,createdAt:local.createdAt===undefined?undefined:record.value.createdAt,updatedAt: undefined});
 }
 const read = (storage: DraftStorage): DraftArchive => {
   const raw = storage.getItem(key);
@@ -24,23 +30,22 @@ function store(archive: DraftArchive, storage: DraftStorage, preserve: string) {
     archive.entries[id] = latestPendingDraft(archive.entries[id]);
     if (!archive.entries[id].length) delete archive.entries[id];
   }
-  const ids = Object.keys(archive.entries).sort((a, b) => archive.entries[b][0]?.updatedAt - archive.entries[a][0]?.updatedAt);
-  for (const id of ids.slice(40)) if (id !== preserve) delete archive.entries[id];
-  const trim = () => {
-    const oldest = Object.entries(archive.entries).flatMap(([id, copies]) => copies.map((copy, index) => ({ id, index, copy }))).filter((item) => item.id !== preserve || item.index > 0).sort((a, b) => a.copy.updatedAt - b.copy.updatedAt)[0];
-    if (!oldest) return false;
-    archive.entries[oldest.id].splice(oldest.index, 1);
-    if (!archive.entries[oldest.id].length) delete archive.entries[oldest.id];
-    return true;
-  };
-  while (JSON.stringify(archive).length * 2 > byteLimit) if (!trim()) throw new Error('这份草稿过大，浏览器无法保留副本；请保持页面打开并保存到网站。');
-  for (;;) {
-    try { storage.setItem(key, JSON.stringify(archive)); return; }
-    catch { if (!trim()) throw new Error('浏览器无法保存本地草稿，请保持页面打开并保存到网站。'); }
+  if(JSON.stringify(archive.entries[preserve]??[]).length*2>byteLimit)throw new Error('这份草稿过大，浏览器无法保留副本；请保持页面打开并保存到网站。');
+  if(Object.keys(archive.entries).length>40||JSON.stringify(archive).length*2>byteLimit)throw new Error('本地未保存草稿已达容量上限，请先保存或明确放弃其它草稿。');
+  try { storage.setItem(key, JSON.stringify(archive)); }
+  catch { throw new Error('浏览器无法保存本地草稿，请保持页面打开并保存到网站。'); }
+}
+export function localDraftIds(storage:DraftStorage=localStorage){
+  const ids=new Set(Object.keys(read(storage).entries));
+  for(let index=0;index<(storage.length??0);index++){
+    const name=storage.key?.(index);if(!name)continue;
+    if(name.startsWith(sessionPrefix)){try{ids.add(JSON.parse(storage.getItem(name)!).record.id);}catch{}}
+    else if(name.startsWith('weava-draft:'))ids.add(name.slice('weava-draft:'.length));
   }
+  return [...ids];
 }
 export function localDrafts(id: string, storage: DraftStorage = localStorage): LocalDraft[] {
-  const archive = read(storage), copies = latestPendingDraft(archive.entries[id] ?? []);
+  const archive = read(storage), copies = latestPendingDraft([...(archive.entries[id] ?? []),...sessionKeys(storage).map(name=>JSON.parse(storage.getItem(name)!)).filter(copy=>copy.record?.id===id)]);
   const legacy = storage.getItem('weava-draft:' + id);
   if (!copies.length && legacy) {
     const record = JSON.parse(legacy);
@@ -48,19 +53,29 @@ export function localDrafts(id: string, storage: DraftStorage = localStorage): L
   }
   return copies;
 }
-export function saveLocalDraft(record: Revision<Entry>, storage: DraftStorage = localStorage, clock = Date.now()) {
+export function saveLocalDraft(record: Revision<Entry>, storage: DraftStorage = localStorage, clock = Date.now(),sessionId='legacy') {
+  if(sessionId!=='legacy'){
+    const name=sessionKey(record.id,sessionId),value=JSON.stringify({id:record.id,sessionId,capturedAt:clock,updatedAt:clock,pending:true,record});
+    if(value.length*2>byteLimit)throw new Error('这份草稿过大，浏览器无法保留副本；请保持页面打开并保存到网站。');
+    const ids=new Set([...localDraftIds(storage),record.id]);
+    const total=value.length*2+(storage.getItem(key)?.length??0)*2+sessionKeys(storage).filter(key=>key!==name).reduce((size,key)=>size+(storage.getItem(key)?.length??0)*2,0);
+    if(ids.size>40||total>byteLimit)throw new Error('本地未保存草稿已达容量上限，请先保存或明确放弃其它草稿。');
+    storage.setItem(name,value);return;
+  }
   const archive = read(storage);
   archive.entries[record.id] = [{ id: record.id, capturedAt: clock, updatedAt: clock, pending: true, record: structuredClone(record) }];
   store(archive, storage, record.id);
   // Migration completes only after the replacement has been written successfully.
   storage.removeItem('weava-draft:' + record.id);
 }
-export function acknowledgeLocalDrafts(record: Revision<Entry>, storage: DraftStorage = localStorage) {
+export function acknowledgeLocalDrafts(record: Revision<Entry>, storage: DraftStorage = localStorage,sessionId='legacy') {
+  const name=sessionKey(record.id,sessionId),copy=storage.getItem(name);
+  if(copy&&matchesDraft(JSON.parse(copy),record))storage.removeItem(name);
   const archive = read(storage);
-  if (archive.entries[record.id]) archive.entries[record.id] = archive.entries[record.id].filter(copy => !matchesDraft(copy, record));
+  if (archive.entries[record.id]) archive.entries[record.id] = archive.entries[record.id].filter(copy => (copy.sessionId??'legacy')!==sessionId||!matchesDraft(copy, record));
   store(archive, storage, record.id);
   const legacy = storage.getItem('weava-draft:' + record.id);
-  if (legacy && matchesDraft({record: JSON.parse(legacy)}, record)) storage.removeItem('weava-draft:' + record.id);
+  if (sessionId==='legacy'&&legacy && matchesDraft({record: JSON.parse(legacy)}, record)) storage.removeItem('weava-draft:' + record.id);
 }
 export function forgetLocalDrafts(id: string, storage: DraftStorage = localStorage) {
   const archive = read(storage);

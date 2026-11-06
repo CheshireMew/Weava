@@ -44,7 +44,7 @@ export function useSettingsApplication(refresh: () => Promise<any>, onApplied?: 
   if (!controller.current) controller.current = new SettingsApplication(async () => {
     // A quick toggle back to the current public value needs no new release.
     const state = await api('state?summary=1&panel=appearance');
-    if (state.settingsPending || state.termsPending) {
+    if ((!state.features || state.features.includes('content')) && (state.settingsPending || state.termsPending)) {
       let progress: any;
       try { await waitJob(await api('publish', { scope: 'settings' }), job => { progress = job; }); }
       catch (error: any) { throw Object.assign(error, { status: progress?.errorStatus ?? error.status }); }

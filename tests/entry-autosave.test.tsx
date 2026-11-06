@@ -1,3 +1,4 @@
+import {entryRecoveryModel} from '../apps/admin/src/entry-recovery-model.ts';
 // @vitest-environment happy-dom
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -22,7 +23,7 @@ const setError = vi.fn();
 function Harness() {
   const [, setLibrary] = useState<any>({ items: [] }), [, setState] = useState<any>({});
   model = useEntryEditor({ setError, setLibrary, setState, compact: false });
-  return <EntryRecovery model={{ ...model, setError }} />;
+  return <EntryRecovery model={entryRecoveryModel(model,setError)} />;
 }
 async function mount() {
   root = createRoot(host);
@@ -46,7 +47,7 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host);
   server = { id: 'article', revision: 1, updatedAt: '', value: entrySchema.parse({ id: 'article', kind: 'page', path: '/article/', title: '原文' }) };
   rows = new Map();
-  const database: DraftDatabase = { async transact(id, change) {
+  const database: DraftDatabase = {async list(){return [...rows.values()].map(({copies,...metadata})=>metadata);}, async transact(id, change) {
     const result = change(structuredClone(rows.get(id)), [...rows.values()].map(({ copies, ...metadata }) => metadata));
     for (const key of result.remove ?? []) rows.delete(key);
     if (result.row) rows.set(id, structuredClone(result.row));

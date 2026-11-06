@@ -1,4 +1,5 @@
 :root {
+  scrollbar-gutter: stable;
   color: #202a25;
   background: var(--paper, #f6f5f0);
   font-synthesis: none;
@@ -22,7 +23,12 @@
 .site-discussion .nl-comment :is(time,small) { font-size:12px;color:#526257; }
 .site-discussion .nl-comment p { white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0; }
 .site-discussion .nl-comment-message { margin:8px 0;font-size:14px; }
-.nl-comment [data-reply-id] { border:0;background:transparent;color:inherit;padding:4px 0;text-decoration:underline; }
+.nl-comment-content { min-width:0; }
+.nl-comment-actions { display:flex;align-items:center;gap:18px;margin-top:8px; }
+.nl-comment-actions button { display:inline-flex;align-items:center;gap:5px;min-height:32px;padding:4px 0;border:0;background:transparent;color:var(--nl-muted,#526257);font:inherit;font-size:13px;cursor:pointer; }
+.nl-comment-actions button:hover,.nl-comment-actions button[aria-pressed="true"] { color:var(--nl-accent,var(--accent,#315c4c)); }
+.nl-comment-actions button:disabled { cursor:wait;opacity:.6; }
+.nl-comment-actions button:focus-visible { outline:2px solid currentColor;outline-offset:4px; }
 .comment-owner { display:inline-block;padding:1px 6px;border:1px solid currentColor;border-radius:4px;font-size:11px;line-height:1.5;color:var(--nl-accent,var(--accent,#315c4c)); }
 @media print { .site-discussion { display:none; } }
 * {

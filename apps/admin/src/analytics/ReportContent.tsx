@@ -22,8 +22,8 @@ export function SourcesChart({ data, detail = false }: { data: AnalyticsReport; 
   return <Trend detail={detail} dates={dates} empty={!data.engines.length} series={data.engines.flatMap((engine, i) => {
     const color = ['var(--analytics-green)', 'var(--analytics-blue)', 'var(--analytics-purple)', 'var(--analytics-cyan)', 'var(--analytics-orange)'][i % 5];
     return [
-      { name: engine.name, color, total: engine.sessions, values: dates.map(date => engine.daily.find(d => d.date === date)?.sessions || 0) },
-      { name: engine.name + ' 上期', group: engine.name, color, dashed: true, total: engine.previousSessions, values: dates.map(date => engine.previousDaily.find(d => d.date === date)?.sessions || 0) },
+      { name: engine.name, color, total: engine.views, values: dates.map(date => engine.daily.find(d => d.date === date)?.views || 0) },
+      { name: engine.name + ' 上期', group: engine.name, color, dashed: true, total: engine.previousViews || 0, values: dates.map(date => engine.previousDaily.find(d => d.date === date)?.views || 0) },
     ];
   })} />;
 }

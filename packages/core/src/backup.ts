@@ -1,20 +1,57 @@
-import { join, relative, resolve } from 'node:path';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  copyFileSync,
-  renameSync,
-  writeFileSync,
-  lstatSync,
-} from 'node:fs';
+import {join,relative,resolve} from 'node:path';
+import {existsSync,mkdirSync,readFileSync,copyFileSync,renameSync,lstatSync} from 'node:fs';
 import Database from 'better-sqlite3';
-import { walk, digest, uuid, now, atomicJson, inside } from './storage.ts';
-import { Site } from './site.ts';
-import { WeavaError, VERSION } from '@weava/contracts';
-import { assertMaintenanceAvailable, withInstanceMaintenance } from './instance-access.ts';
-import { pathWithin } from './paths.ts';
-import { digestFile } from './file-io.ts';
+import {walk,atomicJson} from '../../runtime-common/src/files.ts';
+import {uuid,now} from '../../runtime-common/src/identity.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
+import {Site} from './site.ts';
+import {WeavaError,VERSION} from '@weava/contracts';
+import {assertMaintenanceAvailable,withInstanceMaintenance} from './instance-access.ts';
+import {pathWithin} from './paths.ts';
+import {digestFile} from './file-io.ts';
+import {siteFiles} from './site-files.ts';
+import {repairSiteBuildLink} from './build-links.ts';
+import {siteRoutes} from './site-routes.ts';
+import {loadSiteRenderer} from './site-render.ts';
+import {BusinessStore,websiteContext} from './site-sdk.ts';
+import {migrateWebsite} from './site-migrations.ts';
+
+async function validateRestoredSite(root:string){
+  const routes=siteRoutes(root);
+  if(routes.build){
+    const {selectedProgram}=await import('./programs.ts');
+    const program=selectedProgram(root);
+    if(!program)throw new WeavaError('请先准备备份所选的程序，再恢复网站。');
+    repairSiteBuildLink(root,routes.build.manifest.id,program.root);
+  }
+  const site=new Site(root);
+  try{
+    // Upload bytes are deliberately excluded from an online backup. Never claim
+    // that the copied offsets can resume without the corresponding staged file.
+    const uploads=site.store.raw.prepare("SELECT id,job_id FROM media_uploads WHERE status IN ('receiving','processing')").all() as {id:string;job_id:string|null}[];
+    site.store.raw.transaction(()=>{
+      for(const upload of uploads){
+        site.store.raw.prepare("UPDATE media_uploads SET status='expired',expires=0,offset=0,lease=NULL,lease_until=0 WHERE id=?").run(upload.id);
+        if(upload.job_id){const job=site.job(upload.job_id);if(['queued','running'].includes(job.status))site.updateJob(job.id,{status:'failed',workerPid:undefined,errorStatus:409,message:'网站已从备份恢复，请重新选择文件上传。'});}
+      }
+    }).immediate();
+    if(site.store.raw.pragma('integrity_check',{simple:true})!=='ok')throw new WeavaError('恢复数据库校验失败。');
+    if(routes.build){
+      await migrateWebsite(root,routes.build.manifest.id,'open');
+      const renderer=await loadSiteRenderer(root);
+      const business=new BusinessStore(root,existsSync(join(root,'business.sqlite'))?'open':'migrate');
+      try{
+        const paths=new Set(['/',...routes.paths,...(site.visibleRelease()?.entries.map(entry=>entry.path)??[])]);
+        for(const path of paths){
+          const request=new Request(new URL(path,site.settings().value.domain));
+          const response=await renderer!.render(request,websiteContext(site,business,{enqueue(){throw new Error('恢复检查不执行持久任务。');}},request,true));
+          if(response&&response.status>=500)throw new WeavaError('恢复后专用页面无法运行：'+path);
+          await response?.body?.cancel();
+        }
+      }finally{business.close();}
+    }
+  }finally{site.close();}
+}
 export async function createBackup(site: Site, base: string, label = '手动备份') {
   const root = resolve(base);
   if (pathWithin(site.root, root))
@@ -32,14 +69,13 @@ export async function createBackup(site: Site, base: string, label = '手动备�
       db.close();
     }
   }
-  for (const dir of ['media', 'themes', 'extensions', 'imports', 'logs', 'archives'])
-    for (const file of walk(join(site.root, dir))) {
+  const business=join(site.root,'business.sqlite');
+  if(existsSync(business)){const db=new Database(business);try{await db.backup(join(folder,'business.sqlite'));}finally{db.close();}}
+    for (const file of siteFiles(site.root)) {
       const target = join(folder, relative(site.root, file));
       mkdirSync(resolve(target, '..'), { recursive: true });
       copyFileSync(file, target);
     }
-  for (const name of ['site.json', 'cli-token', 'program.json', 'account.key'])
-    if (existsSync(join(site.root, name))) copyFileSync(join(site.root, name), join(folder, name));
   const files = walk(folder).map((file) => ({
     path: relative(folder, file).replaceAll('\\', '/'),
     hash: digestFile(file),
@@ -94,7 +130,7 @@ export function copyVerifiedBackup(folder: string, target: string) {
 export async function restoreBackup(folder: string, target: string, backupRoot: string) {
   verifyBackup(folder);
   return withInstanceMaintenance(target, async () => {
-  recoverRestore(target);
+  await recoverRestore(target);
   if (existsSync(join(target, 'weava.sqlite'))) {
     const site = new Site(target);
     try {
@@ -105,13 +141,7 @@ export async function restoreBackup(folder: string, target: string, backupRoot: 
   }
   const staging = target + '.restore-' + uuid();
   copyVerifiedBackup(folder, staging);
-  const check = new Site(staging);
-  try {
-    if (check.store.raw.pragma('integrity_check', { simple: true }) !== 'ok')
-      throw new WeavaError('恢复数据库校验失败。');
-  } finally {
-    check.close();
-  }
+  await validateRestoredSite(staging);
   const journal = target + '.restore.json';
   atomicJson(journal, {
     target,
@@ -133,7 +163,7 @@ export async function restoreBackup(folder: string, target: string, backupRoot: 
   return { restored: true, target, retained: state.backup };
   });
 }
-export function recoverRestore(target: string) {
+export async function recoverRestore(target: string) {
   const journal = target + '.restore.json';
   if (!existsSync(journal)) return { recovered: false };
   const state = JSON.parse(readFileSync(journal, 'utf8'));
@@ -144,7 +174,7 @@ export function recoverRestore(target: string) {
     !state.backup?.startsWith(target + '.retained-')
   )
     throw new WeavaError('恢复日志路径无效，请检查：' + journal);
-  return withInstanceMaintenance(target, () => {
+  return withInstanceMaintenance(target, async () => {
   if (!existsSync(target) && existsSync(state.backup)) renameSync(state.backup, target);
   else if (!existsSync(target) && existsSync(state.staging)) renameSync(state.staging, target);
   if (!existsSync(join(target, 'weava.sqlite')))
@@ -157,6 +187,7 @@ export function recoverRestore(target: string) {
   } finally {
     db.close();
   }
+  await validateRestoredSite(target);
   atomicJson(journal, { ...state, status: 'recovered' });
   return { recovered: true, target };
   });

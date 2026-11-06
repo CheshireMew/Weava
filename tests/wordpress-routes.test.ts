@@ -163,11 +163,12 @@ it('keeps verified WordPress rendered text and resolves theme-lazy images to dow
   const updated = new Site(root+'/site');
   try {
     const entry = updated.release()!.entries[0];
-    expect(entry.document.format).toBe('html');
-    expect(entry.document.source).toContain('“原排版” **保留字面符号**');
-    expect(entry.document.source).toContain(media.value.url);
-    expect(entry.document.source).not.toContain('data-src');
-    expect(entry.document.source).not.toContain('load.svg');
+    expect(entry.document.format).toBe('lexical');
+    const source = JSON.stringify(entry.document.source);
+    expect(source).toContain('“原排版” **保留字面符号**');
+    expect(source).toContain(media.value.url);
+    expect(source).not.toContain('data-src');
+    expect(source).not.toContain('load.svg');
     expect(originalWordPressImages(renderEntryTemplate(entry, updated.release()!), entry)).toContain(external.replaceAll('&','&amp;'));
     expect(entry.modifiedAt).toBe('2025-12-01T00:00:00.000Z');
   } finally { updated.close(); }

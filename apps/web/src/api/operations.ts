@@ -14,9 +14,11 @@ import {
   SCHEMA_VERSION,
 } from '@weava/core';
 import { join } from 'node:path';
+import { siteFeatures } from '../../../../packages/core/src/site-features.ts';
 
 import type { ApiServices, AdminHandlers } from './types.ts';
 import { resolveSiteInfo } from '../../../../packages/core/src/site-info.ts';
+import { imageAttributes } from '@weava/core';
 
 export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>) {
   const { site, siteExtension, jobs } = services;
@@ -30,6 +32,8 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       const published = settingsPanel ? site.release() : null;
       return {
         settings,
+        siteIcon: imageAttributes(site, settings.value.logo, 64).src,
+        features:siteFeatures(site.root),
         ...(settingsPanel ? settingsPublicationState(settings.value, site.terms().map(row => row.value), published) : {}),
         ...(url.searchParams.get('panel') === 'appearance' ? { siteInfo: resolveSiteInfo(site) } : {}),
         types: site.store.list('type'),

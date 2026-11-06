@@ -1,23 +1,25 @@
-import { mediaReferencesIn } from './media-references.ts';
-import { existsSync, statSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { load } from 'cheerio';
-import { effectiveFields, fieldIssues, contentBlockIssues, isReservedContentPath, WeavaError, entrySchema, type Entry, type FieldDefinition, type PublishOptions, type Release, type Settings, type Term } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { normalizePath } from './paths.ts';
-import { now, uuid, digest, walk } from './storage.ts';
-import { renderDocument, validateFields } from './documents.ts';
-import { renderBlocks, renderEntryTemplate, renderSharedRegion, resolveContentLinks, renderNavigation } from './render.ts';
-import { prepareReleaseStorage,writeReleaseStorage } from './publication-store.ts';
-import { validateEditorial, entrySummary } from './editorial.ts';
-import { projectTerms, bindBlockTerms, projectSettingTerms } from './taxonomy.ts';
-import { layouts, builtInLayouts, validateLayouts, visitBlocks } from './layouts.ts';
-import type { Layout } from '@weava/contracts';
-import { validateSeo } from './seo.ts';
-import { publicationModifiedAt } from './source-content.ts';
-import { immutableDigest, validatedReferences } from './publication-validation.ts';
-import { invalidateReleaseIndex } from './release-index.ts';
-import { applySiteInfo } from './site-info.ts';
+
+import {existsSync,statSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
+
+import {effectiveFields,fieldIssues,contentBlockIssues,isReservedContentPath,WeavaError,entrySchema,type Entry,type FieldDefinition,type PublishOptions,type Release,type Settings,type Term} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {normalizePath} from './paths.ts';
+import {now,uuid,digest} from '../../runtime-common/src/identity.ts';
+import {walk} from '../../runtime-common/src/files.ts';
+import {renderDocument,validateFields} from './documents.ts';
+import {renderBlocks,resolveContentLinks,renderNavigation} from './render.ts';
+import {prepareReleaseStorage,writeReleaseStorage} from './publication-store.ts';
+import {validateEditorial,entrySummary} from './editorial.ts';
+import {projectTerms,bindBlockTerms,projectSettingTerms} from './taxonomy.ts';
+import {layouts,builtInLayouts,validateLayouts,visitBlocks} from './layouts.ts';
+import type {Layout} from '@weava/contracts';
+import {validateSeo} from './seo.ts';
+import {publicationModifiedAt} from './source-content.ts';
+import {immutableDigest,validatedReferences} from './publication-validation.ts';
+import {invalidateReleaseIndex} from './release-index.ts';
+import {applySiteInfo} from './site-info.ts';
+import {siteRoutes} from './site-routes.ts';
 
 export type PublicationSite = Pick<Site, 'store' | 'root' | 'settings' | 'release' | 'terms' | 'fieldWidgets' | 'blockRenderers' | 'publicationValidators' | 'validateBlocks' | 'validateReleaseExtensions' | 'updateJob'>;
 export function preparePublication(site: PublicationSite, options: PublishOptions = {}) {
@@ -177,7 +179,9 @@ export function preparePublication(site: PublicationSite, options: PublishOption
     const errors = fieldIssues(effectiveFields(defs, site.fieldWidgets), values, { prefix: 'fields.', reference: (target) => entries.get(target), requireReferences: true });
     if (errors.length) throw new WeavaError(errors.some((error) => error.code === 'reference') ? '内容字段校验失败，引用无效。' : '内容字段校验失败。', 400, errors.map((error) => ({ id, ...error })));
   };
+  const customRoutes=siteRoutes(site.root);
   const validPath = (path: string, seen = new Set<string>()): boolean => {
+    if(customRoutes.matches(path))return true;
     if (paths.has(path) || /^\/(media|api|video|search)(\/|$)/.test(path) || ['/rss.xml', '/sitemap.xml', '/robots.txt'].includes(path)) return true;
     if (seen.has(path)) return false;
     seen.add(path);

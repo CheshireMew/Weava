@@ -1,8 +1,9 @@
-import { processAlive } from './instance-access.ts';
+import {processAlive} from './instance-access.ts';
 
-import { Storage, now, uuid, digest } from './storage.ts';
+import {Storage} from './storage.ts';
+import {now,uuid,digest} from '../../runtime-common/src/identity.ts';
 
-import { WeavaError, type Job } from '@weava/contracts';
+import {WeavaError,type Job} from '@weava/contracts';
 export class JobStore {
   constructor(private store: Storage) {}
   job(id: string): Job {

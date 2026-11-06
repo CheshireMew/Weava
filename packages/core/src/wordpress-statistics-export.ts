@@ -1,7 +1,7 @@
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { WeavaError } from '@weava/contracts';
-import { digest } from './storage.ts';
+import {writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {WeavaError} from '@weava/contracts';
+import {digest} from '../../runtime-common/src/identity.ts';
 
 // Standalone PHP: deliberately does not include wp-load.php or execute wp-config.php.
 // The generated script is transported by SSH; credentials remain on the source host.
@@ -76,7 +76,7 @@ try {
         'daily'=>['summary_totals','ID',[
             'id'=>['ID','integer'], 'day'=>['date','string'], 'visitors'=>['visitors','integer'], 'views'=>['views','integer']]],
         'historical'=>['historical','ID',[
-            'id'=>['ID','integer'], 'category'=>['category','string'], 'pageId'=>['page_id','integer'],
+            'id'=>['ID','integer'], 'category'=>['category','string'], 'pageId'=>['page_id','historicalId'],
             'uri'=>['uri','uri'], 'value'=>['value','integer']]],
         'events'=>['events','ID',[
             'id'=>['ID','integer'], 'at'=>['date','datetime'], 'pageId'=>['page_id','integer'],
@@ -104,8 +104,8 @@ try {
         foreach ($records as &$record) foreach ($fields as $field => [$column,$type]) {
             $value = $record[$field];
             if ($value === null) continue;
-            if ($type === 'integer') {
-                if (!preg_match('/^\d+$/',(string)$value) || (float)$value > 9007199254740991) throw new RuntimeException('Unsafe integer: '.$suffix.'.'.$column);
+            if ($type === 'integer' || $type === 'historicalId') {
+                if (!preg_match($type === 'historicalId' ? '/^(?:-1|-2|\d+)$/' : '/^\d+$/',(string)$value) || (float)$value > 9007199254740991) throw new RuntimeException('Unsafe integer: '.$suffix.'.'.$column);
                 $record[$field] = (int)$value;
             } elseif ($type === 'datetime') $record[$field] = $value === '' || str_starts_with($value,'0000-') ? null : (string)$value;
             elseif ($type === 'host') {

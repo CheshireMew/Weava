@@ -2,35 +2,26 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { AnalyticsReport, AnalyticsRealtime, GeoStatus } from '@weava/contracts';
 import { api } from '../api.ts';
+import { useAdminQuery } from '../useAdminQuery.ts';
 
 import { shift, today } from './format.ts';
 import { watchVisible } from './polling.ts';
 export function useAnalyticsReport(initialQuery = '', realtime = true) {
   const initial = new URLSearchParams(initialQuery);
-  const [data, setData] = useState<AnalyticsReport | null>(null),
-    [live, setLive] = useState<AnalyticsRealtime | null>(null),
+  const [live, setLive] = useState<AnalyticsRealtime | null>(null),
     [geo, setGeo] = useState<GeoStatus | null>(null);
   const [start, setStart] = useState(initial.get('start') || ''),
     [end, setEnd] = useState(initial.get('end') || ''),
     [path, setPath] = useState(initial.get('path') || ''),
     [filters, setFilters] = useState<Record<string, string>>(() => Object.fromEntries([...initial].filter(([key]) => ['channel', 'country', 'browser', 'os', 'device', 'model'].includes(key))));
   const [applied, setApplied] = useState(initialQuery),
-    [loadedQuery, setLoadedQuery] = useState(''),
-    [loading, setLoading] = useState(true),
-    [error, setError] = useState(''),
     [geoBusy, setGeoBusy] = useState(false),
     [exportType, setExportType] = useState('pages');
   const [liveError, setLiveError] = useState(''),
     [geoError, setGeoError] = useState('');
   const retryLive = useRef<() => void>(() => {});
-  const generation = useRef(0),
-    mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const report = useAdminQuery<AnalyticsReport>(`analytics?${applied}`, 15000);
+  const data = report.data ?? null, loading = report.loading, error = report.error, loadedQuery = data ? applied : '';
   const query = (changes: Record<string, string> = {}) =>
     new URLSearchParams({
       ...(start ? { start } : {}),
@@ -40,29 +31,19 @@ export function useAnalyticsReport(initialQuery = '', realtime = true) {
       ...changes,
     }).toString();
   const load = async (q = applied) => {
-    const g = ++generation.current;
-    setLoading(true);
-    setError('');
-    try {
-      const result = await api(`analytics?${q}`);
-      if (!mounted.current || g !== generation.current) return;
-      setData(result);
-      setLoadedQuery(q);
-      setLive(result.realtime);
-      setLiveError('');
-      setGeo(result.geo);
-      setGeoError('');
-      setStart(result.range.start);
-      setEnd(result.range.end);
-    } catch (e: any) {
-      if (mounted.current && g === generation.current) setError(e.message);
-    } finally {
-      if (mounted.current && g === generation.current) setLoading(false);
-    }
+    if (q !== applied) setApplied(q);
+    else await report.refresh().catch(() => {});
   };
   useEffect(() => {
-    void load(applied);
-  }, [applied]);
+    if (data) {
+      setLive(data.realtime);
+      setLiveError('');
+      setGeo(data.geo);
+      setGeoError('');
+      setStart(data.range.start);
+      setEnd(data.range.end);
+    }
+  }, [data]);
   useEffect(() => {
     if (!realtime) return;
     const p = new URLSearchParams(loadedQuery);

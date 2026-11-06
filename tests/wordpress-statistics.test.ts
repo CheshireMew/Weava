@@ -18,7 +18,7 @@ import {
   writeWordpressStatisticsExportScript,
   verifyWordpressStatistics,
 } from '@weava/core';
-import { entrySchema } from '@weava/contracts';
+import { entrySchema, analyticsReportSchema, analyticsVisitorDetailSchema } from '@weava/contracts';
 import {
   wordpressStatisticsFixture,
   sealWordpressStatistics,
@@ -106,6 +106,10 @@ describe('WP Statistics migration tools', () => {
     const absent = structuredClone(raw);
     absent.tables.events = { present: false, count: 0, sha256: digest('[]'), rows: [] };
     expect(parseWordpressStatistics(absent).tables.events.present).toBe(false);
+    const sentinels = structuredClone(raw);
+    sentinels.tables.historical.rows[0].pageId = -2;
+    sentinels.tables.historical.rows.push({ id: 42, category: 'visitors', pageId: -1, uri: '-1', value: 17 });
+    expect(parseWordpressStatistics(sealWordpressStatistics(sentinels)).tables.historical.rows[0].pageId).toBe(-2);
     const leaked: any = structuredClone(raw);
     leaked.tables.visitors.rows[0].ip = '127.0.0.1';
     expect(() => parseWordpressStatistics(sealWordpressStatistics(leaked))).toThrow(/格式/);
@@ -202,6 +206,58 @@ describe('WP Statistics migration tools', () => {
     expect(
       wordpressStatisticsReport(root, new URLSearchParams({ path: '/first/' })).totals,
     ).toMatchObject({ pageAggregateViews: 3, relationshipRecords: 2, dailySummaryViews: null });
+  });
+  it('uses imported statistics in ordinary reports, exports, article totals and visitor details without double counting or online visitors', async () => {
+    const { root, input } = fixture('ordinary-report');
+    const plan = planWordpressStatistics(input, root);
+    await importWordpressStatistics(input, root, plan.review);
+    const analytics = new Analytics(root);
+    try {
+      const params = new URLSearchParams({ start: '2026-10-28', end: '2026-10-29' });
+      const report = analytics.report(params);
+      expect(analyticsReportSchema.safeParse(report).success).toBe(true);
+      expect(report).toMatchObject({ views: 4, visitors: 2, sessions: null });
+      expect(report.daily.reduce((n, r) => n + r.views, 0)).toBe(report.views);
+      expect(report.pages.find(p => p.path === '/changed/')).toMatchObject({ views: 3, visitors: 2, averageActiveMs: null });
+      expect(report.sources.find(s => s.name === 'ChatGPT')).toMatchObject({ views: 3, visitors: 1, sessions: null });
+      expect(report.engines.find(e => e.name === 'ChatGPT')).toMatchObject({ views: 3, daily: [{ date: '2026-10-28', views: 3, sessions: null }] });
+      expect(report.countries.find(d => d.name === 'CN')?.visitors).toBe(1);
+      expect(report.browsers.find(d => d.name === 'Mobile Safari')?.visitors).toBe(1);
+      expect(report.actions).toContainEqual({ name: 'share', count: 1 });
+      expect(report.realtime.count).toBe(1);
+      expect(report.realtime.visitors.map(v => v.id)).toEqual(['native']);
+      expect(report.lifetime.views).toBe(29);
+      expect(report.lifetimeViews).toBe(report.lifetime.views);
+      expect(report.lifetime.visitors).toBe(3);
+      expect(analytics.viewTotals([{ id: 'wp-post-42', path: '/changed/' }]).get('wp-post-42')).toBe(24);
+      expect(report.lifetimePages.find(p => p.path === '/changed/')?.views).toBe(24);
+      const visitor = report.activeVisitors[0];
+      const detail = analytics.visitor(visitor.id, params);
+      expect(analyticsVisitorDetailSchema.safeParse(detail).success).toBe(true);
+      expect(detail).toMatchObject({ total: 3 });
+      expect(detail.events.filter(e => e.kind === 'view')).toHaveLength(2);
+      expect(detail.events.find(e => e.kind === 'view')).toMatchObject({ activeMs: null, scroll: null, session: '' });
+      expect(detail.events.find(e => e.label === 'share')?.ts).toBe('2026-10-28T02:01:00.000Z');
+      expect(analytics.export(new URLSearchParams({ ...Object.fromEntries(params), dataset: 'pages' }))).toContain('/changed/');
+      const filtered = analytics.report(new URLSearchParams({ ...Object.fromEntries(params), country: 'CN' }));
+      expect(filtered).toMatchObject({ views: 3, visitors: 1 });
+      expect(analytics.report(new URLSearchParams({ ...Object.fromEntries(params), path: '/changed/' }))).toMatchObject({ views: 3, visitors: 2 });
+      const summary = analytics.report(new URLSearchParams({ start: '2026-04-01', end: '2026-04-01' }));
+      expect(summary).toMatchObject({ views: 24, visitors: 15 });
+      expect(summary.recentVisitors).toHaveLength(0);
+      const previous = analytics.report(new URLSearchParams({ start: '2026-10-30', end: '2026-10-31' }));
+      expect(previous.previous).toMatchObject({ views: 4, visitors: 2 });
+      expect(previous.daily.reduce((n, d) => n + d.previousViews, 0)).toBe(4);
+      expect(previous.engines.find(e => e.name === 'ChatGPT')?.previousViews).toBe(3);
+    } finally { analytics.close(); }
+    const replay = planWordpressStatistics(input, root);
+    expect((await importWordpressStatistics(input, root, replay.review)).changed).toBe(false);
+    const updated = wordpressStatisticsFixture(); updated.capturedAt = '2026-10-30T00:00:00Z'; updated.tables.pages.rows[0].views = 9;
+    writeFileSync(input, JSON.stringify(sealWordpressStatistics(updated)));
+    const next = planWordpressStatistics(input, root); await importWordpressStatistics(input, root, next.review);
+    const after = new Analytics(root);
+    try { expect(after.report(new URLSearchParams({ start: '2026-10-28', end: '2026-10-29' })).pages.find(p => p.path === '/changed/')?.views).toBe(10); }
+    finally { after.close(); }
   });
   it('rejects stale reviews and older snapshots, preserves prior generations and makes newer snapshots replace rather than add', async () => {
     const { root, input } = fixture('updates');

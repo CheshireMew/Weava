@@ -1,11 +1,11 @@
-import { mkdir,open,readFile,writeFile,rename } from 'node:fs/promises';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import type { Site } from './site.ts';
-import type { JobRunner } from './job-runner.ts';
-import { WeavaError } from '../../contracts/src/errors.ts';
-import { inside } from './storage.ts';
-import { beginMediaUpload } from './media-upload.ts';
+import {mkdir,open,readFile,writeFile,rename} from 'node:fs/promises';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import type {Site} from './site.ts';
+import type {JobRunner} from './job-runner.ts';
+import {WeavaError} from '../../contracts/src/errors.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
+import {beginMediaUpload} from './media-upload.ts';
 
 /** Old clients can keep JSON/base64; large JSON never enters the web process heap. */
 export async function readMediaUploadRequest(site:Site,jobs:Pick<JobRunner,'query'>,request:Request){

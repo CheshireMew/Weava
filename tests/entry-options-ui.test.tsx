@@ -1,3 +1,4 @@
+import {contentCommands} from '../apps/admin/src/content-commands.ts';
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -18,9 +19,13 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 function model() {
   const record = { id: 'article', revision: 7, value: entrySchema.parse({ id: 'article', kind: 'content', path: '/article/', title: '已有文章', author: '作者', indexable: false, termIds: { categories: [], tags: ['tag-1'] }, tags: ['旧标签'] }) };
-  return { record, session: { record }, state: { types: [{ id: 'post', value: { id: 'post', label: '文章', fields: [] } }], terms: [{ id: 'category-1', value: { id: 'category-1', kind: 'category', label: '写作', slug: 'writing' } }, { id: 'tag-1', value: { id: 'tag-1', kind: 'tag', label: '旧标签', slug: 'old' } }], schedules: [], layouts: [], entries: [] },
+  const current = { record, session: { record }, state: { types: [{ id: 'post', value: { id: 'post', label: '文章', fields: [] } }], terms: [{ id: 'category-1', value: { id: 'category-1', kind: 'category', label: '写作', slug: 'writing' } }, { id: 'tag-1', value: { id: 'tag-1', kind: 'tag', label: '旧标签', slug: 'old' } }], schedules: [], layouts: [], entries: [] },
     update: vi.fn(), setError: vi.fn(), busy: false, dirty: false, saving: false, scheduleDueAt: '', setScheduleDueAt: vi.fn(), persist: vi.fn(async () => record), refresh: vi.fn(async () => {}), notify: vi.fn(), select: vi.fn(),
   } as any;
+  const commands=contentCommands({editor:current,library:{} as any,refresh:current.refresh,notify:current.notify});
+  current.schedule={record,busy:false,get scheduleDueAt(){return current.scheduleDueAt;},setScheduleDueAt:current.setScheduleDueAt,items:current.state.schedules,setError:current.setError,create:commands.schedule,cancel:(id:string,revision:number)=>commands.changeSchedule('cancel',id,revision),retry:(id:string,revision:number)=>commands.changeSchedule('retry',id,revision)};
+  current.moreActions={record,withdraw:commands.withdraw};
+  return current;
 }
 async function click(label: string) {
   await act(async () => {
@@ -63,7 +68,7 @@ it('keeps cover selection, Escape dismissal and the more settings entry working'
   await click('更多设置'); expect(more).toHaveBeenCalledTimes(1);
 });
 it('keeps scheduling tied to the saved revision after moving it into publication options', async () => {
-  const current = { ...model(), scheduleDueAt: '2030-01-01T10:00' };
+  const current=model();current.scheduleDueAt='2030-01-01T10:00';
   await act(async () => root.render(<EntryOptionsBar model={current} onMore={vi.fn()} />));
   await click('设置发布选项'); await click('安排发布');
   expect(current.persist).toHaveBeenCalledTimes(1);

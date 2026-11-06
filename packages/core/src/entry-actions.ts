@@ -1,6 +1,6 @@
-import { cloneBlocks, entrySchema, WeavaError, type PublishOptions } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { now, uuid } from './storage.ts';
+import {cloneBlocks,entrySchema,WeavaError,type PublishOptions} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {now,uuid} from '../../runtime-common/src/identity.ts';
 
 function currentEntry(site: Site, id: string, revision: number) {
   const row = site.store.get('entry', id);

@@ -1,7 +1,8 @@
 import type Database from 'better-sqlite3';
 import { WeavaError } from '../../contracts/src/errors.ts';
 import { normalizePath } from './paths.ts';
-import { dayStart, dayInZone, shiftDay, realtimeReport } from './analytics-reports.ts';
+import {dayStart,dayInZone,shiftDay,validDay} from './analytics-dates.ts';
+import {realtimeReport} from './analytics-realtime.ts';
 import { referral } from './analytics-dimensions.ts';
 import { BoundedCache } from './cache.ts';
 import type { AnalyticsReport } from '../../contracts/src/analytics.ts';
@@ -13,7 +14,6 @@ const overviews=new WeakMap<Database.Database,BoundedCache<string,any>>();
 const ranges=new WeakMap<Database.Database,{key:string;cursor:number}>();
 const dimensions=['country','browser','os','device','model'] as const;
 const byViews=(a:any,b:any)=>b.views-a.views||String(a.path||a.name||a.host||'').localeCompare(String(b.path||b.name||b.host||''));
-const validDay=(value:string)=>/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
 const metric=`COALESCE(SUM(kind='view'),0) views,COUNT(DISTINCT CASE WHEN kind='view' THEN visitor_key END) visitors,COUNT(DISTINCT CASE WHEN kind='view' THEN session_token END) sessions,COALESCE(SUM(kind='click'),0) clicks`;
 function context(c:string,e:string){return `COALESCE(${c}.country,'') country,COALESCE(NULLIF(${c}.browser,''),'未知') browser,COALESCE(NULLIF(${c}.os,''),'未知') os,COALESCE(NULLIF(${c}.device,''),'unknown') device,COALESCE(NULLIF(${c}.model,''),'未知') model,
   COALESCE(NULLIF(${c}.channel,''),weava_channel(${e}.referrer)) channel,COALESCE(NULLIF(${c}.engine,''),weava_engine(${e}.referrer)) engine,COALESCE(${c}.source,'') source,COALESCE(${c}.medium,'') medium,COALESCE(${c}.campaign,'') campaign`;}
@@ -128,9 +128,9 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     for(const page of pages)page.averageActiveMs=page.views?Math.round(page.activeMs/page.views):0;
     const engines=new Map<string,any>();
     for(const row of all(`SELECT o.engine name,o.channel,s.period,s.first_day date,COUNT(*) sessions,SUM(s.views) views,MIN(s.first_order) first_order FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE o.engine<>'' GROUP BY o.engine,s.period,s.first_day ORDER BY s.period DESC,first_order`)){
-      const engine=engines.get(row.name)??{name:row.name,channel:row.channel,sessions:0,views:0,daily:[],previousSessions:0,previousDaily:[]};
-      if(row.period){engine.sessions+=row.sessions;engine.views+=row.views;engine.daily.push({date:row.date,sessions:row.sessions});}
-      else{engine.previousSessions+=row.sessions;engine.previousDaily.push({date:row.date,sessions:row.sessions});}engines.set(row.name,engine);
+      const engine=engines.get(row.name)??{name:row.name,channel:row.channel,sessions:0,views:0,daily:[],previousViews:0,previousSessions:0,previousDaily:[]};
+      if(row.period){engine.sessions+=row.sessions;engine.views+=row.views;engine.daily.push({date:row.date,sessions:row.sessions,views:row.views});}
+      else{engine.previousSessions+=row.sessions;engine.previousViews+=row.views;engine.previousDaily.push({date:row.date,sessions:row.sessions,views:row.views});}engines.set(row.name,engine);
     }
     const dimension=(key:string)=>all(`SELECT COALESCE(NULLIF(${key},''),'未知') name,COUNT(*) visitors FROM weava_report_visitors GROUP BY name`).map(row=>({...row,share:totals.visitors?row.visitors/totals.visitors:0})).sort((a,b)=>b.visitors-a.visitors||a.name.localeCompare(b.name));
     const visitorRows=(order:string)=>all('SELECT * FROM weava_report_visitors ORDER BY '+order+' LIMIT 100').map(({first_order,last_order,...row})=>row);

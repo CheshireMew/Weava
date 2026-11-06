@@ -1,0 +1,24 @@
+name: Windows architecture verification
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      ASTRO_TELEMETRY_DISABLED: '1'
+      WEAVA_TEST_OUTPUT: D:/Tools/cache/weava/tasks/ci-architecture
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Prepare dependencies and pinned template checker
+        shell: pwsh
+        run: |
+          $env:WEAVA_NODE = (Get-Command node).Source
+          ./scripts/setup.ps1
+      - name: Check types, regressions and compiled HTTP lifecycle
+        shell: pwsh
+        run: node --import tsx scripts/verify.ts

@@ -90,7 +90,7 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     const inherited = sourceRobots.split(',').map((value: string) => value.trim()).filter((value: string) => /^(max-(image-preview|snippet|video-preview):|nosnippet$|noimageindex$|notranslate$)/i.test(value));
     if (inherited.length) robots += ',' + inherited.join(',');
   }
-  const image = seo.image || (entry ? entryCover(entry) : '') || settings.seo?.image || '';
+  const image = seo.image || (entry ? entryCover(entry,release.types.find(type=>type.id===entry.type)) : '') || settings.seo?.image || '';
   const imageUrl = image ? webUrl(image, base) : '';
   const type = seo.schemaType || release.types.find((type) => type.id === entry?.type)?.schemaType || (entry?.kind === 'content' && entry.type === 'post' ? 'Article' : 'WebPage');
   const article = ['Article', 'TechArticle'].includes(type);

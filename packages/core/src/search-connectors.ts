@@ -1,7 +1,7 @@
-import { searchDatasetSchema, type SearchDataset } from './search-data.ts';
-import { digest } from './storage.ts';
-import { WeavaError } from '@weava/contracts';
-import { validDate, webUrl } from './seo.ts';
+import {searchDatasetSchema,type SearchDataset} from './search-data.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {WeavaError} from '@weava/contracts';
+import {validDate,webUrl} from './seo.ts';
 
 export interface SearchConnection {
   provider: 'gsc' | 'ga4' | 'dataforseo'; property: string; start: string; end: string;

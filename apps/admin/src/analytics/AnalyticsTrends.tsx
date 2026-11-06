@@ -61,16 +61,16 @@ export function AnalyticsTrends({ model, section = 'overview' }: { section?: 'ov
               {
                 name: e.name,
                 color,
-                values: dates.map((day) => e.daily.find((d) => d.date === day)?.sessions || 0),
+                values: dates.map((day) => e.daily.find((d) => d.date === day)?.views || 0),
               },
-              ...(e.previousSessions
+              ...(e.previousViews
                 ? [
                     {
                       name: e.name + ' 上期',
                       color,
                       dashed: true,
                       values: dates.map(
-                        (day) => e.previousDaily.find((d) => d.date === day)?.sessions || 0,
+                        (day) => e.previousDaily.find((d) => d.date === day)?.views || 0,
                       ),
                     },
                   ]
@@ -78,7 +78,7 @@ export function AnalyticsTrends({ model, section = 'overview' }: { section?: 'ov
             ];
           })}
         />
-        <p className="analytics-note">按会话首次来源统计；来源被隐藏的访问归入直接 / 未知。</p>
+        <p className="analytics-note">按访问来源统计浏览量；来源被隐藏的访问归入直接 / 未知。</p>
       </Card>}
     </>
   );

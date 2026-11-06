@@ -1,17 +1,18 @@
 import sax from 'sax';
-import { load } from 'cheerio';
-import { basename, join } from 'node:path';
-import { mkdirSync, existsSync, readFileSync, writeFileSync,statSync,openSync,readSync,closeSync,copyFileSync } from 'node:fs';
-import { StringDecoder } from 'node:string_decoder';
-import { digestFile } from './file-io.ts';
-import { entrySchema, WeavaError, type Entry, type Block, type Term, type ContentType } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { normalizePath,pathWithin } from './paths.ts';
-import { digest, inside } from './storage.ts';
-import { plain, sanitize } from './documents.ts';
-import { importSite, type ImportOptions, type SiteExchange } from './exchange.ts';
-import { prepareMedia } from './media.ts';
-import { EntryWorkspace,StagedEntries } from './staged-entries.ts';
+import {load} from 'cheerio';
+import {basename,join} from 'node:path';
+import {mkdirSync,existsSync,writeFileSync,statSync,openSync,readSync,closeSync,copyFileSync} from 'node:fs';
+import {StringDecoder} from 'node:string_decoder';
+import {digestFile} from './file-io.ts';
+import {entrySchema,WeavaError,type Entry,type Block,type Term,type ContentType} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {normalizePath,pathWithin} from './paths.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
+import {plain,sanitize} from './documents.ts';
+import {importSite,type ImportOptions,type SiteExchange} from './exchange.ts';
+import {prepareMedia} from './media.ts';
+import {EntryWorkspace,StagedEntries} from './staged-entries.ts';
 
 interface Xml { name: string; text: string; attrs: Record<string, string>; children: Xml[] }
 export type WxrInput=string|{file:string};
@@ -246,7 +247,7 @@ export function convertWordPressWxr(site: Site, xml: WxrInput, options: WxrOptio
     notes: ['WXR 包含内容资料，主题、插件程序、菜单位置和服务器配置需要另行设置。', '原始 XML 会保存在站点的 imports 目录。未知来源功能需要检查后才能发布。', ...(options.downloadMedia || options.mediaDirectory ? [] : ['附件保留来源网址；本次不会下载附件。'])] };
   return { value, report, attachments, comments };
 }
-import { downloadPublicAttachment as attachmentBytes } from './attachment-download.ts';
+import {downloadPublicAttachment as attachmentBytes} from './attachment-download.ts';
 function localAttachment(directory:string,url:URL) {
   const path=inside(directory,decodeURIComponent(url.pathname).replace(/^\//,''));
   if(!pathWithin(directory,path))throw new WeavaError('附件文件超出指定目录，请检查目录链接。');

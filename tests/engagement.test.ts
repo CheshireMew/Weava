@@ -25,7 +25,7 @@ describe('article interactions', () => {
       CREATE TABLE article_comments(id TEXT PRIMARY KEY,entry_id TEXT NOT NULL,reader_key TEXT NOT NULL,network_key TEXT NOT NULL,client_id TEXT NOT NULL,author TEXT NOT NULL,body TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('visible','hidden')),created_at TEXT NOT NULL,UNIQUE(entry_id,reader_key,client_id));
       CREATE INDEX comments_entry ON article_comments(entry_id,status,created_at); CREATE INDEX comments_reader ON article_comments(reader_key,created_at); CREATE INDEX comments_network ON article_comments(network_key,created_at);
       INSERT INTO article_comments VALUES('shown','article','reader','net','client-1','旧读者','旧评论','visible','before'); INSERT INTO article_comments VALUES('hidden','article','reader','net','client-2','旧读者','隐藏评论','hidden','before');`); db.close();
-    const store = new Storage(root); stores.push(store); const engagement = new Engagement(store.raw, 'secret');
+    const store = new Storage(root,true,'migrate'); stores.push(store); const engagement = new Engagement(store.raw, 'secret');
     expect(engagement.counts('article')).toEqual({ likes: 1, comments: 1 }); expect(engagement.summary('article').items[0]).toMatchObject({ id: 'shown', author: '旧读者', body: '旧评论' });
     expect(store.raw.prepare("SELECT status FROM article_comments WHERE id='hidden'").get()).toEqual({ status: 'hidden' }); store.raw.prepare("UPDATE article_comments SET status='pending' WHERE id='hidden'").run();
     expect(engagement.counts('article').comments).toBe(1);
@@ -34,7 +34,7 @@ describe('article interactions', () => {
     const root = join(base, 'migration'); mkdirSync(root, { recursive: true });
     const db = new Database(join(root, 'weava.sqlite'));
     db.exec("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES(1,'before'); CREATE TABLE records(scope TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,data TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(scope,id)); INSERT INTO records VALUES('example','kept',1,'{\"text\":\"原内容\"}','before');"); db.close();
-    const store = new Storage(root); stores.push(store);
+    const store = new Storage(root,true,'migrate'); stores.push(store);
     expect(store.get('example', 'kept')!.value).toEqual({ text: '原内容' });
     expect(store.raw.prepare('SELECT MAX(version) version FROM schema_migrations').get()).toEqual({ version: SCHEMA_VERSION });
     expect(new Engagement(store.raw, 'secret').counts('article')).toEqual({ likes: 0, comments: 0 });
@@ -49,6 +49,22 @@ describe('article interactions', () => {
     expect(engagement.setLike('article', reader, false).likes).toBe(1);
     expect(engagement.setLike('article', reader, false).likes).toBe(1);
     expect(engagement.counts('other')).toEqual({ likes: 0, comments: 0 });
+  });
+  it('keeps comment likes separate, persistent and idempotent, and rejects unavailable targets', async () => {
+    const { store, engagement, value } = fixture();
+    const comment = engagement.postComment('article', reader, 'ip', value(await engagement.createCaptcha(reader, 'ip')));
+    expect(engagement.setCommentLike('article', comment.id, reader, true)).toMatchObject({likes:1,liked:true});
+    expect(engagement.setCommentLike('article', comment.id, reader, true).likes).toBe(1);
+    expect(new Engagement(store.raw, 'test-secret').summary('article', reader).items[0]).toMatchObject({likes:1,liked:true});
+    expect(engagement.summary('article', other).items[0]).toMatchObject({likes:1,liked:false});
+    expect(engagement.setCommentLike('article', comment.id, other, true).likes).toBe(2);
+    expect(engagement.setCommentLike('article', comment.id, reader, false).likes).toBe(1);
+    expect(engagement.setCommentLike('article', comment.id, reader, false).likes).toBe(1);
+    expect(engagement.counts('article').likes).toBe(0);
+    expect(()=>engagement.setCommentLike('other',comment.id,reader,true)).toThrow('不存在');
+    engagement.moderate(comment.id,'hidden');
+    expect(()=>engagement.setCommentLike('article',comment.id,reader,true)).toThrow('不可见');
+    expect(engagement.summary('article',reader).items).toHaveLength(0);
   });
   it('requires a raster captcha, bound to the reader, and consumes it only once', async () => {
     const { engagement, value } = fixture();

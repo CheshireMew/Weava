@@ -1,48 +1,9 @@
-import { api } from './api.ts';
-import { drafts } from './draft-repository.ts';
-
-import type { ContentWorkspace } from './useContentWorkspace.ts';
-
-export function EntryRecovery({
-  model,
-}: {
-  model: Pick<
-    ContentWorkspace,
-    | 'record'
-    | 'setRecord'
-    | 'session'
-    | 'setEditorEpoch'
-    | 'conflictPaused'
-    | 'restoreLocal'
-    | 'setRestoreLocal'
-    | 'recoveryCopies'
-    | 'setRecoveryCopies'
-    | 'draftNotice'
-    | 'setDraftNotice'
-    | 'update'
-    | 'adopt'
-    | 'select'
-    | 'showConflict'
-    | 'setError'
-  >;
-}) {
-  const {
-    record,
-    setRecord,
-    session,
-    setEditorEpoch,
-    conflictPaused,
-    restoreLocal,
-    setRestoreLocal,
-    setRecoveryCopies,
-    draftNotice,
-    setDraftNotice,
-    update,
-    adopt,
-    showConflict,
-    setError,
-  } = model;
+import type { EntryRecoveryModel } from './content-models.ts';
+export function EntryRecovery({ model }: { model: EntryRecoveryModel }) {
+  const { record, draftNotice, conflictPaused, restoreLocal, recoveryCopies, setError } = model;
   if (!record) return null;
+  const attempt = (action: () => Promise<void>) =>
+    void action().catch((error) => setError(error.message));
   return (
     <>
       {draftNotice && (
@@ -53,51 +14,30 @@ export function EntryRecovery({
       {conflictPaused && (
         <div className="recovery-banner">
           本地修改尚未保存，服务器已有新版本。
-          <button
-            onClick={() => {
-              if (session.record)
-                showConflict(session.record).catch((error) => setError(error.message));
-            }}
-          >
-            比较并解决
-          </button>
+          <button onClick={() => attempt(model.compare)}>比较并解决</button>
         </div>
       )}
       {restoreLocal && (
         <div className="recovery-banner">
           这篇文章有尚未保存的本地草稿。
-          <button
-            onClick={async () => {
-              const local = restoreLocal;
-              try {
-                await drafts().save(local);
-              } catch (error: any) {
-                setDraftNotice(error.message);
-              }
-              if (local.revision !== record.revision) {
-                session.record = local;
-                setRecord(local);
-                await showConflict(local).catch((error) => setError(error.message));
-              } else update(local.value);
-              setEditorEpoch((v) => v + 1);
-              setRestoreLocal(null);
-            }}
-          >
-            恢复到编辑器
-          </button>
-          <button
-            onClick={async () => {
-              try {
-                const server = await api(`entry/${encodeURIComponent(record.id)}`);
-                adopt(server);
-                setRecoveryCopies([]);
-              } catch (error: any) {
-                setError(error.message);
-              }
-            }}
-          >
-            使用服务器版本
-          </button>
+          {recoveryCopies.length > 1 && (
+            <select
+              aria-label="选择要恢复的草稿"
+              value={Math.max(
+                0,
+                recoveryCopies.findIndex((copy) => copy.record === restoreLocal),
+              )}
+              onChange={(event) => model.chooseCopy(Number(event.target.value))}
+            >
+              {recoveryCopies.map((copy, index) => (
+                <option key={(copy.sessionId ?? 'legacy') + index} value={index}>
+                  {copy.record.value.title} · {new Date(copy.updatedAt).toLocaleString()}
+                </option>
+              ))}
+            </select>
+          )}
+          <button onClick={() => attempt(model.recoverSelected)}>恢复到编辑器</button>
+          <button onClick={() => attempt(model.useServer)}>使用服务器版本</button>
         </div>
       )}
     </>

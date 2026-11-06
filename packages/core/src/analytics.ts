@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { WeavaError } from '../../contracts/src/errors.ts';
 import { normalizePath } from './paths.ts';
 import { AnalyticsGeo } from './analytics-geo.ts';
@@ -8,6 +9,8 @@ import { analyticsReport, realtimeReport, visitorReport } from './analytics-repo
 import { acquireInstanceWriter, type InstanceWriter } from './instance-access.ts';
 import { analyticsIndex } from './analytics-index.ts';
 import { analyticsFacts } from './analytics-facts.ts';
+import { AnalyticsIngress } from './analytics-ingress.ts';
+import { mergeWordpressAnalytics, wordpressLifetime } from './analytics-wordpress.ts';
 export interface HistoricalViewImport {
   sourceId: string;
   capturedAt: string;
@@ -17,14 +20,21 @@ export class Analytics {
   raw!: Database.Database;
   geo: AnalyticsGeo;
   private writer: InstanceWriter;
-  constructor(root: string) {
+  private ingress!: AnalyticsIngress;
+  constructor(root: string, options: { mode?: 'open' | 'migrate' } = {}) {
     this.writer = acquireInstanceWriter(root);
     try {
     this.geo = new AnalyticsGeo(root);
+    const fresh = !existsSync(join(root, 'analytics.sqlite'));
     this.raw = new Database(join(root, 'analytics.sqlite'));
     this.raw.pragma('journal_mode=WAL');
     this.raw.pragma('busy_timeout=5000');
     this.raw.pragma('cache_size=-32768');
+    const initialized = this.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='weava_analytics_schema'").get();
+    const schema = initialized ? (this.raw.prepare('SELECT version FROM weava_analytics_schema').get() as {version:number})?.version : 0;
+    if (schema > 1) throw new WeavaError('统计数据库版本比当前程序新。');
+    if (!schema && !fresh && options.mode !== 'migrate' && process.env.WEAVA_DATABASE_MODE !== 'migrate') throw new WeavaError('统计数据库需要显式迁移，请使用 site update 或 site adopt。',409);
+    if (!schema) {
     this.raw.exec(
       `CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,kind TEXT NOT NULL,ts TEXT NOT NULL,path TEXT NOT NULL,visitor TEXT NOT NULL,session TEXT NOT NULL,url TEXT NOT NULL,label TEXT NOT NULL,zone TEXT NOT NULL,referrer TEXT NOT NULL,release_id TEXT NOT NULL);CREATE INDEX IF NOT EXISTS event_date ON events(ts,path);CREATE TABLE IF NOT EXISTS legacy_sources(id TEXT PRIMARY KEY,path TEXT NOT NULL,data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS historical_views(entry_id TEXT PRIMARY KEY,source_id TEXT NOT NULL,path TEXT NOT NULL,views INTEGER NOT NULL CHECK(views>=0),captured_at TEXT NOT NULL);`,
@@ -53,12 +63,16 @@ export class Analytics {
     }).immediate();
     analyticsIndex(this.raw);
     analyticsFacts(this.raw);
+    this.raw.exec('CREATE TABLE IF NOT EXISTS weava_analytics_schema(version INTEGER NOT NULL); INSERT INTO weava_analytics_schema VALUES(1);');
+    }
+    this.ingress = new AnalyticsIngress(this.raw,root);
     } catch (error) { if (this.raw?.open) this.raw.close(); this.writer.release(); throw error; }
   }
   collect(value: any, agent: string, allowed: Set<string>, context: AnalyticsContext = {}) {
     if (/bot|crawler|spider|headless|playwright|preview|slurp/i.test(agent)) return { accepted: 0 };
     const batch = Array.isArray(value) ? value : [value];
     if (batch.length > 100) throw new WeavaError('事件数量过多。');
+    this.ingress.reserve(context.ip??'unknown',batch.length);
     let count = 0;
     const insert = this.raw.prepare('INSERT OR IGNORE INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)');
     const detail = this.raw.prepare(
@@ -147,12 +161,15 @@ export class Analytics {
     })();
     return { accepted: count };
   }
-  recordCrawler(path: string, agent: string, status: number) {
+  recordCrawler(path: string, agent: string, status: number, network='unknown') {
     const known =
       /GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|Googlebot|bingbot|Bytespider/i.exec(
         agent,
       )?.[0];
     if (!known) return;
+    // Dropping telemetry must never make the actual article unavailable.
+    try { this.ingress.reserve(network,1); }
+    catch(error) { if(error instanceof WeavaError && [429,503].includes(error.status))return;throw error; }
     this.raw
       .prepare('INSERT INTO crawler_requests VALUES(?,?,?,?,?)')
       .run(
@@ -223,6 +240,7 @@ export class Analytics {
   }
   viewTotals(entries: { id: string; path: string }[]) {
     const historical = new Map<string,number>(), recorded = new Map<string,number>();
+    const wordpress = wordpressLifetime(this.raw);
     for(let offset=0;offset<entries.length;offset+=200){
       const batch=entries.slice(offset,offset+200),marks=batch.map(()=>'?').join(',');
       for(const row of this.raw.prepare(`SELECT entry_id,views FROM historical_views WHERE entry_id IN (${marks})`).all(...batch.map(entry=>entry.id)) as {entry_id:string;views:number}[]) historical.set(row.entry_id,row.views);
@@ -231,7 +249,7 @@ export class Analytics {
     return new Map(
       entries.map((entry) => [
         entry.id,
-        (historical.get(entry.id) ?? 0) + (recorded.get(normalizePath(entry.path)) ?? 0),
+        (wordpress ? wordpress.entries.get(entry.id) ?? wordpress.pages.get(normalizePath(entry.path)) ?? 0 : historical.get(entry.id) ?? 0) + (recorded.get(normalizePath(entry.path)) ?? 0),
       ]),
     );
   }
@@ -274,11 +292,11 @@ export class Analytics {
     };
   }
   report(params: URLSearchParams, timezone = 'Asia/Shanghai') {
-    return {
+    return mergeWordpressAnalytics(this.raw, {
       ...analyticsReport(this.raw, params, timezone),
       ...this.lifetime(params.get('path') || undefined),
       geo: this.geo.status(),
-    };
+    }, params);
   }
   realtime(params = new URLSearchParams()) {
     return realtimeReport(this.raw, params);
@@ -366,7 +384,13 @@ export class Analytics {
 export function csv(rows: any[], columns?: string[]) {
   if (!rows.length && !columns) return '\ufeff';
   const keys = columns || Object.keys(rows[0]);
-  const cell = (v: any) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const cell = (v: any) => {
+    let text=String(v??'');
+    // CSV quoting alone does not stop Excel from evaluating attacker-controlled formulas.
+    // A tab inside the quoted field keeps dangerous text cells as text; numbers stay numeric.
+    if(typeof v==='string' && /^[\s\p{Cf}\x00-\x1f]*[=+\-@＝＋－＠]/u.test(text)) text='\t'+text;
+    return '"'+text.replace(/"/g,'""')+'"';
+  };
   return (
     '\ufeff' +
     [keys, ...rows.map((r) => keys.map((k) => r[k]))].map((r) => r.map(cell).join(',')).join('\r\n')

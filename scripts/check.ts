@@ -1,0 +1,12 @@
+import {spawnSync} from 'node:child_process';
+import {resolve} from 'node:path';
+import {checkTemplates} from './check-templates.ts';
+import {checkModuleBoundaries} from './check-module-boundaries.ts';
+checkModuleBoundaries();
+const result=spawnSync(process.execPath,[resolve('node_modules/typescript/bin/tsc'),'--noEmit'],{windowsHide:true,stdio:'inherit'});
+if(result.error)throw result.error;
+if(result.status!==0)process.exit(result.status??1);
+const docs=spawnSync(process.execPath,['--import','tsx',resolve('scripts/generate-api-docs.ts'),'--check'],{windowsHide:true,stdio:'inherit'});
+if(docs.error)throw docs.error;
+if(docs.status!==0)process.exit(docs.status??1);
+if(!await checkTemplates())process.exitCode=1;

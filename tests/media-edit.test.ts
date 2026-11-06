@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import sharp from 'sharp';
-import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument, imageAttributes, entryCover, queryDrafts } from '@weava/core';
+import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument, imageAttributes, responsiveImages, entryCover, queryDrafts } from '@weava/core';
 import { imageDerivatives } from '../packages/core/src/media-images.ts';
 import { entrySchema } from '@weava/contracts';
 const sites: Site[] = [], base = 'D:/Tools/cache/weava/tests/media-edit-' + Date.now();
@@ -28,6 +28,11 @@ describe('media library editing', () => {
     const site = create(), bytes = await image(), row = await uploadMedia(site, bytes, 'readable.png');
     expect(row.value.derivatives.map((item: any) => item.width)).toEqual([480, 800]);
     expect(imageAttributes(site, row.value.url).srcset).toContain('800w');
+    expect(imageAttributes(site, row.value.url, 64).src).toBe(row.value.derivatives[0].url);
+    expect(imageAttributes(site, row.value.url, {width:32,height:32})).toMatchObject({src:row.value.derivatives[0].url,width:32,height:32,sizes:'32px'});
+    expect(imageAttributes(site, row.value.url).src).toBe(row.value.derivatives.at(-1).url);
+    const html = responsiveImages(site, `<img src="${row.value.url}" width="32" height="32"><img src="${row.value.url}" loading="eager">`);
+    expect(html).toContain('width="32" height="32"'); expect(html).toContain('loading="lazy"'); expect(html).toContain('loading="eager"'); expect(html).toContain('decoding="async"');
     for (const item of row.value.derivatives) {
       const metadata = await sharp(site.root + item.url).metadata();
       expect(metadata.width).toBe(item.width);

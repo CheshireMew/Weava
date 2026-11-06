@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
+import {retryableLazy as lazy} from './ErrorBoundary.tsx';
 
 import { Menu, Loader2, Check } from 'lucide-react';
 
 import { api } from './api.ts';
+import { adminQueries } from './query-cache.ts';
+import { useAdminQuery } from './useAdminQuery.ts';
 
 import { FieldWidgetsProvider } from './Fields.tsx';
 
@@ -11,9 +14,18 @@ import { JobLogs } from './JobLogs.tsx';
 import { useEditSessions } from './EditSessions.tsx';
 
 import './style.css';
+import {isNoteType} from '@weava/contracts';
+import {NoteEditor} from './NoteEditor.tsx';
+import {NotesLibrary} from './NotesLibrary.tsx';
 
-const SettingsPanel=lazy(()=>import('./SettingsPanel.tsx'));
-const Operations=lazy(()=>import('./Operations.tsx'));
+const panelModules = {
+  appearance: () => import('./SettingsPanel.tsx'), operations: () => import('./Operations.tsx'),
+  account: () => import('./AccountPanel.tsx'), analytics: () => import('./AnalyticsPanel.tsx'),
+  comments: () => import('./Comments.tsx'), media: () => import('./MediaManager.tsx'),
+};
+const preloadPanel = (panel: string) => { const load = panelModules[panel as keyof typeof panelModules]; if (load) void load().catch(() => {}); };
+const SettingsPanel=lazy(panelModules.appearance);
+const Operations=lazy(panelModules.operations);
 import { AdminNavigation, tabs } from './AdminNavigation.tsx';
 import { adminPanel, panelUrl } from './admin-location.ts';
 import type { AdminSession } from './useAdminSession.ts';
@@ -26,13 +38,18 @@ import { ContentDialogs } from './ContentDialogs.tsx';
 import { usePublication } from './usePublication.ts';
 import { useSettingsApplication } from './useSettingsApplication.ts';
 import { PublicationDialog } from './PublicationDialog.tsx';
-const AccountPanel = lazy(() => import('./AccountPanel.tsx'));
-const AnalyticsPanel = lazy(() => import('./AnalyticsPanel.tsx'));
+const AccountPanel = lazy(panelModules.account);
+const AnalyticsPanel = lazy(panelModules.analytics);
 
-const Comments = lazy(() => import('./Comments.tsx'));
+const Comments = lazy(panelModules.comments);
 
-const MediaManager = lazy(() => import('./MediaManager.tsx'));
+const MediaManager = lazy(panelModules.media);
+const statePath = (panel: string, entryId?: string) => `state?${new URLSearchParams({
+  summary: '1', panel: ['appearance','comments','operations'].includes(panel) ? panel : 'content', ...(entryId ? { entryId } : {}),
+})}`;
 
+import { useTransientMessage } from './useTransientMessage.ts';
+import {ErrorBoundary} from './ErrorBoundary.tsx';
 export interface AppProps {authentication:AdminSession;error:string;setError:(message:string)=>void}
 export function App({authentication,error,setError}:AppProps) {
   const editors = useEditSessions();
@@ -45,17 +62,31 @@ export function App({authentication,error,setError}:AppProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigationVersion=useRef(0);
   const { session } = authentication;
-  function notify(message: string, duration = 5000) {
+  const activeTab = useRef(tab), [statePanel, setStatePanel] = useState('');
+  const panelPath = statePath(tab);
+  const panelQuery = useAdminQuery(session?.authenticated ? panelPath : null);
+  useEffect(() => { if (!session?.authenticated) { setState(null); setStatePanel(''); } }, [session?.authenticated]);
+  function receiveState(data: any, panel: string) {
+    setState(data); setStatePanel(panel);
+    const required: Record<string, string> = { content: 'content', notes: 'content', media: 'media', comments: 'engagement', analytics: 'analytics' };
+    if (data.features && required[panel] && !data.features.includes(required[panel])) {
+      activeTab.current = 'appearance'; setTab('appearance'); history.replaceState(null, '', panelUrl(location.href, 'appearance'));
+      return 'appearance';
+    }
+    return panel;
+  }
+  useEffect(() => { if (panelQuery.data) receiveState(panelQuery.data, tab); }, [panelQuery.data, tab]);
+  useEffect(() => { if (panelQuery.error) setError(panelQuery.error); }, [panelQuery.error]);
+  function notify(message: string, duration = 3000) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(message);
     toastTimer.current = setTimeout(() => setToast(''), duration);
   }
-  async function refresh(panel = tab, current = ()=>true) {
-    const record = workspace.session.record;
-    const data = await api(
-      `state?${new URLSearchParams({ summary: '1', panel, ...(record ? { entryId: record.id } : {}) })}`,
-    );
-    if(current())setState(data);
+  async function refresh(panel = activeTab.current, current = ()=>true) {
+    const record = workspace.navigation.current();
+    const path = statePath(panel, record?.id);
+    const data = await adminQueries.read(path, () => api.request(path), true);
+    if(current() && activeTab.current === panel) receiveState(data, panel);
     return data;
   }
   const publicationController = usePublication(refresh, setError, notify);
@@ -69,11 +100,14 @@ export function App({authentication,error,setError}:AppProps) {
     setError,
     notify,
     refresh,
-    setJob,
     task,
   });
-  const { record } = workspace;
-  const siteLogo = state?.settings.value.logo;
+  const {record}=workspace.editor;
+  const feedbackContext = tab + ':' + (record?.id ?? 'list');
+  useTransientMessage(error, () => setError(''), feedbackContext);
+  useTransientMessage(toast, () => setToast(''), feedbackContext, 3000);
+  useTransientMessage(job && !busy ? job.id : '', () => setJob(null), feedbackContext);
+  const siteLogo = state?.siteIcon ?? state?.settings.value.logo;
   useEffect(() => {
     if (siteLogo === undefined) return;
     let icon = document.head.querySelector<HTMLLinkElement>('link[data-weava-site-icon]');
@@ -111,16 +145,14 @@ export function App({authentication,error,setError}:AppProps) {
     [],
   );
   useEffect(() => {
-    if (!session?.authenticated) return;
+    if (!session?.authenticated || !panelQuery.data) return;
     let active = true;
-    const version = navigationVersion.current, selected = workspace.selection.current;
-    const entryId = tab === 'content' ? new URLSearchParams(window.location.search).get('entry') : null;
-    refresh().then(() => {
-      if (active && version === navigationVersion.current && selected === workspace.selection.current && entryId)
-        return workspace.select(entryId);
-    }).catch((error) => { if (active) setError(error.message); });
+    const version = navigationVersion.current;
+    const entryId = ['content','notes'].includes(tab) ? new URLSearchParams(window.location.search).get('entry') : null;
+    if (entryId && !workspace.navigation.current() && version === 0)
+      workspace.navigation.select(entryId).catch((error) => { if (active) setError(error.message); });
     return () => { active = false; };
-  }, [session]);
+  }, [session, !!panelQuery.data]);
   const pendingSchedule = state?.schedules?.some((row: any) => row.value.status === 'scheduled');
   useEffect(() => {
     if (!pendingSchedule) return;
@@ -129,8 +161,8 @@ export function App({authentication,error,setError}:AppProps) {
     const poll = async () => {
       try {
         const schedules = await api(
-          workspace.session.record
-            ? `schedules?entryId=${encodeURIComponent(workspace.session.record!.id)}`
+          workspace.navigation.current()
+            ? `schedules?entryId=${encodeURIComponent(workspace.navigation.current()!.id)}`
             : 'schedules',
         );
         if (active) setState((old: any) => ({ ...old, schedules }));
@@ -147,14 +179,17 @@ export function App({authentication,error,setError}:AppProps) {
     };
   }, [pendingSchedule]);
   async function navigate(next: string, recordHistory = true) {
+    if (next === activeTab.current) { ++navigationVersion.current; setMenu(false); return true; }
+    preloadPanel(next);
     const version=++navigationVersion.current;
-    ++workspace.selection.current;
+    workspace.navigation.cancelSelection();
     try {
       await editors.flush();
       if(version!==navigationVersion.current)return true;
-      workspace.clear();
-      await refresh(next,()=>version===navigationVersion.current);
-      if(version!==navigationVersion.current)return true;
+      workspace.navigation.clear();
+      activeTab.current = next;
+      const cached = adminQueries.snapshot(statePath(next)).data;
+      if (cached) next = receiveState(cached, next);
       setTab(next);
       setMenu(false);
       if (recordHistory && next !== tab) window.history.pushState(null, '', panelUrl(window.location.href, next));
@@ -177,9 +212,9 @@ export function App({authentication,error,setError}:AppProps) {
   async function logout() {
     try {
       await editors.flush();
-      workspace.clear();
       await api('logout', {});
-      authentication.setSession(await api('session'));
+      workspace.navigation.clear();
+      authentication.setSession((current:any)=>current?{...current,authenticated:false}:current);
     } catch (error: any) {
       setError(error.message);
     }
@@ -193,6 +228,7 @@ export function App({authentication,error,setError}:AppProps) {
       tab={tab}
       setMenu={setMenu}
       navigate={navigate}
+      preload={preloadPanel}
       logout={logout}
     />
   );
@@ -232,13 +268,7 @@ export function App({authentication,error,setError}:AppProps) {
               <strong className="breadcrumb-current">{tabs.find((t) => t[0] === tab)?.[1]}</strong>
             </div>
           </header>}
-          {error && (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-              <button onClick={() => setError('')}>关闭</button>
-            </div>
-          )}
-          {job && (
+          {job && tab!=='notes' && (
             <div className={'job-banner ' + job.status} role="status">
               {busy && <Loader2 className="spin" size={15} />}
               <span>{job.message}</span>
@@ -246,13 +276,13 @@ export function App({authentication,error,setError}:AppProps) {
               {!busy && <button onClick={() => setJob(null)}>关闭</button>}
             </div>
           )}
-          {!state ? (
-            <div className="loading-screen">正在载入…</div>
+          {!state || ['appearance','operations'].includes(tab) && statePanel !== tab ? (
+            <div className="loading-screen">{panelQuery.error ? <button onClick={() => void panelQuery.refresh().catch(() => {})}>重新载入</button> : '正在载入…'}</div>
           ) : (
-            <Suspense fallback={<p role="status">正在载入…</p>}>
-              {tab === 'content' && (
-                <div className={'content-workspace' + (record ? ' has-record' : '')}>
-                  {record ? <EntryEditor model={workspace} /> : <ContentLibrary model={workspace} />}
+            <ErrorBoundary resetKey={tab} onReload={async()=>{await editors.preserve();window.location.reload();}}><Suspense fallback={<p role="status">正在载入…</p>}>
+              {['content','notes'].includes(tab) && (
+                <div className={'content-workspace' + (record&&tab!=='notes' ? ' has-record' : '')}>
+                  {tab==='notes'?<><NotesLibrary model={workspace.library}/>{record&&isNoteType(state.types.find((row:any)=>row.id===record.value.type)?.value)&&<NoteEditor model={workspace.editor} error={error}/>}</>:record?<EntryEditor model={workspace.editor}/>:<ContentLibrary model={workspace.library}/>}
                 </div>
               )}
               {tab === 'media' && (
@@ -263,7 +293,7 @@ export function App({authentication,error,setError}:AppProps) {
                       api(`entry/${encodeURIComponent(id)}`)
                         .then(async (row) => {
                           if (row.value.kind === 'page') await navigate('appearance');
-                          else if (await navigate('content')) await workspace.select(id);
+                          else if (await navigate(isNoteType(state.types.find((type:any)=>type.id===row.value.type)?.value)?'notes':'content')) await workspace.navigation.select(id);
                         })
                         .catch((error) => setError(error.message));
                     }}
@@ -273,6 +303,7 @@ export function App({authentication,error,setError}:AppProps) {
               {tab === 'appearance' && (
                 <SettingsPanel
                   row={state.settings}
+                  contentEnabled={!state.features || state.features.includes('content')}
                   themes={state.themes ?? []}
                   panels={state.extensionPanels ?? []}
                   layouts={state.layouts ?? []}
@@ -305,11 +336,13 @@ export function App({authentication,error,setError}:AppProps) {
                   openLogs={setLogJob}
                 />
               )}
-            </Suspense>
+            </Suspense></ErrorBoundary>
           )}
         </main>
 
-        {toast && (
+        {error && !publicationController.publication && !(tab==='notes'&&record) ? (
+          <div className="toast error-toast" role="alert"><span>{error}</span><button aria-label="关闭提示" onClick={() => setError('')}>×</button></div>
+        ) : toast && (
           <div className="toast" role="status" aria-live="polite" aria-atomic="true">
             <Check size={17} strokeWidth={2} aria-hidden="true" /><span>{toast}</span>
           </div>
@@ -318,20 +351,20 @@ export function App({authentication,error,setError}:AppProps) {
           model={publicationController}
           error={error}
           onPublished={async () => {
-            if (workspace.session.record) await workspace.select(workspace.session.record.id);
+            const row=workspace.navigation.current();if(row)await workspace.navigation.select(row.id);
           }}
         />
         {logJob && <JobLogs key={logJob} id={logJob} onClose={() => setLogJob(null)} />}
         <Reauthentication
           model={authentication}
           setError={setError}
-          dirty={workspace.dirty}
+          dirty={workspace.editor.dirty}
           onAuthenticated={async () => {
             setPublication(null);
             await editors.flush();
           }}
         />
-        <ContentDialogs model={workspace} />
+        <ContentDialogs model={workspace.dialogs} />
       </div>
     </FieldWidgetsProvider>
   );

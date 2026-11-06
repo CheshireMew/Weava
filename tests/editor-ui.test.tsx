@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { Editor } from '../apps/admin/src/Editor.tsx';
+import { importedDocument } from '../packages/core/src/imported-document.ts';
 
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 let host: HTMLDivElement, toolbarHost: HTMLDivElement, root: Root;
@@ -18,13 +19,45 @@ it('opens supported Markdown visually by default without changing its stored con
   expect(changed).not.toHaveBeenCalled();
 });
 
-it('preserves source mode for content that cannot convert losslessly', async () => {
+it('opens legacy HTML as editable content without exposing source or rewriting it on open', async () => {
   const changed = vi.fn(), error = vi.fn();
   const source = '<section><custom-content>原始内容</custom-content></section>';
   await act(async () => root.render(<Editor value={{ version: 1, format: 'html', source }} onChange={changed} onMedia={async () => null} onError={error} />));
-  await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === '可视化编辑')!.click());
-  expect(error).toHaveBeenCalledWith(expect.stringContaining('不能无损转换'));
-  expect((host.querySelector('[aria-label="正文源码"]') as HTMLTextAreaElement).value).toBe(source);
+  expect(host.querySelector('textarea')).toBeNull();
+  expect(host.querySelector('iframe')?.title).toBe('正文编辑器');
+  expect(host.querySelector('iframe')?.srcdoc).toContain('原始内容');
+  expect(error).not.toHaveBeenCalled();
+  expect(changed).not.toHaveBeenCalled();
+});
+
+it('edits converted articles with lists, tables, media, separators and embeds', async () => {
+  const changed = vi.fn();
+  const value = importedDocument('<p>正文<strong>加粗</strong></p><h2 id="old-anchor">原标题</h2><ol start="4"><li>第四项</li></ol><hr><table><tr><th>名称</th><td>内容</td></tr></table><a href="/original/"><img src="/media/a.png" alt="原图"></a><iframe src="about:blank" title="视频"></iframe>');
+  await act(async () => root.render(<Editor value={value} onChange={changed} onMedia={async () => null} onError={error => { throw new Error(error); }} />));
+  expect(host.querySelector('[aria-label="正文编辑器"] strong')?.textContent).toBe('加粗');
+  expect(host.querySelector('ol')?.start).toBe(4);
+  expect(host.querySelector('table')?.textContent).toContain('名称');
+  expect(host.querySelector('hr')).not.toBeNull();
+  expect(host.querySelector('.editor-embed')?.getAttribute('src')).toBe('about:blank');
+  expect(host.querySelector('img')?.alt).toBe('原图');
+  expect(changed).not.toHaveBeenCalled();
+  const editable = host.querySelector('[aria-label="正文编辑器"]') as HTMLElement;
+  await act(async () => {
+    editable.focus(); const range = document.createRange(); range.selectNodeContents(editable.querySelector('p')!); range.collapse(true);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange'));
+  });
+  const format = host.querySelector('[aria-label="段落格式"]') as HTMLSelectElement;
+  await act(async () => { format.value = 'h3'; format.dispatchEvent(new Event('change', { bubbles: true })); });
+  const saved = changed.mock.lastCall![0];
+  expect(JSON.stringify(saved.source)).toContain('old-anchor');
+  expect(JSON.stringify(saved.source)).toContain('"href":"/original/"');
+});
+
+it('does not save imported list normalization when a note merely receives focus', async () => {
+  const changed = vi.fn();
+  const value = importedDocument('<p>原笔记</p><ul><li><p><strong>场景：</strong>完整内容。</p></li></ul>');
+  await act(async () => root.render(<Editor compact value={value} onChange={changed} onMedia={async () => null} onError={error => { throw new Error(error); }} />));
+  expect(host.querySelector('[aria-label="正文编辑器"]')?.textContent).toContain('完整内容');
   expect(changed).not.toHaveBeenCalled();
 });
 

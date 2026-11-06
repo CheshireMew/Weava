@@ -6,12 +6,15 @@ import { WeavaError, type Settings, siteSeoSchema, advertisementsSchema } from '
 import type { Site } from './site.ts';
 import { siteInfoSchema } from '../../contracts/src/site-info.ts';
 import { sidebarSchema } from '../../contracts/src/site-presentation.ts';
+import {normalizePath} from './paths.ts';
+import {isReservedContentPath} from '@weava/contracts';
 export class SiteSettings {
   constructor(private site: Pick<Site, 'store' | 'settings' | 'terms'>) {}
   settings() {
     return this.site.store.get('settings', 'site')!;
   }
   saveSettings(value: Settings, revision: number) {
+    if(value.extensions.notes!==undefined){const path=value.extensions.notes?.path;if(typeof path!=='string'||!path.startsWith('/')||path==='/'||path.includes('?')||path.includes('#')||isReservedContentPath(normalizePath(path)))throw new WeavaError('随笔入口需要使用普通站内页面路径。');value={...value,extensions:{...value.extensions,notes:{...value.extensions.notes,path:normalizePath(path)}}};}
     if (value.sidebar) {
       value = { ...value, sidebar: sidebarSchema.parse(value.sidebar) };
       for (const link of value.sidebar!.links) {

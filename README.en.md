@@ -31,6 +31,8 @@
 
 Weava builds and manages blogs, company websites, portfolios, documentation sites, and resource directories. Write in the browser, upload media, preview, and publish; use the CLI or API for custom content structures and automation. Content and settings live in a separate site directory, so everyday updates do not require a rebuild.
 
+Version 0.2 adds a shared program installation and multi-site management: install each program version, admin interface, and dependency set once, while keeping every site's data and version selection independent. For regular use, start with [Shared programs and multiple sites](docs/shared-runtime.md), which covers starter sites, background hosting, custom pages, and adopting existing sites. The source commands below remain available for development and preparing the initial program build.
+
 ## What you can do
 
 | Your task | What Weava provides |

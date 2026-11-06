@@ -1,20 +1,19 @@
-import { Popover } from './Popover.tsx';
-import { Plus, Search, SlidersHorizontal } from 'lucide-react';
-import { type FieldDefinition } from '@weava/contracts';
+import {Popover} from './Popover.tsx';
+import {Plus,Search,SlidersHorizontal} from 'lucide-react';
+import {isNoteType,type FieldDefinition} from '@weava/contracts';
 
-import { SavedViewControls } from './AuthoringControls.tsx';
-import { ContentEntries } from './ContentEntries.tsx';
+import {SavedViewControls} from './AuthoringControls.tsx';
+import {ContentEntries} from './ContentEntries.tsx';
 
-import type { ContentWorkspace } from './useContentWorkspace.ts';
+import type {ContentLibraryModel} from './content-models.ts';
 
 export function ContentLibrary({ model, showBulkEditing = false, showSavedViews = false }: {
-  model: ContentWorkspace;
+  model: ContentLibraryModel;
   showBulkEditing?: boolean;
   showSavedViews?: boolean;
 }) {
   const {
     record,
-    persist,
     select,
     state,
     tab,
@@ -37,12 +36,13 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
     setLibrarySort,
     bulkIds,
     setBulkIds,
-    setBulkOpen,
+    openBulk,
     fieldFilters,
     setFieldFilters,
     items,
     newEntry,
   } = model;
+  const notes=tab==='notes',label=notes?'笔记':'文章';
   const hasFilters = !!filter || status !== 'all' || visibility !== 'all' || !!libraryType || Object.values(fieldFilters).some(Boolean);
   const sortControl = <select aria-label="内容排序" value={librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || '-updatedAt'} onChange={event => { setLibrarySort(event.target.value); setLibraryPage(1); }}>
     {Object.entries({ title: '标题升序', '-title': '标题降序', '-updatedAt': '最近修改', '-publishedAt': '最近发布', oldest: '最早发布' }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -52,15 +52,15 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
     <section className="library" aria-label="内容列表" tabIndex={-1}>
       <div className="library-header">
         <div className="library-title">
-          <h1>内容</h1>
+          <h1>{label}</h1>
         </div>
       </div>
       <div className="library-overview">
         <div className="library-status-tabs" role="group" aria-label="内容状态">
           {Object.entries({ all: '全部', published: '已发布', draft: '草稿' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}
         </div>
-        <button className="primary library-create" aria-label="新建" title={'新建内容'} onClick={newEntry}>
-          <Plus size={18} />新建内容
+        <button className="primary library-create" aria-label={'新建'+label} title={'新建'+label} onClick={newEntry}>
+          <Plus size={18} />{notes?'写笔记':'新建文章'}
         </button>
       </div>
       <div className="library-tools">
@@ -86,7 +86,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
             <option value="public">公开</option>
             <option value="private">私密</option>
           </select>
-          {tab === 'content' && (
+          {['content','notes'].includes(tab) && (
             <select
               aria-label="筛选内容类型"
               value={libraryType}
@@ -97,7 +97,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
               }}
             >
               <option value="">全部类型</option>
-              {state.types.map((type: any) => (
+              {state.types.filter((row:any)=>notes?isNoteType(row.value):!isNoteType(row.value)).map((type: any) => (
                 <option key={type.id} value={type.id}>
                   {type.value.label}
                 </option>
@@ -183,8 +183,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
           className="library-bulk-action"
           onClick={async () => {
             try {
-              await persist();
-              setBulkOpen(true);
+              await openBulk();
             } catch (error: any) {
               setError(error.message);
             }

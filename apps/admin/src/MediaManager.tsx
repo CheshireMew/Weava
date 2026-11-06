@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 import { api, waitJob } from './api.ts';
+import { useAdminQuery } from './useAdminQuery.ts';
 import { useSelectors } from './Selectors.tsx';
-import { uploadFile } from './upload-file.ts';
+import { allowFileDrop, hasDroppedFiles, UploadStatus, useFileUploads } from './file-drop.tsx';
 import { MediaGroups } from './MediaGroups.tsx';
 import { useManagedRecord } from './EditSessions.tsx';
 import { Dialog } from './Dialog.tsx';
@@ -10,10 +11,11 @@ import { AutosaveStatus } from './AutosaveStatus.tsx';
 
 export default function MediaManager({ onError, onOpen }: { onError: (message: string) => void; onOpen: (id: string) => void }) {
   const fileInput = useRef<HTMLInputElement>(null);
-  const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [feedback, setFeedback] = useState('');
+  const uploads = useFileUploads(false), [dragging, setDragging] = useState(false);
+  const [saving, setSaving] = useState(false), [feedback, setFeedback] = useState('');
   const details = useRef<HTMLElement>(null);
   const [query, setQuery] = useState(''), [kind, setKind] = useState(''), [page, setPage] = useState(1), [archived, setArchived] = useState(false), [epoch, setEpoch] = useState(0);
-  const [result, setResult] = useState<any>({ items: [], pages: 0, total: 0 }), [checked, setChecked] = useState<string[]>([]);
+  const [checked, setChecked] = useState<string[]>([]);
   const managed = useManagedRecord<any>(null, async snapshot => {
     const { name, alt, caption, focalPoint } = snapshot.value;
     const row = await api('media/info',{id:snapshot.id,revision:snapshot.revision,value:{name,alt,caption,focalPoint,groupId:snapshot.value.groupId??null}});
@@ -24,15 +26,17 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
   const [crop, setCrop] = useState({ left: 0, top: 0, width: 100, height: 100 }), [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const [cropping, setCropping] = useState(false), [cropError, setCropError] = useState('');
   const searchTerm = useDebouncedValue(query);
-  const [groups, setGroups] = useState<any[]>([]), [group, setGroup] = useState(''), [moveTo, setMoveTo] = useState(''), [managingGroups, setManagingGroups] = useState(false);
-  useEffect(() => { let active = true; api('media/groups').then((rows) => { if (active) setGroups(rows); }).catch((error) => onError(error.message)); return () => { active = false; }; }, [epoch]);
+  const [group, setGroup] = useState(''), [moveTo, setMoveTo] = useState(''), [managingGroups, setManagingGroups] = useState(false);
+  const groupQuery = useAdminQuery<any[]>('media/groups'), groups = groupQuery.data ?? [];
+  const queryResult = useAdminQuery(`media/query?${new URLSearchParams({ q: searchTerm, kind, page: String(page), pageSize: '24', archived: String(archived), group })}`);
+  const result = queryResult.data ?? { items: [], pages: 0, total: 0 }, loading = queryResult.loading;
   const refresh = () => setEpoch((value) => value + 1);
   useEffect(() => { setFeedback(''); }, [searchTerm, kind, page, archived]);
   useEffect(() => {
-    let active = true; setLoading(true);
-    api(`media/query?${new URLSearchParams({ q: searchTerm, kind, page: String(page), pageSize: '24', archived: String(archived), group })}`).then((data) => { if (active) { setResult(data); setChecked([]); } }).catch((error) => { if (active) onError(error.message); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [searchTerm, kind, page, archived, group, epoch]);
+    if (epoch) { void queryResult.refresh().catch(() => {}); void groupQuery.refresh().catch(() => {}); }
+  }, [epoch]);
+  useEffect(() => { setChecked([]); }, [queryResult.data]);
+  useEffect(() => { if (queryResult.error || groupQuery.error) onError(queryResult.error || groupQuery.error); }, [queryResult.error, groupQuery.error]);
   useEffect(() => {
     setCropping(false); setReferences(null); setCrop({ left: 0, top: 0, width: 100, height: 100 });
     if (!selected) return;
@@ -51,7 +55,20 @@ export default function MediaManager({ onError, onOpen }: { onError: (message: s
     catch (error: any) { onError(error.message); }
   };
   const point = (event: React.PointerEvent<HTMLElement>) => { const box = event.currentTarget.getBoundingClientRect(); return { x: Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100)), y: Math.max(0, Math.min(100, (event.clientY - box.top) / box.height * 100)) }; };
-  return <div className="panel"><div className="panel-title"><h1>媒体</h1><button className="primary" disabled={!!progress} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden multiple onChange={async event => { const files = [...(event.target.files ?? [])]; event.target.value = ''; try { await managed.session.save(); for (const file of files) { const row = await uploadFile(file, setProgress); if (group && group !== '__ungrouped__') await api('media/info', { id: row.id, revision: row.revision, value: { name: row.value.name, groupId: group } }); } refresh(); } catch (error: any) { onError(error.message); } finally { setProgress(''); } }} /></div>
+  function uploadFiles(files: File[]) {
+    if (progress) { onError('请等待当前裁切完成后上传。'); return; }
+    const destination = group;
+    uploads.upload(files, async row => {
+        if (destination && destination !== '__ungrouped__') await api('media/info', { id: row.id, revision: row.revision, value: { name: row.value.name, groupId: destination } });
+        refresh();
+    }, () => managed.session.save());
+  }
+  return <div className={'panel media-panel' + (dragging ? ' is-file-dragging' : '')}
+    onDragOver={event => { if (allowFileDrop(event)) setDragging(true); }}
+    onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
+    onDrop={event => { if (!hasDroppedFiles(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
+    <div className="panel-title"><h1>媒体</h1><button className="primary" disabled={!!progress || uploads.busy} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden multiple onChange={event => { const files = [...(event.target.files ?? [])]; event.target.value = ''; void uploadFiles(files); }} /></div>
+    <UploadStatus uploads={uploads} omitLabel="取消这些上传"/>
     <div className="media-filters"><input aria-label="搜索媒体库" placeholder="搜索媒体" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><select aria-label="媒体类型" value={kind} onChange={(event) => { setKind(event.target.value); setPage(1); }}><option value="">全部类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option><option value="file">附件</option></select><select aria-label="媒体分组筛选" value={group} onChange={(event) => { setGroup(event.target.value); setPage(1); }}><option value="">全部分组</option><option value="__ungrouped__">未分组</option>{groups.map((row) => <option key={row.id} value={row.id}>{row.value.label}{row.value.archived ? '（已归档）' : ''}</option>)}</select><button onClick={() => setManagingGroups(true)}>管理分组</button><label className="checkbox"><input type="checkbox" checked={archived} onChange={(event) => { setArchived(event.target.checked); setPage(1); }} />已归档</label>{checked.length > 0 && <button onClick={() => void mark()}>{archived ? '恢复所选' : '归档所选'}</button>}</div>
     {checked.length > 0 && <div className="media-filters"><select aria-label="移动所选到分组" value={moveTo} onChange={(event) => setMoveTo(event.target.value)}><option value="">选择目标分组</option><option value="__ungrouped__">未分组</option>{groups.filter((row) => !row.value.archived).map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select><button disabled={!moveTo || saving} onClick={async () => { setSaving(true); try { await managed.session.save(); await api('media/move', { items: result.items.filter((row: any) => checked.includes(row.id)).map((row: any) => ({ id: row.id, revision: row.id === managed.session.record?.id ? managed.session.record!.revision : row.revision })), groupId: moveTo === '__ungrouped__' ? null : moveTo }); managed.session.adopt(null); refresh(); setFeedback('媒体分组已更新'); } catch (error: any) { onError(error.message); } finally { setSaving(false); } }}>移动所选</button></div>}
     {managingGroups && <MediaGroups rows={groups} refresh={refresh} close={() => setManagingGroups(false)} onError={onError} />}

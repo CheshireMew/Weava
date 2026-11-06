@@ -1,19 +1,8 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path';
-import { WeavaError } from '../../contracts/src/errors.ts';
+import {join,resolve} from 'node:path';
+import {WeavaError} from '../../contracts/src/errors.ts';
 
-/** Resolve existing ancestors as well as a not-yet-created destination. */
-export function canonicalPath(input: string) {
-  let path = resolve(input);
-  const suffix: string[] = [];
-  while (!existsSync(path) && dirname(path) !== path) { suffix.unshift(basename(path)); path = dirname(path); }
-  path = join(realpathSync.native(path), ...suffix);
-  return process.platform === 'win32' ? path.toLowerCase() : path;
-}
-export function pathWithin(root: string, input: string) {
-  const rel = relative(canonicalPath(root), canonicalPath(input));
-  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..\\') && !rel.startsWith('../'));
-}
+import {canonicalPath,pathWithin} from '../../runtime-common/src/paths.ts';
+export {canonicalPath,pathWithin} from '../../runtime-common/src/paths.ts';
 /** URLs and stored references share one identity before either authorization or I/O. */
 export function mediaIdentity(input: string) {
   let path: string;

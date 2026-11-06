@@ -1,10 +1,10 @@
-import { mkdir,open } from 'node:fs/promises';
-import { extname,join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { WeavaError } from '../../contracts/src/errors.ts';
-import type { Site } from './site.ts';
-import type { JobRunner } from './job-runner.ts';
-import { inside } from './storage.ts';
+import {mkdir,open} from 'node:fs/promises';
+import {extname,join} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {WeavaError} from '../../contracts/src/errors.ts';
+import type {Site} from './site.ts';
+import type {JobRunner} from './job-runner.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
 interface Upload {id:string;name:string;size:number;offset:number;status:string;path:string;expires:number;lease:string|null;lease_until:number;job_id:string|null}
 export const uploadChunkBytes=1024*1024;
 const allowed=new Set(['.png','.jpg','.jpeg','.webp','.gif','.avif','.pdf','.txt','.csv','.vtt','.srt','.mp3','.mp4','.webm']);

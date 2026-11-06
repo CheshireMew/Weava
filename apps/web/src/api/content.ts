@@ -6,6 +6,7 @@ import {
   entryChanges,
   mergeEntry,
   saveMergedEntry,
+  imageAttributes,
 } from '@weava/core';
 import { WeavaError as DomainError } from '@weava/contracts';
 import { checkEntry, queryReferences } from '@weava/core';
@@ -32,11 +33,13 @@ export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     },
     queryEntries: async ({}, context) => {
       const { url } = context;
-      return queryDrafts(site, {
+      const result = queryDrafts(site, {
         ...contentQuery(url.searchParams),
         status: url.searchParams.get('status') ?? undefined,
         visibility: url.searchParams.get('visibility') ?? undefined,
+        format: url.searchParams.get('format') as 'article'|'note'|undefined,
       });
+      return { ...result, items: result.items.map(row => ({ ...row, thumbnail: row.value.cover ? imageAttributes(site, row.value.cover, 240).src : '' })) };
     },
     createEntry: async ({ body: data }) => {
       return createContent(site, data);

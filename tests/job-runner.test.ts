@@ -6,7 +6,7 @@ const base='D:/Tools/cache/weava/tests/job-runner-'+Date.now();
 it('ARC-17 bounds all task processes, deduplicates submissions and resumes persisted queued tasks',async()=>{
   const site=new Site(join(base,'site')),worker=join(base,'worker.mjs');
   writeFileSync(worker,`import{createRequire}from'node:module';const require=createRequire(${JSON.stringify(resolve('package.json'))});const Database=require('better-sqlite3');const[root,id]=process.argv.slice(2);const db=new Database(root+'/weava.sqlite');db.pragma('busy_timeout=5000');const job=JSON.parse(db.prepare('SELECT data FROM jobs WHERE id=?').get(id).data);const active=db.prepare("SELECT COUNT(*) n FROM jobs WHERE status='running'").get().n;await new Promise(resolve=>setTimeout(resolve,250));const result={...job,status:'complete',result:{active,pid:process.pid}};db.prepare('UPDATE jobs SET status=?,data=? WHERE id=?').run('complete',JSON.stringify(result),id);db.close();`);
-  const options={framework:resolve('.'),worker,concurrency:2,maxQueued:8};
+  const options={startPaused:false,framework:resolve('.'),worker,concurrency:2,maxQueued:8};
   let runner=new JobRunner(site,options);
   try{
     const jobs=Array.from({length:6},(_,index)=>runner.enqueue('test',{index},'job-'+index));
@@ -40,7 +40,7 @@ it('ARC-07 updates visitor counts incrementally, including duplicate, update and
 it('ARC-17 caps noisy worker output and keeps task results readable',async()=>{
   const site=new Site(join(base,'log-cap')),worker=join(base,'noisy-worker.mjs');
   writeFileSync(worker,`process.stdout.write('x'.repeat(200000));await new Promise(resolve=>setTimeout(resolve,100));`);
-  const runner=new JobRunner(site,{framework:resolve('.'),worker,logBytes:1024});
+  const runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),worker,logBytes:1024});
   try{
     const job=runner.enqueue('noisy',{});await expect(runner.wait(job.id,10000)).rejects.toThrow('意外退出');
     const {readJobLog}=await import('@weava/core');const log=await readJobLog(join(site.root,'logs',job.id+'.log'),0);

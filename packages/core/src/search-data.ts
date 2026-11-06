@@ -1,7 +1,7 @@
-import { WeavaError } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { digest } from './storage.ts';
-import { searchDatasetSchema, type SearchDataset } from '../../contracts/src/search-data.ts';
+import {WeavaError} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {searchDatasetSchema} from '../../contracts/src/search-data.ts';
 export { searchDatasetSchema, type SearchDataset } from '../../contracts/src/search-data.ts';
 
 export function importSearchData(site: Site, input: unknown) {

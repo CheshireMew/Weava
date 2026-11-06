@@ -22,10 +22,12 @@ export function usePublication(
         return review;
       }
       const result = await waitJob(await api(operation, payload), setJob);
+      setJob(null);
       await refresh();
       notify('操作已完成');
       return result;
     } catch (e: any) {
+      setJob(null);
       setError(e.message);
     } finally {
       setBusy(false);

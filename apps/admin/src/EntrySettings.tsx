@@ -1,15 +1,15 @@
-import { Upload } from 'lucide-react';
-import { type Entry } from '@weava/contracts';
+import {Upload} from 'lucide-react';
+import {type Entry} from '@weava/contracts';
 
-import { TermPicker } from './TermPicker.tsx';
-import { useSelectors } from './Selectors.tsx';
-import { PanelSections } from './PanelSections.tsx';
-import { EntrySchedule } from './EntrySchedule.tsx';
-import { EntryMoreActions } from './EntryMoreActions.tsx';
+import {TermPicker} from './TermPicker.tsx';
+import {useSelectors} from './Selectors.tsx';
+import {PanelSections} from './PanelSections.tsx';
+import {EntrySchedule} from './EntrySchedule.tsx';
+import {EntryMoreActions} from './EntryMoreActions.tsx';
 
-import { EditorialFields } from './EditorialFields.tsx';
-import { SeoFields } from './SeoFields.tsx';
-import type { ContentWorkspace } from './useContentWorkspace.ts';
+import {EditorialFields} from './EditorialFields.tsx';
+import {SeoFields} from './SeoFields.tsx';
+import type {EntrySettingsModel} from './content-models.ts';
 
 export function EntrySettings({
   model,
@@ -18,24 +18,7 @@ export function EntrySettings({
 }: {
   onClose?: () => void;
   mode?: 'panel' | 'more';
-  model: Pick<
-    ContentWorkspace,
-    | 'record'
-    | 'dirty'
-    | 'saving'
-    | 'session'
-    | 'contentCheck'
-    | 'scheduleDueAt'
-    | 'setScheduleDueAt'
-    | 'persist'
-    | 'update'
-    | 'select'
-    | 'state'
-    | 'busy'
-    | 'setError'
-    | 'notify'
-    | 'refresh'
-  >;
+  model:EntrySettingsModel;
 }) {
   const {
     record,
@@ -127,7 +110,7 @@ export function EntrySettings({
       { id: 'information', label: '文章信息', content: information },
       { id: 'presentation', label: '摘要与展示', content: <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} section="display" /> },
       { id: 'sharing', label: '搜索与分享', content: <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} section="sharing" expanded /> },
-      { id: 'advanced', label: '更多操作', content: <>{review}<EntryMoreActions model={model} /></> },
+      { id: 'advanced', label: '更多操作', content: <>{review}<EntryMoreActions model={model.moreActions} /></> },
     ]} /> : <>
       {review}
         <label>
@@ -200,11 +183,11 @@ export function EntrySettings({
           允许新评论
         </label>
 
-      <section><h3>定时发布</h3><EntrySchedule model={model} /></section>
+      <section><h3>定时发布</h3><EntrySchedule model={model.schedule} /></section>
       <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} />
 
       <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} />
-      <section><h3>更多操作</h3><EntryMoreActions model={model} /></section>
+      <section><h3>更多操作</h3><EntryMoreActions model={model.moreActions} /></section>
     </>}
   </aside>;
 }

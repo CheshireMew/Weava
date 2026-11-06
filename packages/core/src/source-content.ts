@@ -20,7 +20,13 @@ export function publicationModifiedAt(entry: Entry, updatedAt: string) {
 /** Keep public image URLs while native media records continue to own the copied files. */
 export function originalWordPressImages(html: string, entry?: Entry) {
   const urls = entry?.source?.wordpressMediaUrls;
-  if (!urls || entry.source?.importedContentHash !== sourceContentHash(entry)) return html;
+  if (!urls) return html;
+  const expected = entry.source?.importedContentHash;
+  // A published snapshot can fill an empty authored summary automatically.
+  // That derived text does not turn a format-only import into an owner edit.
+  const unchanged = expected === sourceContentHash(entry) ||
+    'revisionId' in entry && entry.summaryMode === 'auto' && expected === sourceContentHash({ ...entry, description: '' });
+  if (!unchanged) return html;
   const $ = load(html, null, false);
   $('img[src]').each((_i, node) => {
     const image = $(node), original = urls[image.attr('src') ?? ''];

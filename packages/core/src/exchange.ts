@@ -1,10 +1,10 @@
-import { entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, WeavaError, type Settings, type Term, type Layout } from '@weava/contracts';
-import { saveContentView, saveCreationTemplate } from './authoring.ts';
-import { saveLayout } from './layouts.ts';
-import { saveTerm as saveTermRecord } from './taxonomy.ts';
-import type { Site } from './site.ts';
-import { digest } from './storage.ts';
-import { StagedEntries } from './staged-entries.ts';
+import {entrySchema,typeSchema,layoutSchema,contentViewSchema,creationTemplateSchema,WeavaError,type Settings,type Term,type Layout} from '@weava/contracts';
+import {saveContentView,saveCreationTemplate} from './authoring.ts';
+import {saveLayout} from './layouts.ts';
+import {saveTerm as saveTermRecord} from './taxonomy.ts';
+import type {Site} from './site.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {StagedEntries} from './staged-entries.ts';
 
 export interface SiteExchange {
   version: 1;

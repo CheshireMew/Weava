@@ -202,7 +202,7 @@ describe('complete analytics', () => {
       'legacy',
     );
     db.close();
-    const a = new Analytics(dir);
+    const a = new Analytics(dir,{mode:'migrate'});
     try {
       const r = a.report(new URLSearchParams());
       expect(r.views).toBe(1);

@@ -10,7 +10,7 @@ import {
   type FieldWidget,
   type BlockDefinition,
 } from '@weava/contracts';
-import { Storage } from './storage.ts';
+import {Storage} from './storage.ts';
 import { OwnerAuth } from './owner-auth.ts';
 import { JobStore } from './job-store.ts';
 import { SiteSettings } from './site-settings.ts';
@@ -32,9 +32,10 @@ export class Site {
   readonly content: SiteContent;
   readonly publication: SiteReleases;
   readonly blocks: SiteBlocks;
-  constructor(public root: string) {
+  constructor(public root: string, options: { mode?: 'open' | 'migrate' } = {}) {
     this.root = resolve(root);
-    this.store = new Storage(root);
+    const initialize = !existsSync(join(this.root,'weava.sqlite')) || (options.mode??process.env.WEAVA_DATABASE_MODE)==='migrate';
+    this.store = new Storage(root, true, options.mode);
     this.auth = new OwnerAuth(this.store, this.root);
     this.jobStore = new JobStore(this.store);
     this.configuration = new SiteSettings(this);
@@ -42,10 +43,12 @@ export class Site {
     this.publication = new SiteReleases(this);
     this.blocks = new SiteBlocks(this);
     try {
+      if(!initialize&&(!this.store.get('settings','site')||!existsSync(join(root,'cli-token'))||!this.store.state('engagement-secret')))
+        throw new Error('站点初始化不完整，请执行 site update 或 site adopt；普通打开不会补写资料。');
       if (!this.store.get('settings', 'site'))
         this.store.put('settings', 'site', defaultSettings, null, '初始化');
       if (!existsSync(join(root, 'cli-token')))
-        writeFileSync(join(root, 'cli-token'), randomBytes(32).toString('hex'));
+        writeFileSync(join(root, 'cli-token'), randomBytes(32).toString('hex'), {flag:'wx',mode:0o600});
       // Preserve reader identities when an administrator revokes a CLI credential.
       // Existing sites keep their original signing value; new rotations never replace it.
       if (!this.store.state('engagement-secret'))

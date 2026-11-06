@@ -1,6 +1,6 @@
 import { load } from 'cheerio';
 import { createHash } from 'node:crypto';
-import type { Block, Entry, PublishedEntry } from '@weava/contracts';
+import {isNoteType,type ContentType,type Block,type Entry,type PublishedEntry} from '@weava/contracts';
 import { renderDocument } from './documents.ts';
 
 function firstImage(html: string) {
@@ -38,6 +38,7 @@ function firstBodyImage(entry: Entry | PublishedEntry): string {
 }
 
 /** Manual cover, body image, then a stable local photo for otherwise imageless articles. */
-export function entryCover(entry: Entry | PublishedEntry): string {
+export function entryCover(entry: Entry | PublishedEntry, definition?:Pick<ContentType,'id'|'format'>): string {
+  if(isNoteType(definition??{id:entry.type}))return '';
   return entry.cover || firstBodyImage(entry) || defaultArticleCover(entry);
 }

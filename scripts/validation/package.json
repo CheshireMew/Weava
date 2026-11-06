@@ -1,0 +1,9 @@
+{
+  "name": "weava-validation-tools",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@astrojs/check": "0.9.12",
+    "typescript": "6.0.3"
+  }
+}

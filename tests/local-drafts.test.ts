@@ -4,12 +4,24 @@ import { localDrafts, saveLocalDraft, forgetLocalDrafts, acknowledgeLocalDrafts 
 
 class MemoryStorage {
   values = new Map<string, string>(); limit = Infinity;
+  get length(){return this.values.size;}
+  key(index:number){return [...this.values.keys()][index]??null;}
   getItem(key: string) { return this.values.get(key) ?? null; }
   setItem(key: string, value: string) { if (value.length * 2 > this.limit) throw new Error('quota'); this.values.set(key, value); }
   removeItem(key: string) { this.values.delete(key); }
 }
 const record = (title: string, id = 'entry') => ({ id, revision: 1, updatedAt: '2026-10-30T00:00:00Z', value: entrySchema.parse({ id, kind: 'page', title, path: '/' + id + '/' }) });
 describe('bounded local draft recovery', () => {
+  it('acknowledges a first save that only adds server creation metadata',()=>{
+    const storage=new MemoryStorage(),local={...record('First save'),revision:0};saveLocalDraft(local,storage,100,'window-A');
+    acknowledgeLocalDrafts({...local,revision:2,value:{...local.value,createdAt:'2026-11-06T00:00:00Z',updatedAt:'2026-11-06T00:00:01Z'}},storage,'window-A');
+    expect(localDrafts('entry',storage)).toEqual([]);
+  });
+  it('keeps close-time copies in independent storage keys for separate windows',()=>{
+    const storage=new MemoryStorage();saveLocalDraft(record('A'),storage,100,'window-A');saveLocalDraft(record('B'),storage,200,'window-B');
+    expect(localDrafts('entry',storage).map(copy=>copy.record.value.title)).toEqual(['B','A']);
+    acknowledgeLocalDrafts(record('B'),storage,'window-B');expect(localDrafts('entry',storage).map(copy=>copy.record.value.title)).toEqual(['A']);
+  });
   it('overwrites one recovery draft across long editing sessions and revision changes', () => {
     const storage = new MemoryStorage(); saveLocalDraft(record('第一版'), storage, 1000);
     saveLocalDraft(record('第一版补充'), storage, 2000); expect(localDrafts('entry', storage)).toHaveLength(1);
@@ -51,7 +63,8 @@ describe('bounded local draft recovery', () => {
     const old = storage.getItem('weava-drafts:v2'); storage.limit = 1;
     expect(() => saveLocalDraft(record('不能保存'), storage, 17000)).toThrow(); expect(storage.getItem('weava-drafts:v2')).toBe(old);
     storage.limit = Infinity;
-    for (let i = 0; i < 50; i++) saveLocalDraft(record('内容' + i, 'entry-' + i), storage, 20000 + i);
+    for (let i = 0; i < 39; i++) saveLocalDraft(record('内容' + i, 'entry-' + i), storage, 20000 + i);
+    expect(()=>saveLocalDraft(record('超出容量','overflow'),storage)).toThrow(/容量上限/);
     expect(Object.keys(JSON.parse(storage.getItem('weava-drafts:v2')!).entries).length).toBe(40);
     const oversized = record('大文件'); oversized.value.document = { version: 1, format: 'markdown', source: '字'.repeat(2_000_000) };
     const before = storage.getItem('weava-drafts:v2'); expect(() => saveLocalDraft(oversized, storage)).toThrow(/过大/); expect(storage.getItem('weava-drafts:v2')).toBe(before);

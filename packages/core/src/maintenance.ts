@@ -1,9 +1,9 @@
-import { mediaIdentity } from './paths.ts';
-import { join, relative } from 'node:path';
-import { statSync, existsSync } from 'node:fs';
-import type { Site } from './site.ts';
-import { walk } from './storage.ts';
-import { maintenanceReferences } from './maintenance-reference-cache.ts';
+import {mediaIdentity} from './paths.ts';
+import {join,relative} from 'node:path';
+import {statSync,existsSync} from 'node:fs';
+import type {Site} from './site.ts';
+import {walk} from '../../runtime-common/src/files.ts';
+import {maintenanceReferences} from './maintenance-reference-cache.ts';
 export function storageUsage(site: Site) {
   const refs = maintenanceReferences(site);
   for (const row of site.store.list('media'))

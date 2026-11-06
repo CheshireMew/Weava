@@ -6,6 +6,6 @@ export const systemRoutes = {
 } as const;
 
 export function isReservedContentPath(path: string) {
-  return /^\/(admin|api|_astro|_admin|media|__preview|__health)(\/|$)/.test(path) ||
+  return /^\/(admin|api|_astro|_admin|_site|media|__preview|__health)(\/|$)/.test(path) ||
     Object.values(systemRoutes).some((value) => value === path);
 }

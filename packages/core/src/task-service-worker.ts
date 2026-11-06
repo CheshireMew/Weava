@@ -4,6 +4,7 @@ import type { extension } from './extensions.ts';
 import { WeavaError } from '../../contracts/src/errors.ts';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
+import {siteFeatures} from './site-features.ts';
 
 export function serveTasks(root:string) {
   let site:Site|undefined, analytics:Analytics|undefined, manager:Awaited<ReturnType<typeof extension>>|undefined;
@@ -18,7 +19,7 @@ export function serveTasks(root:string) {
     const key=digest([site.store.raw.prepare("SELECT scope,id,revision FROM records WHERE scope LIKE 'extension%' ORDER BY scope,id").all(),
       walk(join(root,'extensions')).map(file=>{const info=statSync(file);return[file,info.size,info.mtimeMs];})]);
     if(manager&&key!==extensionKey){await manager.stop();site.close();site=new Site(root);manager=undefined;}
-    if(!manager){const analytics=await stats();manager=await extension(site,{analytics},{mode:'worker'});extensionKey=key;}
+    if(!manager){const analytics=siteFeatures(root).includes('analytics')?await stats():undefined;manager=await extension(site,analytics?{analytics}:{},{mode:'worker'});extensionKey=key;}
     return {site,manager};
   };
   const execute=async(operation:string,payload:any)=>{

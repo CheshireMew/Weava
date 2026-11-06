@@ -9,6 +9,7 @@ import { mediaResponse } from '../packages/core/src/media-response.ts';
 import { maintenanceReferences } from '../packages/core/src/maintenance-reference-cache.ts';
 import { EntryWorkspace } from '../packages/core/src/staged-entries.ts';
 import { createBackup,verifyBackup } from '../packages/core/src/backup.ts';
+import { wordpressArchiveEntry } from '../packages/core/src/wordpress-archives.ts';
 
 const base='D:/Tools/cache/weava/tests/performance-'+Date.now();
 const sites:Site[]=[],runners:JobRunner[]=[];let sequence=0;
@@ -32,6 +33,31 @@ it('loads a public directory without fetching any entry bodies, then loads only 
   expect(release.entries.map(value=>value.path)).toHaveLength(20);expect(bodyReads).toEqual([]);
   expect(release.entries[7].document.source).toContain('Body');expect(bodyReads).toEqual([manifest.entryKeys[7]]);
   expect(release.entries[7].html).toContain('Body');expect(bodyReads).toHaveLength(1);
+});
+
+it('resolves legacy response aliases and missing paths without loading article bodies, including old catalogs',()=>{
+  const site=fixture();
+  for(let index=0;index<12;index++)site.saveEntry({...entry('route-'+index),source:index===3?{wordpressResponsePath:'/legacy.html/'}:undefined},null);
+  const published=site.publish(),manifest=JSON.parse((site.store.raw.prepare('SELECT data FROM releases WHERE id=?').get(published.id) as any).data);
+  const check=(target:Site)=>{
+    const prepare=target.store.raw.prepare.bind(target.store.raw),reads:string[]=[];
+    target.store.raw.prepare=((sql:string)=>{
+      const statement=prepare(sql);
+      if(sql==='SELECT data FROM publication_objects WHERE key=?'){
+        const get=statement.get.bind(statement);statement.get=((key:string)=>{if(manifest.entryKeys.includes(key))reads.push(key);return get(key);}) as any;
+      }
+      return statement;
+    }) as any;
+    const release=target.visibleRelease()!;
+    for(const path of ['/sitemap.xml','/search/','/missing/'])expect(wordpressArchiveEntry(release,new URL(path,'https://example.test'))).toBeUndefined();
+    expect(wordpressArchiveEntry(release,new URL('https://example.test/legacy.html/'))?.id).toBe('route-3');
+    expect(reads).toEqual([]);
+  };
+  check(site);
+  const catalog=JSON.parse((site.store.raw.prepare('SELECT data FROM publication_objects WHERE key=?').get(manifest.catalogKey) as any).data);
+  for(const item of catalog)delete item.responsePath;
+  site.store.raw.prepare('UPDATE publication_objects SET data=? WHERE key=?').run(JSON.stringify(catalog),manifest.catalogKey);
+  const legacy=new Site(site.root);sites.push(legacy);check(legacy);
 });
 
 it('reuses the reviewed candidate across connections, rejects altered options and leaves the base snapshot unchanged',()=>{
@@ -80,7 +106,7 @@ it('bounds reusable WXR workspaces and leaves derived cache files out of backups
 
 it('reuses transient workers without writing durable jobs/logs and keeps the caller responsive',async()=>{
   const site=fixture();for(let index=0;index<40;index++)site.saveEntry(entry('item-'+index,'A paragraph\n\n'.repeat(100)),null);site.publish();
-  const runner=new JobRunner(site,{framework:resolve('.'),source:true});runners.push(runner);
+  const runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});runners.push(runner);
   const reports=new TaskResults(runner,0);let ticks=0;const timer=setInterval(()=>ticks++,5);
   try{
     await runner.query('publication-review',{ids:['item-0']});
@@ -95,7 +121,7 @@ it('queues scheduled work without rendering in the caller and publishes the pinn
   const site=fixture(),row=site.saveEntry(entry('scheduled'),null),clock=Date.now()-5000;
   const schedule=schedulePublication(site,row.id,row.revision,new Date(clock+1000).toISOString(),clock);
   site.saveEntry({...row.value,title:'Later draft'},row.revision);
-  const runner=new JobRunner(site,{framework:resolve('.'),source:true});runners.push(runner);
+  const runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});runners.push(runner);
   queueScheduledPublications(site,runner);
   const job=site.activeJobs()[0];expect(job.payload.scheduleId).toBe(schedule.id);
   await runner.wait(job.id,15000);

@@ -1,19 +1,35 @@
-import { useEffect, useState } from 'react';
-import { api } from './api.ts';
+import { useCallback, useEffect, useState } from 'react';
+import { useAdminQuery } from './useAdminQuery.ts';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 export function useContentLibrary(state: any, tab: string, setError: (message: string) => void) {
-  const [libraryLoading, setLibraryLoading] = useState(true);
   const [filter, setFilter] = useState(''),
     [status, setStatus] = useState('all'),
     [visibility, setVisibility] = useState('all');
   const searchTerm = useDebouncedValue(filter);
-  const [libraryPage, setLibraryPage] = useState(1),
-    [library, setLibrary] = useState<any>({ items: [], total: 0, pages: 0 });
+  const [libraryPage, setLibraryPage] = useState(1);
   const [libraryType, setLibraryType] = useState(''),
     [librarySort, setLibrarySort] = useState('');
   const [bulkIds, setBulkIds] = useState<string[]>([]),
     [bulkOpen, setBulkOpen] = useState(false);
   const [fieldFilters, setFieldFilters] = useState<Record<string, string>>({});
+  const params = new URLSearchParams({
+    kind: 'content', format: tab === 'notes' ? 'note' : 'article', q: searchTerm,
+    status: tab === 'notes' ? 'all' : status, visibility: tab === 'notes' ? 'all' : visibility,
+    type: tab === 'notes' ? '' : libraryType, page: String(libraryPage), pageSize: '25',
+    sort: tab === 'notes' ? '-updatedAt' : librarySort || state?.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || '-updatedAt',
+    ...Object.fromEntries(Object.entries(fieldFilters).filter(([, value]) => value !== '').map(([key, value]) => ['field.' + key, value])),
+  });
+  const queryKey = tab + '?' + params.toString();
+  const enabled = !!state && ['content','notes'].includes(tab) && (!state.features || state.features.includes('content'));
+  const query = useAdminQuery(enabled ? `entries/query?${params}` : null);
+  const [local, setLocal] = useState<{ key: string; source: any; value: any } | null>(null);
+  const empty = { items: [], total: 0, pages: 0 };
+  const library = local?.key === queryKey && local.source === query.data ? local.value : query.data ?? empty;
+  const setLibrary = useCallback((next: React.SetStateAction<any>) => setLocal(previous => {
+    const value = previous?.key === queryKey && previous.source === query.data ? previous.value : query.data ?? { items: [], total: 0, pages: 0 };
+    return { key: queryKey, source: query.data, value: typeof next === 'function' ? next(value) : next };
+  }), [queryKey, query.data]);
+  useEffect(() => { if (query.error) setError(query.error); }, [query.error]);
   useEffect(() => {
     setBulkIds([]);
   }, [filter, libraryPage, libraryType, librarySort, fieldFilters, tab, status, visibility]);
@@ -23,55 +39,13 @@ export function useContentLibrary(state: any, tab: string, setError: (message: s
   useEffect(() => {
     setLibraryType('');
     setFieldFilters({});
+    setStatus('all');
+    setVisibility('all');
+    setLibrarySort('');
+    setFilter('');
   }, [tab]);
-  useEffect(() => {
-    if (!state || tab !== 'content') return;
-    let active = true;
-    setLibraryLoading(true);
-    const params = new URLSearchParams({
-      kind: 'content',
-      q: searchTerm,
-      status,
-      visibility,
-      type: tab === 'content' ? libraryType : '',
-      page: String(libraryPage),
-      pageSize: '25',
-      sort:
-        librarySort ||
-        state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort ||
-        '-updatedAt',
-      ...Object.fromEntries(
-        Object.entries(fieldFilters)
-          .filter(([, value]) => value !== '')
-          .map(([key, value]) => ['field.' + key, value]),
-      ),
-    });
-    api(`entries/query?${params}`)
-      .then((result) => {
-        if (active) setLibrary(result);
-      })
-      .catch((error) => {
-        if (active) setError(error.message);
-      })
-      .finally(() => {
-        if (active) setLibraryLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    state?.types,
-    tab,
-    searchTerm,
-    status,
-    visibility,
-    libraryType,
-    libraryPage,
-    fieldFilters,
-    librarySort,
-  ]);
   return {
-    libraryLoading,
+    libraryLoading: query.loading,
     filter,
     setFilter,
     status,

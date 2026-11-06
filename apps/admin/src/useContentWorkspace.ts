@@ -1,10 +1,11 @@
-import { uploadFile } from './upload-file.ts';
-import { useState } from 'react';
-import type { Entry } from '@weava/contracts';
-import { api, waitJob } from './api.ts';
-import { useContentLibrary } from './useContentLibrary.ts';
-import { useEntryEditor } from './useEntryEditor.ts';
-import { drafts } from './draft-repository.ts';
+import {contentViewModels} from './content-view-models.ts';
+
+import {useState,useEffect} from 'react';
+import {isNoteType,hasNoteContent,entrySchema,type Entry} from '@weava/contracts';
+import {api} from './api.ts';
+import {useContentLibrary} from './useContentLibrary.ts';
+import {useEntryEditor} from './useEntryEditor.ts';
+import {drafts} from './draft-repository.ts';
 export interface ContentWorkspaceOptions {
   state: any;
   setState: React.Dispatch<React.SetStateAction<any>>;
@@ -14,7 +15,6 @@ export interface ContentWorkspaceOptions {
   setError: (message: string) => void;
   notify: (message: string) => void;
   refresh: () => Promise<any>;
-  setJob: React.Dispatch<React.SetStateAction<any>>;
   task: (
     operation: 'publish' | 'backup' | 'verify',
     payload?: any,
@@ -22,10 +22,12 @@ export interface ContentWorkspaceOptions {
   ) => Promise<any>;
 }
 export function useContentWorkspace(options: ContentWorkspaceOptions) {
-  const { state, setState, tab, compact, setError, refresh, setJob, task } = options;
+  const { state, setState, tab, compact, setError, refresh, task } = options;
   const library = useContentLibrary(state, tab, setError);
   const editor = useEntryEditor({ setError, setLibrary: library.setLibrary, setState, compact });
   const { persist, select, selection } = editor;
+  const [publicationNotice,setPublicationNotice]=useState('');
+  useEffect(()=>setPublicationNotice(''),[editor.record?.id]);
   async function createNew(kind: Entry['kind'], type: string, templateId?: string) {
     const request = ++selection.current;
     const row = await api('entries/create', { kind, type, templateId });
@@ -41,8 +43,19 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
   async function newEntry() {
     try {
       await persist();
+      if(tab==='notes'){
+        const definition=state.types.find((row:any)=>isNoteType(row.value));
+        if(!definition)throw new Error('网站尚未配置笔记类型。');
+        const id=crypto.randomUUID();
+        ++selection.current;
+        // Opening and closing an empty composer creates no server-side record.
+        editor.adopt({id,revision:0,updatedAt:new Date().toISOString(),value:entrySchema.parse({id,kind:'content',type:definition.id,title:'未命名笔记',path:definition.value.pathPrefix.replace(/\/?$/,'/')+id.slice(0,8)+'/'})});
+        editor.setPreview('');
+        return;
+      }
       const kind = 'content' as const,
-        type = library.libraryType || state.types[0]?.value.id || 'post';
+        type = library.libraryType || state.types.find((row:any)=>tab==='notes'?isNoteType(row.value):!isNoteType(row.value))?.id;
+      if(!type)throw new Error(tab==='notes'?'网站尚未配置笔记类型。':'网站尚未配置文章类型。');
       await createNew(kind, type);
     } catch (error: any) {
       setError(error.message);
@@ -76,38 +89,19 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
   async function publish() {
     const row = await persist();
     if (!row) return;
+    const note=isNoteType(state.types.find((type:any)=>type.id===row.value.type)?.value);
+    if(note){
+      if(!hasNoteContent(row.value.document))throw new Error('先写点内容再发布。');
+      const checkpoint=editor.session.checkpoint();
+      const result=await task('publish',{ids:[row.id],revisions:{[row.id]:row.revision}},true);
+      if(result?.status==='complete'){
+        if(editor.session.unchanged(checkpoint)) { editor.clear(); options.notify(row.value.status==='published'?'已更新':'已发布'); }
+        else if(editor.session.record?.id===row.id) setPublicationNotice('先前版本已发布，之后的修改仍保留在这里，尚未发布。');
+      }
+      return;
+    }
     await task('publish', { ids: [row.id], revisions: { [row.id]: row.revision } });
     await select(row.id);
   }
-  async function upload(): Promise<any> {
-    return new Promise((resolve) => {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'image/*,.pdf,.txt,.csv,.vtt,.mp3,.mp4,.webm';
-      input.onchange = async () => {
-        if (!input.files?.[0]) return resolve(null);
-        try {
-          const row=await uploadFile(input.files[0],()=>{},setJob);
-          await refresh();resolve(row.value);
-        } catch (e: any) {
-          setError(e.message);
-          resolve(null);
-        }
-      };
-      input.addEventListener('cancel', () => resolve(null));
-      input.click();
-    });
-  }
-  return {
-    ...options,
-    ...library,
-    ...editor,
-    createNew,
-    newEntry,
-    duplicateEntry,
-    deleteEntry,
-    publish,
-    upload,
-  };
+  return contentViewModels({editor,library,options,publicationNotice,newEntry,publish,duplicateEntry,deleteEntry});
 }
-export type ContentWorkspace = ReturnType<typeof useContentWorkspace>;

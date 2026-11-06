@@ -85,7 +85,7 @@ export function renderFields(
 }
 export function cards(entries: PublishedEntry[], types:import('@weava/contracts').ContentType[] = []) {
   return `<div class="cards">${entries.map((item) => {
-    const cover = entryCover(item);
+    const cover = entryCover(item,types.find(type=>type.id===item.type));
     return `<a class="card" href="${e(item.path)}">${cover ? `<img src="${e(cover)}" alt="" loading="lazy" width="640" height="400">` : ''}<div><small>${e(item.categories.join(' · ') || types.find((type)=>type.id===item.type)?.label || '')}</small><h3>${e(item.title)}</h3><p>${e(item.description)}</p></div></a>`;
   }).join('')}</div>`;
 }

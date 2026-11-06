@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import {existsSync,mkdirSync,readFileSync,statSync} from 'node:fs';
+import {join} from 'node:path';
 import sharp from 'sharp';
-import { imageSpecSchema, imagePresetSchema, WeavaError } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { digest, inside, now } from './storage.ts';
+import {imageSpecSchema,imagePresetSchema,WeavaError} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {digest,now} from '../../runtime-common/src/identity.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
 export const imagePresets = (site: Site) => site.store.list('image-preset');
 export function saveImagePreset(site: Site, value: unknown, revision: number | null) {
   const preset = imagePresetSchema.parse(value); return site.store.put('image-preset', preset.id, preset, revision);

@@ -1,11 +1,14 @@
 import * as z from 'zod';
+import {contentSorts} from './content-query.ts';
+export {contentSorts,type ContentSort} from './content-query.ts';
 export { z };
 export * from './urls.ts';
 export * from './blocks.ts';
 export * from './analytics.ts';
 export * from './fields.ts';
 export * from './content-blocks.ts';
-export const VERSION = '0.1.0';
+export * from './content-format.ts';
+export const VERSION = '0.2.0';
 export const API_VERSION = 1;
 export const schemaTypes = ['Article', 'TechArticle', 'WebPage', 'CollectionPage', 'AboutPage', 'ProfilePage', 'Product', 'SoftwareApplication', 'CreativeWork'] as const;
 export const seoSchema = z.object({
@@ -89,6 +92,7 @@ export const typeSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/),
   label: z.string().min(1),
   fields: z.array(fieldSchema),
+  format: z.enum(['article','note']).optional(),
   allowedBlocks: z.array(z.string().min(1)).optional(),
   pathPrefix: z.string().default('/posts/'),
   template: z.string().default('article'),
@@ -178,7 +182,7 @@ export const contentViewSchema = z.object({
     status: z.enum(['all', 'published', 'changed', 'draft', 'archived']).optional(),
     visibility: z.enum(['all', 'public', 'private']).optional(), category: z.string().optional(), tag: z.string().optional(),
     fields: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
-    sort: z.enum(['date', 'oldest', 'title', '-title', 'publishedAt', '-publishedAt', 'updatedAt', '-updatedAt']).optional(),
+    sort: z.enum(contentSorts).optional(),
   }),
 });
 export type ContentView = z.infer<typeof contentViewSchema>;
@@ -349,7 +353,7 @@ export interface ContentQuery {
   category?: string;
   tag?: string;
   query?: string;
-  sort?: 'date' | 'oldest' | 'title' | '-title' | 'publishedAt' | '-publishedAt' | 'updatedAt' | '-updatedAt';
+  sort?: import('./content-query.ts').ContentSort;
   fields?: Record<string, string | number | boolean>;
 }
 export interface PageResult<T> {

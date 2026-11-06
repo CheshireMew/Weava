@@ -1,3 +1,4 @@
+import {contentSorts} from './content-query.ts';
 import { searchDatasetSchema } from './search-data.ts';
 import { analyticsReportSchema, analyticsRealtimeSchema, analyticsVisitorDetailSchema, geoStatusSchema } from './analytics.ts';
 import * as m from './api-models.ts';
@@ -10,7 +11,7 @@ const post = <P extends string,B extends z.ZodType,R extends z.ZodType>(path:P,s
 const byId=z.object({ id }), byVersion=byId.extend({ revision }), pathId=z.object({ id });
 const queryPage={ page:z.coerce.number<string|number>().int().min(1).optional(),pageSize:z.coerce.number<string|number>().int().min(1).max(100).optional() };
 const optional=z.string().optional();
-const contentQuery=z.object({ ...queryPage,limit:z.coerce.number<string|number>().int().min(1).max(100).optional(),kind:z.enum(['content','page','']).optional(),q:optional,type:optional,category:optional,tag:optional,sort:z.enum(['date','oldest','title','-title','publishedAt','-publishedAt','updatedAt','-updatedAt','']).optional(),status:z.enum(['all','published','changed','draft','archived','']).optional(),visibility:z.enum(['all','public','private','']).optional() }).catchall(z.string()).describe('Additional field.KEY parameters filter fields declared filterable by the selected type.');
+const contentQuery=z.object({ ...queryPage,limit:z.coerce.number<string|number>().int().min(1).max(100).optional(),kind:z.enum(['content','page','']).optional(),q:optional,type:optional,author:optional,category:optional,tag:optional,sort:z.enum([...contentSorts,'']).optional(),status:z.enum(['all','published','changed','draft','archived','']).optional(),visibility:z.enum(['all','public','private','']).optional() }).catchall(z.string()).describe('Additional field.KEY parameters filter fields declared filterable by the selected type.');
 const analyticsQuery=z.object({ start:optional,end:optional,path:optional,channel:optional,country:optional,browser:optional,os:optional,device:optional,model:optional,page:z.coerce.number<string|number>().int().min(0).optional(),dataset:optional,group:optional,id:optional });
 const totals=z.object({ count:z.number(),bytes:z.number() });
 const rowList=z.array(jsonObject);
@@ -48,7 +49,7 @@ export const adminApi = {
   schema:{ ...get('schema','导出实例模型、API 或类型',schemaResult,z.object({ format:z.enum(['json','openapi','types']).optional() })),format:'schema' as const },
   state:get('state','读取后台状态',m.stateSchema,z.object({ summary:z.enum(['0','1']).optional(),panel:z.string().optional(),entryId:z.string().optional() })),
   entries:get('entries','列出工作稿摘要',z.array(entrySummaryRecord)),
-  queryEntries:get('entries/query','查询工作稿摘要',page(entrySummaryRecord),contentQuery),
+  queryEntries:get('entries/query','查询工作稿摘要',page(entrySummaryRecord),contentQuery.extend({format:z.enum(['article','note']).optional()})),
   createEntry:post('entries/create','新建内容',z.object({ kind:z.enum(['content','page']),type:optional,templateId:optional,title:optional,path:optional }),entryRecord),
   duplicateEntry:post('entries/duplicate','复制为独立草稿',byVersion,entryRecord),
   deleteEntry:post('entries/delete','删除内容并撤下公开页面，保留历史快照和共享媒体',byVersion,byId),

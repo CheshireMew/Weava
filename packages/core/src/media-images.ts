@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import sharp, { type Metadata } from 'sharp';
-import { inside } from './storage.ts';
+import {existsSync,mkdirSync,statSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import sharp,{type Metadata} from 'sharp';
+import {inside} from '../../runtime-common/src/paths.ts';
 
 interface Derivative { url: string; width: number; bytes: number }
 

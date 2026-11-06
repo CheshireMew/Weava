@@ -45,6 +45,7 @@ export function sanitize(html: string) {
       track: ['src', 'kind', 'srclang', 'label', 'default'],
       iframe: ['src', 'title', 'sandbox', 'loading', 'allowfullscreen'],
       input: ['type', 'checked', 'disabled'],
+      ol: ['start'], li: ['value'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'],
       button: ['type'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel', 'entry'],
@@ -62,6 +63,10 @@ export function sanitize(html: string) {
   });
 }
 function lexicalNode(n: any): string {
+  const html = lexicalMarkup(n), anchor = n.$?.weavaAnchor;
+  return typeof anchor === 'string' && anchor ? html.replace(/^<(\w+)/, `<$1 id="${escape(anchor)}"`) : html;
+}
+function lexicalMarkup(n: any): string {
   const inner = (n.children ?? []).map(lexicalNode).join('');
   if (n.type === 'text') {
     let s = escape(n.text);
@@ -72,6 +77,7 @@ function lexicalNode(n: any): string {
       [4, 's'],
       [8, 'u'],
       [16, 'code'],
+      [32, 'sub'], [64, 'sup'], [128, 'mark'],
     ] as const)
       if (f & flag) s = `<${tag}>${s}</${tag}>`;
     return s;
@@ -88,12 +94,12 @@ function lexicalNode(n: any): string {
     case 'quote':
       return `<blockquote>${inner}</blockquote>`;
     case 'list':
-      return `<${n.listType === 'number' ? 'ol' : 'ul'}>${inner}</${n.listType === 'number' ? 'ol' : 'ul'}>`;
+      return `<${n.listType === 'number' ? 'ol' : 'ul'}${n.listType === 'number' && n.start > 1 ? ` start="${Number(n.start)}"` : ''}>${inner}</${n.listType === 'number' ? 'ol' : 'ul'}>`;
     case 'listitem':
       return `<li>${inner}</li>`;
     case 'link':
     case 'autolink':
-      return `<a href="${escape(n.url)}">${inner}</a>`;
+      return `<a href="${escape(n.url)}"${n.target ? ` target="${escape(n.target)}"` : ''}${n.rel ? ` rel="${escape(n.rel)}"` : ''}${n.title ? ` title="${escape(n.title)}"` : ''}>${inner}</a>`;
     case 'code':
       return renderCode((n.children ?? []).map((child: any) => child.type === 'linebreak' ? '\n' : child.type === 'tab' ? '\t' : child.text ?? '').join(''), n.language ?? 'text');
     case 'code-highlight':
@@ -103,13 +109,15 @@ function lexicalNode(n: any): string {
     case 'tablerow':
       return `<tr>${inner}</tr>`;
     case 'tablecell':
-      return `<${n.headerState ? 'th' : 'td'}>${inner}</${n.headerState ? 'th' : 'td'}>`;
+      return `<${n.headerState ? 'th' : 'td'}${n.colSpan > 1 ? ` colspan="${Number(n.colSpan)}"` : ''}${n.rowSpan > 1 ? ` rowspan="${Number(n.rowSpan)}"` : ''}>${inner}</${n.headerState ? 'th' : 'td'}>`;
     case 'image':
       if (n.kind === 'video')
         return `<figure><video src="${escape(n.src)}" controls preload="metadata"></video>${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
       if (n.kind === 'audio') return `<figure><audio src="${escape(n.src)}" controls preload="metadata"></audio>${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
       if (n.kind === 'file') return `<p><a href="${escape(n.src)}">${escape(n.altText || '下载附件')}</a></p>`;
-      return `<figure><img src="${escape(n.src)}" alt="${escape(n.altText)}" loading="lazy">${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
+      return `<figure>${n.href ? `<a href="${escape(n.href)}">` : ''}<img src="${escape(n.src)}" alt="${escape(n.altText)}" loading="lazy">${n.href ? '</a>' : ''}${n.caption ? `<figcaption>${escape(n.caption)}</figcaption>` : ''}</figure>`;
+    case 'embed':
+      return `<iframe src="${escape(n.src)}" title="${escape(n.title)}"${n.width ? ` width="${escape(n.width)}"` : ''}${n.height ? ` height="${escape(n.height)}"` : ''} allowfullscreen></iframe>`;
     case 'video':
       return `<video src="${escape(n.src)}" controls preload="metadata"></video>`;
     case 'horizontalrule':

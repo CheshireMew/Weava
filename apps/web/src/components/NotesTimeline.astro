@@ -1,0 +1,40 @@
+---
+import type {Release,PublishedEntry} from '@weava/contracts';
+import {isNote,renderNoteDocument,resolveContentLinks,imageAttributes,entryCover,responsiveImages} from '@weava/core';
+import {load} from 'cheerio';
+import {site} from '../runtime.ts';
+interface Props {release:Release;items:PublishedEntry[];page?:number;pages?:number;previous?:string|null;next?:string|null;}
+const {release,items,page=1,pages=1,previous,next}=Astro.props;
+const {settings}=release;
+const date=(entry:PublishedEntry)=>entry.publishedAt?new Intl.DateTimeFormat(settings.language,{dateStyle:'medium',timeStyle:'short',timeZone:settings.timezone}).format(new Date(entry.publishedAt)):'';
+function noteContent(entry:PublishedEntry){
+ const html=responsiveImages(site,resolveContentLinks(renderNoteDocument(entry.document),release)),$=load(html,null,false),text=$.text().replace(/\s+/g,' ').trim();
+ return {html,fold:text.length>180||$('p,li,br,div,h1,h2,h3,pre,table,video,iframe').length>5||$('img').length>1||$('pre,table,video,iframe').length>0,
+  excerpt:[...text].slice(0,180).join('')+(text.length>180?'…':''),image:$('img[src]').first().attr('src')};
+}
+---
+<section class="notes-timeline" aria-label="随笔时间流">
+ {items.map(item=>{const note=isNote(item,release),author=item.author||settings.name,cover=note?'':entryCover(item),body=note?noteContent(item):null;return <article class:list={['timeline-item',note?'timeline-note':'timeline-article']} data-entry-id={item.id} data-content-format={note?'note':'article'}>
+  <a class="timeline-avatar" href={item.path} tabindex="-1" aria-hidden="true">{settings.logo?<img {...imageAttributes(site,settings.logo,{width:32,height:32})} alt="" loading="lazy" decoding="async"/>:author.slice(0,1)}</a>
+  <div class="timeline-content"><header class="timeline-byline"><strong>{author}</strong><a href={item.path}><time datetime={item.publishedAt}>{date(item)}</time></a></header>
+   {body?body.fold?<details class="timeline-note-details"><summary class:list={{'has-preview-image':!!body.image}}><span class="timeline-note-preview">{body.excerpt}</span>{body.image&&<img class="timeline-note-preview-image" {...imageAttributes(site,body.image,{width:96,height:72})} alt="" loading="lazy"/>}<span class="timeline-note-toggle"><span class="note-when-closed">展开笔记</span><span class="note-when-open">收起笔记</span></span></summary><div class="timeline-note-body prose" set:html={body.html}/></details>:<div class="timeline-note-body timeline-note-short prose" set:html={body.html}/>:<a class="timeline-article-card" href={item.path}>
+    <div class="timeline-article-copy"><h2>{item.title}</h2>{item.description&&<p>{item.description}</p>}</div>
+    {cover&&<img {...imageAttributes(site,cover,{width:112,height:80,sizes:'(max-width: 600px) 80px, 112px'})} alt="" loading="lazy"/>}
+   </a>}
+  </div>
+ </article>;})}
+ {!items.length&&<p class="timeline-empty">还没有发布随笔。</p>}
+ {pages>1&&<nav class="pagination" aria-label="随笔分页">{previous&&<a href={previous} rel="prev">上一页</a>}<span>{page} / {pages}</span>{next&&<a href={next} rel="next">下一页</a>}</nav>}
+</section>
+<style>
+ .notes-timeline{max-width:680px;margin:0 auto;padding:0 0 40px}
+ .timeline-item{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;padding:18px 0;border-bottom:1px solid var(--nl-line,#e8e8e8)}
+ .timeline-avatar{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:#f2f2f2;font-size:16px;font-weight:650;overflow:hidden}.timeline-avatar img{width:100%;height:100%;object-fit:cover}.timeline-content{min-width:0}
+ .timeline-byline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;line-height:1.5}.timeline-byline strong{font-size:13px;font-weight:650}.timeline-byline time{font-size:12px;color:#777}.timeline-byline>a:hover{text-decoration:underline}
+ .timeline-article-card{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:16px;align-items:start;padding:12px;border:1px solid #e8e8e8;border-radius:10px;background:#fff}.timeline-article-card>img{display:block;width:112px;height:80px;object-fit:cover;border-radius:6px}.timeline-article-copy{min-width:0}
+ .timeline-article-copy h2{font-size:17px;line-height:1.4;margin:0;font-weight:700;letter-spacing:-.02em;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.timeline-article-copy p{margin:6px 0 0;color:#777;font-size:13px;line-height:1.5;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden}.timeline-article-card:hover h2{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+ .timeline-note-body,.timeline-note-preview{font-size:16px;line-height:1.6;overflow-wrap:anywhere}.timeline-note-body :global(p){margin:0 0 9px}.timeline-note-body :global(p:last-child){margin-bottom:0}.timeline-note-body :global(img),.timeline-note-body :global(video){display:block;max-width:100%;height:auto;border-radius:8px;margin:12px 0}.timeline-note-body :global(a){text-decoration:underline}.timeline-note-body :global(figure){margin:12px 0}.timeline-note-short :global(img),.timeline-note-short :global(video){max-height:120px;max-width:min(100%,240px);width:auto;object-fit:contain}
+ .timeline-note-details{padding:0;border:0}.timeline-note-details>summary{display:grid;grid-template-columns:minmax(0,1fr);column-gap:12px;cursor:pointer;list-style:none;font-weight:400}.timeline-note-details>summary.has-preview-image{grid-template-columns:minmax(0,1fr) 96px}.timeline-note-details>summary::-webkit-details-marker{display:none}.timeline-note-details>summary:focus-visible{outline:2px solid currentColor;outline-offset:4px;border-radius:4px}.timeline-note-preview{grid-column:1;grid-row:1;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}.timeline-note-preview-image{grid-column:2;grid-row:1;display:block;width:96px;height:72px;object-fit:cover;border-radius:6px}.timeline-note-toggle{grid-column:1/-1;display:block;margin-top:7px;color:#777;font-size:13px;line-height:1.5}.timeline-note-details>summary:hover .timeline-note-toggle{text-decoration:underline}.note-when-open{display:none}.timeline-note-details[open]>summary{display:block}.timeline-note-details[open] .timeline-note-preview,.timeline-note-details[open] .timeline-note-preview-image,.timeline-note-details[open] .note-when-closed{display:none}.timeline-note-details[open] .note-when-open{display:inline}.timeline-note-details[open] .timeline-note-toggle{margin:0 0 8px}
+ .timeline-empty{padding:32px 0;color:#777}.notes-timeline .pagination{margin-top:24px}
+ @media(max-width:600px){.timeline-item{grid-template-columns:28px minmax(0,1fr);gap:10px;padding:16px 0}.timeline-avatar{width:28px;height:28px;font-size:14px}.timeline-byline{gap:8px;margin-bottom:7px}.timeline-article-card{grid-template-columns:minmax(0,1fr) 80px;gap:10px;padding:10px;border-radius:8px}.timeline-article-card>img{width:80px;height:64px}.timeline-article-copy h2{font-size:16px}.timeline-note-body,.timeline-note-preview{font-size:15px}}
+</style>

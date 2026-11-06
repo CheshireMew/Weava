@@ -33,7 +33,8 @@ export function entryChanges(before: Entry, after: Entry): EntryChange[] {
   return changes;
 }
 export function mergeEntry(site: Site, id: string, baseRevision: number, value: Entry, choices: Record<string, 'local' | 'remote'> = {}) {
-  const base = entryRevision(site, id, baseRevision);
+  if(!Number.isSafeInteger(baseRevision)||baseRevision<0)throw new WeavaError('共同来源修订无效。');
+  const base = baseRevision===0?{id,revision:0,value:entrySchema.parse({id,kind:value.kind,type:value.type,path:value.path,title:'尚未保存的草稿'}),createdAt:'',label:'尚未保存到网站的草稿'}:entryRevision(site, id, baseRevision);
   const remote = site.store.get('entry', id);
   if (!remote) throw new WeavaError('内容不存在。', 404);
   const local = entrySchema.parse(value);
@@ -54,7 +55,7 @@ export function mergeEntry(site: Site, id: string, baseRevision: number, value: 
     conflicts.push({ path, base: a, local: l, remote: r, ...(path === '/document' ? { localHtml: renderDocument(l), remoteHtml: renderDocument(r) } : {}) });
     return choices[path] === 'local' ? l : r;
   };
-  const merged = entrySchema.parse(visit(editable(base.value), editable(local), editable(remote.value), ''));
+  const merged = entrySchema.parse(visit(baseRevision===0?undefined:editable(base.value), editable(local), editable(remote.value), ''));
   return { id, base, local, remote, merged, conflicts, changes: entryChanges(remote.value, merged) };
 }
 export function saveMergedEntry(site: Site, input: { id: string; baseRevision: number; currentRevision: number; value: Entry; choices?: Record<string, 'local' | 'remote'> }) {

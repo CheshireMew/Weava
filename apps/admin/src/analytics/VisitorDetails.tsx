@@ -77,7 +77,7 @@ export function VisitorDetails({
                 size={50}
                 columns={[
                   { key: 'ts', label: '时间', render: (v) => dateAt(v.ts, zone) },
-                  { key: 'session', label: '会话', render: (v) => v.session.slice(0, 8) },
+                  { key: 'session', label: '会话', render: (v) => v.session.slice(0, 8) || '—' },
                   {
                     key: 'kind',
                     label: '活动',
@@ -99,7 +99,7 @@ export function VisitorDetails({
                   {
                     key: 'scroll',
                     label: '阅读进度',
-                    render: (v) => (v.kind === 'view' ? v.scroll + '%' : '—'),
+                    render: (v) => (v.kind === 'view' && v.scroll !== null ? v.scroll + '%' : '—'),
                   },
                 ]}
               />

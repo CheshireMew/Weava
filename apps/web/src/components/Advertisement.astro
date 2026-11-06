@@ -1,5 +1,7 @@
 ---
 import type { AdvertisementPosition, Settings } from '@weava/contracts';
+import { createHash } from 'node:crypto';
+import { staticAdvertisement } from '../advertisement-rendering.ts';
 
 interface Props {
   settings: Settings;
@@ -8,6 +10,10 @@ interface Props {
 
 const { settings, position } = Astro.props;
 const slot = settings.advertisements?.[position];
+const staticHtml = slot?.enabled && !slot.content && slot.html.trim() ? staticAdvertisement(slot.html) : null;
+const sizeKey = createHash('sha256').update(position + ':' + (slot?.html ?? '')).digest('hex').slice(0, 16);
+// Scripts may run inside the ad, but never share the site's origin, DOM or owner session.
+const isolatedHtml = slot?.html && staticHtml === null ? '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src https: data: blob:; script-src https: \'unsafe-inline\'; style-src https: \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'; object-src \'none\'"><style>html,body{margin:0;overflow:hidden}img{max-width:100%;height:auto}#weava-ad-content{display:flow-root}</style></head><body><div id="weava-ad-content">' + slot.html + '</div><script>(()=>{const content=document.getElementById("weava-ad-content");const measure=()=>parent.postMessage({type:"weava-ad-height",height:Math.min(1200,Math.max(32,Math.ceil(content.getBoundingClientRect().height),content.scrollHeight))},"*");new ResizeObserver(measure).observe(content);addEventListener("message",event=>{if(event.source===parent&&event.data?.type==="weava-ad-measure")measure()});addEventListener("load",measure);document.fonts.ready.then(measure);measure()})();</script></body></html>' : '';
 ---
 
 {slot?.enabled && (slot.content ? [slot.content.title, slot.content.text, slot.content.image].some(value => value.trim()) && (
@@ -18,6 +24,35 @@ const slot = settings.advertisements?.[position];
     </a> : <>{slot.content.image && <img src={slot.content.image} alt={slot.content.title} loading="lazy" />}{slot.content.title && <strong>{slot.content.title}</strong>}{slot.content.text && <p>{slot.content.text}</p>}</>}
   </aside>
 ) : slot.html.trim() && (
-  <aside class="weava-advertisement" aria-label="广告" data-ad-slot={position} set:html={slot.html} />
+  <aside class="weava-advertisement" aria-label="广告" data-ad-slot={position}>
+    {staticHtml !== null ? <div class="weava-static-ad" data-weava-static-ad>
+      <template shadowrootmode="open" set:html={'<style>:host{display:block;min-width:0}img{max-width:100%;height:auto}</style>' + staticHtml} />
+    </div> : <>
+    <iframe title="广告" data-weava-ad data-ad-size-key={sizeKey} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" data-ad-html={isolatedHtml} loading={position === 'siteTop' || position === 'articleTop' ? 'eager' : 'lazy'} />
+    <script is:inline>
+      (() => {
+        const frame = document.currentScript.previousElementSibling;
+        const storageKey = 'weava-ad-heights:v2';
+        const key = () => frame.dataset.adSizeKey + ':' + Math.round(frame.getBoundingClientRect().width);
+        const read = () => { try { const value = JSON.parse(sessionStorage.getItem(storageKey) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; } };
+        const saved = read()[key()];
+        if (Number.isFinite(saved) && saved >= 32 && saved <= 1200) frame.style.height = saved + 'px';
+        window.addEventListener('message', event => {
+          if (event.source !== frame.contentWindow || event.data?.type !== 'weava-ad-height' || !Number.isFinite(event.data.height)) return;
+          const height = Math.min(1200, Math.max(32, event.data.height));
+          frame.style.height = height + 'px';
+          try {
+            const values = read(), id = key(); delete values[id]; values[id] = height;
+            sessionStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(Object.entries(values).slice(-24))));
+          } catch {}
+        });
+        frame.addEventListener('load', () => frame.contentWindow?.postMessage({ type: 'weava-ad-measure' }, '*'));
+        // Install the listener before the independent document can send its first measurement.
+        frame.srcdoc = frame.getAttribute('data-ad-html');
+        frame.removeAttribute('data-ad-html');
+      })();
+    </script>
+    </>}
+  </aside>
 ))}
-<style>.weava-display-ad{padding:20px;border:1px solid #ddd;border-radius:8px;text-align:center}.weava-display-ad a{display:block;color:inherit;text-decoration:none}.weava-display-ad img{max-width:100%;height:auto;margin-inline:auto}.weava-display-ad strong{display:block;font-size:1.1em}.weava-display-ad p{margin:8px 0 0;white-space:pre-line}</style>
+<style>.weava-static-ad{display:block;min-width:0;contain:layout style}.weava-advertisement iframe{display:block;width:100%;height:32px;border:0}.weava-display-ad{padding:20px;border:1px solid #ddd;border-radius:8px;text-align:center}.weava-display-ad a{display:block;color:inherit;text-decoration:none}.weava-display-ad img{max-width:100%;height:auto;margin-inline:auto}.weava-display-ad strong{display:block;font-size:1.1em}.weava-display-ad p{margin:8px 0 0;white-space:pre-line}</style>

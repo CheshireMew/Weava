@@ -8,7 +8,7 @@ import { readMediaUploadRequest } from '../packages/core/src/legacy-media-upload
 const base='D:/Tools/cache/weava/tests/media-upload-'+Date.now();
 const chunk=(value:string|Uint8Array)=>new Request('http://localhost/api/admin/v1/media/uploads/id',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:value as BodyInit});
 it('resumes binary chunks across connections, recovers a partial write and deduplicates processing',async()=>{
-  const site=new Site(join(base,'resume')),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+  const site=new Site(join(base,'resume')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{
     const upload=beginMediaUpload(site,'notes.txt',10,'stable');expect(beginMediaUpload(site,'notes.txt',10,'stable').id).toBe(upload.id);
     await receiveMediaChunk(site,upload.id,0,chunk('0123'));
@@ -25,7 +25,7 @@ it('resumes binary chunks across connections, recovers a partial write and dedup
   }finally{runner.stop();site.close();}
 },20000);
 it('validates the entire streamed text, rejects oversized chunks, and permits retry after a worker failure',async()=>{
-  const site=new Site(join(base,'validation')),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+  const site=new Site(join(base,'validation')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{
     const upload=beginMediaUpload(site,'bad.txt',70000),bytes=new Uint8Array(70000).fill(65);bytes[69999]=0;
     await expect(receiveMediaChunk(site,upload.id,0,chunk(new Uint8Array(70001)))).rejects.toMatchObject({status:413});
@@ -42,7 +42,7 @@ it('sends raw binary through the shared typed client and documents its distinct 
   expect(new Headers(calls[0].headers).get('Content-Type')).toBe('application/octet-stream');expect(calls[0].body).toBe(body);
 });
 it('spools large legacy JSON and decodes it in the worker pool, while small legacy requests use async staging',async()=>{
-  const site=new Site(join(base,'legacy')),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+  const site=new Site(join(base,'legacy')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{
     for(const size of [10,2*1024*1024]){
       const bytes=Buffer.alloc(size,65),payload=JSON.stringify({name:'资料.txt',base64:bytes.toString('base64')}),encoded=new TextEncoder().encode(payload);let offset=0,ticks=0;

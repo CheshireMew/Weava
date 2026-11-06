@@ -19,3 +19,12 @@ export function assertJsonRequest(request:Request) {
   if(!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type')??''))
     throw new WeavaError('请使用 JSON 格式提交请求。',415);
 }
+/** Server deployments opt in; local development stays usable over loopback HTTP. */
+export function assertRequestTransport(request:Request, secure:boolean, peer:string, localTool:boolean, required=process.env.WEAVA_REQUIRE_HTTPS==='1') {
+  if(!required || secure) return;
+  const path=new URL(request.url).pathname;
+  if(['GET','HEAD'].includes(request.method) && ['/__health','/api/admin/v1/session'].includes(path))return;
+  const address=peer.replace(/^::ffff:/,'');
+  if(localTool && ['127.0.0.1','::1'].includes(address))return;
+  throw new WeavaError('服务器只接受 HTTPS 请求，请通过网站的 HTTPS 地址访问。',403);
+}

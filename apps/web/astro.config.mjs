@@ -3,10 +3,20 @@ import node from '@astrojs/node';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { adminDevelopmentPlugin } from './src/admin-development.ts';
+import '../../packages/core/src/http-lifecycle.ts';
+const adapter = node({ mode: 'standalone' });
+const configureAdapter = adapter.hooks['astro:config:done'];
+adapter.hooks['astro:config:done'] = (context) => configureAdapter({
+  ...context,
+  setAdapter(value) {
+    context.setAdapter({ ...value, serverEntrypoint: fileURLToPath(new URL('./src/server-entry.ts', import.meta.url)) });
+  },
+});
 export default defineConfig({
   output: 'server',
+  ...(process.env.WEAVA_BUILD_CACHE ? { cacheDir: process.env.WEAVA_BUILD_CACHE } : {}),
   ...(process.env.WEAVA_BUILD_OUTPUT ? { outDir: join(process.env.WEAVA_BUILD_OUTPUT, 'web') } : {}),
-  adapter: node({ mode: 'standalone' }),
+  adapter,
   server: { port: 4322, host: '127.0.0.1' },
   vite: {
     plugins: [adminDevelopmentPlugin()],

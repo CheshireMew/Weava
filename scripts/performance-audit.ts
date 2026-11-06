@@ -77,7 +77,7 @@ if (section === 'all' || section === 'content') {
       row.prepareStorage=measure(()=>prepareReleaseStorage(site.store.raw,site.release()!),3,0);
       let sequence=0;
       const writeSamples:number[]=[];for(let i=0;i<3;i++){const value=prepareReleaseStorage(site.store.raw,{...site.release()!,id:'write-'+sequence++});const start=performance.now();site.store.raw.transaction(()=>writeReleaseStorage(site.store.raw,value)).immediate();writeSamples.push(performance.now()-start);}writeSamples.sort((a,b)=>a-b);row.publicationWrite={medianMs:writeSamples[1],maxMs:writeSamples.at(-1),samplesMs:writeSamples};
-      const runner=new JobRunner(site,{framework,source:true});
+      const runner=new JobRunner(site,{startPaused:false,framework,source:true});
       try{
         let start=performance.now();await runner.query('publication-review',{ids:['entry-0']});row.reviewApiFirstMs=performance.now()-start;
         start=performance.now();await runner.query('publication-review',{ids:['entry-0']});row.reviewApiWarmMs=performance.now()-start;
@@ -163,7 +163,7 @@ if (section === 'all' || section === 'jobs') {
     try {
       const insert = site.store.raw.prepare('INSERT INTO jobs VALUES(?,?,?,?,NULL)');
       site.store.raw.transaction(() => { for (let i = 0; i < count; i++) insert.run('job-' + i, 'analytics-realtime', 'complete', JSON.stringify({ id: 'job-' + i, status: 'complete', result: { count: 0 } })); })();
-      const runner = new JobRunner(site, { framework, source: true });
+      const runner = new JobRunner(site,{startPaused:false, framework, source: true });
       try {
         const row: any = { count, pump: measure(() => runner.pump(), 50), activeJobs: measure(() => site.activeJobs(), 30), plan: site.store.raw.prepare("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM jobs WHERE status='running'").all() };
         if (count === 100) {

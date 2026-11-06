@@ -31,7 +31,9 @@ export function useAdminSession(setError: (message: string) => void) {
       if (!reauthLater.current) setReauth(true);
     };
     window.addEventListener('weava-session-expired', expire);
-    return () => window.removeEventListener('weava-session-expired', expire);
+    const ended=()=>{setSession(current=>current?{...current,authenticated:false}:current);setSessionExpired(false);setReauth(false);};
+    window.addEventListener('weava-session-ended',ended);
+    return () => {window.removeEventListener('weava-session-expired', expire);window.removeEventListener('weava-session-ended',ended);};
   }, []);
   return {
     cooldown,

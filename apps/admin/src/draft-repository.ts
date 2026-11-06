@@ -1,11 +1,13 @@
 import type { Entry,Revision } from '@weava/contracts';
-import { localDrafts,acknowledgeLocalDrafts,latestPendingDraft,matchesDraft,type LocalDraft } from './local-drafts.ts';
+import { localDrafts,localDraftIds,acknowledgeLocalDrafts,latestPendingDraft,matchesDraft,type LocalDraft } from './local-drafts.ts';
 
 export interface DraftRow {id:string;copies:LocalDraft[];bytes:number;updatedAt:number}
 export type DraftMeta=Omit<DraftRow,'copies'>;
 export interface DraftChange {row?:DraftRow;remove?:string[]}
-export interface DraftDatabase {transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange):Promise<LocalDraft[]>}
+export interface DraftDatabase {list():Promise<DraftMeta[]>;transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange):Promise<LocalDraft[]>}
 const request=<T>(item:IDBRequest<T>)=>new Promise<T>((resolve,reject)=>{item.onsuccess=()=>resolve(item.result);item.onerror=()=>reject(item.error);});
+let channel:BroadcastChannel|undefined;
+function announce(){if(typeof window==='undefined')return;window.dispatchEvent(new Event('weava-drafts-change'));channel?.postMessage('changed');}
 export class IndexedDraftDatabase implements DraftDatabase {
   private connection?:Promise<IDBDatabase>;
   private open(){return this.connection??=new Promise<IDBDatabase>((resolve,reject)=>{
@@ -27,6 +29,7 @@ export class IndexedDraftDatabase implements DraftDatabase {
       await complete;return changes.row?.copies??((changes.remove??[]).includes(id)?[]:row?.copies??[]);
     }catch(error){try{tx.abort();}catch{}await complete.catch(()=>{});throw error;}
   }
+  async list(){const db=await this.open();return request<DraftMeta[]>(db.transaction('metadata','readonly').objectStore('metadata').getAll());}
 }
 /** Bound by authored data, without stringify or rewriting unrelated articles. */
 function bytes(value:any):number{
@@ -37,36 +40,47 @@ function bytes(value:any):number{
 }
 export class DraftRepository {
   private tail=Promise.resolve();
-  constructor(private database:DraftDatabase,private legacy?:Storage){}
-  private execute(id:string,action:(copies:LocalDraft[])=>LocalDraft[],clock=Date.now()){
+  private capturedAt=0;
+  constructor(private database:DraftDatabase,private legacy?:Storage,readonly sessionId:string=crypto.randomUUID()){}
+  private execute(id:string,action:(copies:LocalDraft[])=>LocalDraft[],clock=Date.now(),notify=false){
     const work=this.tail.then(async()=>{
       const old=this.legacy?localDrafts(id,this.legacy):[];
       const result=await this.database.transact(id,(stored,metadata)=>{
         const copies=latestPendingDraft(action(latestPendingDraft([...old,...(stored?.copies??[])]))),size=bytes(copies);
         const maximum=3*1024*1024;
         if(size>maximum)throw new Error('这份草稿过大，浏览器无法保留副本；请保持页面打开并保存到网站。');
-        const others=metadata.filter(row=>row.id!==id).sort((a,b)=>a.updatedAt-b.updatedAt),remove:string[]=[];
+        const others=metadata.filter(row=>row.id!==id),remove:string[]=[];
         let total=size+others.reduce((sum,row)=>sum+row.bytes,0),count=others.length+Number(copies.length>0);
-        for(const row of others){if(total<=maximum&&count<=40)break;remove.push(row.id);total-=row.bytes;count--;}
+        if(total>maximum||count>40||copies.length>80)throw new Error('本地未保存草稿已达容量上限，请先保存或明确放弃其它草稿。');
         if(!copies.length){remove.push(id);return {remove};}
         return {row:{id,copies,bytes:size,updatedAt:Math.max(stored?.updatedAt??0,clock)},remove};
       });
       // The old recovery copy is retired only after the replacement transaction commits.
-      if(old.length&&this.legacy)acknowledgeLocalDrafts(old[0].record,this.legacy);
+      if(this.legacy)for(const copy of old)acknowledgeLocalDrafts(copy.record,this.legacy,copy.sessionId??'legacy');
+      if(notify)announce();
       return result;
     });
     this.tail=work.then(()=>{},()=>{});return work;
   }
   read(id:string){return this.execute(id,copies=>copies);}
+  async list(){
+    await this.tail;
+    const ids=new Set([...(await this.database.list()).map(row=>row.id),...(this.legacy?localDraftIds(this.legacy):[])]);
+    return (await Promise.all([...ids].map(id=>this.read(id)))).flat();
+  }
   save(record:Revision<Entry>,clock=Date.now()){
     const snapshot=structuredClone(record);
-    return this.execute(record.id,()=>[{id:record.id,capturedAt:clock,updatedAt:clock,pending:true,record:snapshot}],clock);
+    clock=this.capturedAt=Math.max(clock,this.capturedAt+1);
+    return this.execute(record.id,copies=>latestPendingDraft([{id:record.id,sessionId:this.sessionId,capturedAt:clock,updatedAt:clock,pending:true,record:snapshot},...copies]),clock,true);
   }
-  acknowledge(record:Revision<Entry>){return this.execute(record.id,copies=>copies.filter(copy=>!matchesDraft(copy,record)));}
-  forget(id:string){return this.execute(id,()=>[]);}
+  acknowledge(record:Revision<Entry>,sessionId=this.sessionId){return this.execute(record.id,copies=>copies.filter(copy=>(copy.sessionId??'legacy')!==sessionId||!matchesDraft(copy,record)),Date.now(),true);}
+  forget(id:string){return this.execute(id,copies=>copies.filter(copy=>(copy.sessionId??'legacy')!==this.sessionId),Date.now(),true);}
+  discard(copy:LocalDraft){return this.execute(copy.record.id,copies=>copies.filter(item=>(item.sessionId??'legacy')!==(copy.sessionId??'legacy')||item.updatedAt!==copy.updatedAt||!matchesDraft(item,copy.record)),Date.now(),true);}
 }
 let repository:DraftRepository|undefined;
 export function drafts(){
-  if(!repository){let legacy:Storage|undefined;try{legacy=localStorage;}catch{}repository=new DraftRepository(new IndexedDraftDatabase(),legacy);}
+  if(!repository){let legacy:Storage|undefined;try{legacy=localStorage;}catch{}repository=new DraftRepository(new IndexedDraftDatabase(),legacy);
+    if(typeof window!=='undefined'&&typeof window.BroadcastChannel==='function'){channel=new window.BroadcastChannel('weava-authoring');channel.onmessage=()=>window.dispatchEvent(new Event('weava-drafts-change'));}
+  }
   return repository;
 }

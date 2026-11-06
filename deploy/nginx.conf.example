@@ -1,0 +1,87 @@
+# Windows nginx: replace example.com and certificate paths; keep Node loopback-only.
+worker_processes 1;
+events { worker_connections 1024; }
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+    client_header_timeout 10s;
+    client_body_timeout 15s;
+    send_timeout 30s;
+    keepalive_timeout 30s;
+    client_max_body_size 16m;
+    limit_req_status 429;
+    limit_conn_status 429;
+    limit_req_zone $binary_remote_addr zone=site_ip:10m rate=20r/s;
+    limit_req_zone $server_name zone=site_all:1m rate=100r/s;
+    limit_req_zone $binary_remote_addr zone=analytics_ip:10m rate=2r/s;
+    limit_req_zone $server_name zone=analytics_all:1m rate=20r/s;
+    limit_req_zone $binary_remote_addr zone=login_ip:10m rate=6r/m;
+    limit_conn_zone $binary_remote_addr zone=connections:10m;
+    limit_conn_zone $server_name zone=all_connections:1m;
+    upstream weava { server 127.0.0.1:4322; keepalive 16; }
+    server { listen 80 default_server; server_name _; return 444; }
+    server {
+        listen 80;
+        server_name example.com;
+        return 308 https://example.com$request_uri;
+    }
+    server {
+        listen 443 ssl default_server;
+        server_name example.com;
+        ssl_certificate D:/WeavaTLS/fullchain.pem;
+        ssl_certificate_key D:/WeavaTLS/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        if ($host != example.com) { return 444; }
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        limit_conn connections 20;
+        limit_conn all_connections 256;
+        limit_req zone=site_ip burst=40 nodelay;
+        limit_req zone=site_all burst=200 nodelay;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        # Overwrite, never append client-supplied forwarding headers.
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host "";
+        proxy_set_header X-Forwarded-Port "";
+        proxy_set_header Forwarded "";
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 30s;
+        # Authenticate upstream before accepting a large import/upload body onto disk.
+        proxy_request_buffering off;
+        proxy_cache off;
+        # Generate with: weava.cmd site deployment-info demo --proxy-origin https://example.com
+        # Replace this path with the generated include for this website.
+        # It preserves robots.txt and serves 503 + Retry-After while updating.
+        include E:/WeavaRuntime/proxy/demo/maintenance.conf;
+        location = /api/admin/v1/login {
+            client_max_body_size 4k;
+            limit_req zone=login_ip burst=5 nodelay;
+            proxy_pass http://weava;
+        }
+        location = /api/v1/analytics {
+            client_max_body_size 128k;
+            limit_req zone=analytics_ip burst=10 nodelay;
+            limit_req zone=analytics_all burst=40 nodelay;
+            proxy_pass http://weava;
+        }
+        location = /api/admin/v1/import/wxr {
+            client_max_body_size 192m;
+            proxy_pass http://weava;
+        }
+        location = /api/admin/v1/media {
+            client_max_body_size 45m;
+            proxy_pass http://weava;
+        }
+        location ~ ^/api/admin/v1/media/uploads/[^/]+$ {
+            client_max_body_size 1m;
+            proxy_pass http://weava;
+        }
+        # All media, private pages and APIs pass through application authorization.
+        # Never configure root/alias to a site, backup, source or program directory.
+        location / { proxy_pass http://weava; }
+    }
+}

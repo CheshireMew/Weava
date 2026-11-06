@@ -2,7 +2,7 @@
 
 工具属于 Weava 的迁移能力，源码在 `packages/core/src/wordpress-statistics.ts` 和 `wordpress-statistics-export.ts`，入口为 Weava CLI。server-ops 只负责 SSH 连接、账号使用与脚本执行，不增加 WordPress 转换逻辑。生成的服务器脚本、响应及本次诊断材料放在 server-ops 自己的 `.runs`；导入归档和备份放在目标站点实例，均不放进框架源码仓库。
 
-本轮只制作并测试工具，没有重新导出真实服务器的访客明细，也没有把真实统计导入用户站点。替换 WordPress 时再取最终快照。
+导入的 WP Statistics 是站点已有统计，直接参与后台概览、流量趋势、页面排行、访问来源、地区、设备、访客详情、导出以及文章浏览量。原始来源快照保留供核对，不另设一套仅供查看的历史面板。WordPress 仍在采集时，后续新增记录需重新导出并导入较新快照；重复快照不会重复累计。
 
 ## 导出与校验
 
@@ -14,7 +14,7 @@
 
 输出为 `weava-wp-statistics-v1` JSON，包含来源 URL、时区、插件版本、采集时间、六类表的存在状态、记录数量及 SHA-256。校验会检查字段、日期、编号重复、关系完整性和每张表的记录数与校验值。没有来源时区名称时保留 WordPress 的固定 UTC 偏移。单份快照或 server-ops 响应限制为 128 MB。
 
-以下是日后替换网站时的操作顺序，当前不执行真实导出或导入。
+以下是读取现有数据并导入的操作顺序。服务器导出只读，不修改 WordPress。
 
 ```powershell
 # 1. 生成脚本。server-ops 路径和服务器别名使用本机实际配置。
@@ -42,7 +42,7 @@ scripts/run.ps1 migrate wordpress-statistics-inspect --input "$taskRoot\snapshot
 ```powershell
 scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress-statistics --input "$taskRoot\snapshot.json" --plan-output "$taskRoot\plan.json"
 
-# 日后明确执行迁移时，停止目标 Weava 服务后应用方案；工具本身不会停止服务。
+# 停止目标 Weava 服务后应用方案；工具本身不会停止服务。
 scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress-statistics --input "$taskRoot\snapshot.json" --apply --review "$taskRoot\plan.json"
 ```
 
@@ -53,11 +53,11 @@ scripts/run.ps1 --site E:\WeavaSites\my-blog migrate wordpress-statistics --inpu
 - 相同来源数据重复导入返回 changed=false，不追加记录，也不再创建备份；重新导出但内容未变时也不会重新累计，活动快照的采集时间仍保留原值。
 - 较新的数据作为同一来源的新版本切换，旧版本和原始快照保留；不是把新旧快照相加。较旧且不同的数据、同一采集时间但内容冲突的数据会被拒绝。
 - 导入事务失败不会留下部分统计记录。原始快照和导入前备份继续保留，修复原因后重新预检并重试。成功提交后若写回执失败，再次预检会识别已有版本，先运行 verify 确认数据状态，不重复累计。
-- 不修改文章、站点设置、公开版本、Weava 原生事件及 Puock 历史计数，也不让历史访客进入当前在线人数。源码内没有服务器连接账号和站点实际数据。
+- 不修改文章、站点设置、公开版本、Weava 原生事件及 Puock 原始计数。日常统计选择 WP Statistics 作为已有数据来源；文章浏览量采用插件页面累计加本地新增浏览，不与 Puock 的另一套计数相加。当前在线仍只统计收到页面心跳的实时访客。源码内没有服务器连接账号和站点实际数据。
 
 恢复资料位于 `imports/wp-statistics/<fingerprint>/`：`snapshot.json` 为完整来源快照，`before-<uuid>.sqlite` 为导入前统计库，`receipt-<uuid>.json` 为此次回执。需要恢复时，先用 verify 核实状态并停用目标服务，确认待恢复版本与之后新采集的数据后再执行恢复；工具不会擅自覆盖统计库或删除备份。
 
-## 独立历史报告与验证
+## 日常统计与来源验证
 
 ```powershell
 scripts/run.ps1 --site E:\WeavaSites\my-blog analytics wordpress-sources
@@ -68,9 +68,9 @@ scripts/run.ps1 --site E:\WeavaSites\my-blog analytics wordpress-report --visito
 
 `wordpress-verify` 将每张已导入表逐行与归档快照核对，并检查活动来源登记、内容哈希和页面映射完整性，可用 `--source` 限定来源。`wordpress-report` 支持 source、start、end、path、visitor、page；多来源时必须选择 source。访客和访问记录每页 50 条，报告中的时间保持来源时区，历史行保留来源编号，便于核查。
 
-报告可查看每日数据、页面排行、地区、设备、浏览器和系统、来源、访客、首末页面与访问关联。它是独立的 WP Statistics 历史来源报告，通过 CLI 查看或导出 JSON，**不会自动混入原生后台统计面板**。这样既能完整保留旧统计，也不把不同系统的计数误加。
+后台正常统计面板与普通 analytics report、visitor、export 入口直接包含已导入数据。wordpress-report 保留为来源核对入口，可逐项查看原始每日数据、页面计数、地区、设备、来源、访客及访问关联；它不再是查看这些数据的唯一入口。
 
-每日汇总在已有日期上优先使用原汇总；只有页面计数的日期展示页面计数，并注明 basis，两个层级不相加。跨日去重访客、会话、可见停留时间明确为 null；访客维度按“访客记录”计数，不能当成原生访客去重人数。历史累计独立返回，不加到已有每日汇总上。首末访问时间差不会被当作停留时间。WP Statistics 原本把 ChatGPT 划入 search 时，originalChannel 保留原分类，避免篡改历史证据。
+每日数据优先使用插件每日汇总，没有汇总的日期使用访客浏览计数，再回退到页面计数；这些层级不相加。累计概览沿用插件访客浏览计数加已压缩累计的口径，不再叠加每日汇总。插件访客编号加来源前缀，与本地访客分开，跨日不凭空合并身份。来源没有记录的会话、可见停留及阅读进度返回 null，界面显示“—”。来源趋势统一按浏览量展示；ChatGPT 等 AI 来源按现有渠道归类，原始渠道在快照中保留。
 
 ## 验证范围
 
@@ -88,4 +88,4 @@ node --import tsx scripts/wordpress-statistics-check.ts --production
 
 这些检查证明当前 Windows 本机工具链和夹具流程，不等同于正式切换时的服务器导出或真实数据迁移。正式迁移时仍需核对最终快照总数、时区、日期覆盖和来源页面映射。
 
-2026-10-29 验证结果：21 个测试文件共 132 项测试、类型检查、正式构建和 `git diff --check` 通过。正式构建的完整 CLI/PHP 夹具结果为 `D:\Tools\cache\weava\wp-statistics-tools-1793286713635\results.json`，其中 realServerExported=false、realSiteImported=false。另只读核对真实本地博客：未创建 wp_statistics_* 来源表及 imports/wp-statistics 目录，原有 2 条浏览事件和 133 篇文章的 88,717 次 Puock 累计计数保持原值。
+2026-10-29 工具准备阶段记录（不代表后续导入状态）：21 个测试文件共 132 项测试、类型检查、正式构建和 `git diff --check` 通过。正式构建的完整 CLI/PHP 夹具结果为 `D:\Tools\cache\weava\wp-statistics-tools-1793286713635\results.json`，其中 realServerExported=false、realSiteImported=false。另只读核对真实本地博客：未创建 wp_statistics_* 来源表及 imports/wp-statistics 目录，原有 2 条浏览事件和 133 篇文章的 88,717 次 Puock 累计计数保持原值。

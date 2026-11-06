@@ -187,14 +187,34 @@ it('keeps everyday navigation without hidden maintenance pages or a more-managem
   expect(host.textContent).not.toContain('网址别名');
   expect(host.textContent).not.toContain('网站检查');
   expect(host.textContent).not.toContain('更多管理');
-  expect(button('内容').getAttribute('aria-current')).toBe('page');
+  expect(button('文章').getAttribute('aria-current')).toBe('page');
   const identity = { settings: { value: { name: '我的网站', logo: '/media/site-logo.png' } } };
   await render(<AdminNavigation {...props} state={identity} tab="content" />);
   expect(host.querySelector('.app-brand img')?.getAttribute('src')).toBe('/media/site-logo.png');
+  await render(<AdminNavigation {...props} state={{ ...identity, siteIcon: '/media/optimized/site-logo-480.webp' }} tab="content" />);
+  expect(host.querySelector('.app-brand img')?.getAttribute('src')).toBe('/media/optimized/site-logo-480.webp');
   expect(host.querySelector('.brand-mark')).toBeNull();
   await render(<AdminNavigation {...props} state={{ settings: { value: { ...identity.settings.value, logo: '/media/new-logo.png' } } }} tab="content" />);
   expect(host.querySelector('.app-brand img')?.getAttribute('src')).toBe('/media/new-logo.png');
   await render(<AdminNavigation {...props} tab="content" />);
   expect(host.querySelector('.app-brand img')).toBeNull();
   expect(host.querySelector('.brand-mark')?.textContent).toBe('W');
+});
+
+it('WVA-05 keeps the home link on the current private admin entrance', async () => {
+  const previous = location.href;
+  history.replaceState(null, '', '/private-owner/?panel=account');
+  try {
+    await render(<AdminNavigation compact={false} state={null} tab="account" setMenu={vi.fn()} navigate={vi.fn()} logout={vi.fn()} />);
+    expect(host.querySelector('.app-brand')?.getAttribute('href')).toBe('/private-owner/');
+  } finally { history.replaceState(null, '', previous); }
+});
+
+it('WVA-06 hides content-only maintenance while retaining backups, tasks and storage inspection', async () => {
+  await render(<Operations state={{ features: ['media'], releases: [], jobs: [] }} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()} />);
+  const labels = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+  expect(labels).not.toContain('导入与导出'); expect(labels).not.toContain('发布记录');
+  expect(labels).toEqual(expect.arrayContaining(['备份', '任务记录', '维护']));
+  await click('维护');
+  expect(host.textContent).toContain('检查占用'); expect(host.textContent).not.toContain('历史归档');
 });

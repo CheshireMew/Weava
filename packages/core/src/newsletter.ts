@@ -3,6 +3,7 @@ import type { Analytics } from './analytics.ts';
 import { releaseIndex } from './release-index.ts';
 import { featuredEntries } from './editorial.ts';
 import { entryCover } from './entry-cover.ts';
+import {isNote} from './notes.ts';
 const catalogs=new WeakMap<Release,ReturnType<typeof create>>();
 const covers=new WeakMap<PublishedEntry,string>();
 export function newsletterCover(entry:PublishedEntry){
@@ -10,7 +11,7 @@ export function newsletterCover(entry:PublishedEntry){
   if(cover===undefined){cover=entryCover(entry);covers.set(entry,cover);}return cover;
 }
 function create(release:Release){
-  const posts=releaseIndex(release).posts.map(item=>Object.create(item,{cover:{enumerable:true,get:()=>newsletterCover(item)}}) as PublishedEntry);
+  const posts=releaseIndex(release).posts.filter(item=>!release.settings.extensions.notes||!isNote(item,release)).map(item=>Object.create(item,{cover:{enumerable:true,get:()=>newsletterCover(item)}}) as PublishedEntry);
   const pages=release.entries.filter(item=>item.kind==='page'),counts=new Map<string,Set<string>>();
   for(const post of posts)for(const key of new Set([...(post.termIds?.categories??[]),...post.categories])){const members=counts.get(key)??new Set<string>();members.add(post.id);counts.set(key,members);}
   const paths=new Map<string,string>();for(const page of pages)for(const block of page.blocks)if(block.props.category&&!paths.has(block.props.category))paths.set(block.props.category,page.path);

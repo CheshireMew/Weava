@@ -3,6 +3,7 @@ import { entrySchema } from '@weava/contracts';
 import { DraftRepository,type DraftDatabase,type DraftRow,type DraftMeta,type DraftChange } from '../apps/admin/src/draft-repository.ts';
 class Database implements DraftDatabase{
   rows=new Map<string,DraftRow>();fail=false;writes:string[]=[];
+  async list(){return [...this.rows.values()].map(({copies,...metadata})=>metadata);}
   async transact(id:string,change:(row:DraftRow|undefined,metadata:DraftMeta[])=>DraftChange){
     const row=structuredClone(this.rows.get(id)),meta=[...this.rows.values()].map(({copies,...item})=>item),result=change(row,meta);
     if(this.fail)throw new Error('quota');
@@ -12,6 +13,17 @@ class Database implements DraftDatabase{
   }
 }
 const record=(id:string,title:string)=>({id,revision:1,updatedAt:'',value:entrySchema.parse({id,title,kind:'page',path:'/'+id+'/'})});
+it('keeps independent window copies, enumerates local-only records and acknowledges only the matching session',async()=>{
+  const db=new Database(),one=new DraftRepository(db,undefined,'window-one'),two=new DraftRepository(db,undefined,'window-two');
+  const draft={...record('note','first window'),revision:0};
+  await one.save(draft,100);await two.save({...draft,value:{...draft.value,title:'second window'}},200);
+  expect((await one.list()).map(copy=>copy.record.value.title)).toEqual(['second window','first window']);
+  await two.acknowledge({...draft,value:{...draft.value,title:'second window'}});
+  expect((await one.read('note')).map(copy=>copy.record.value.title)).toEqual(['first window']);
+  await two.forget('note');expect(await one.read('note')).toHaveLength(1);
+  const selected=(await one.read('note'))[0];await one.save({...draft,value:{...draft.value,title:'newer first window'}},300);
+  await two.discard(selected);expect((await two.read('note'))[0].record.value.title).toBe('newer first window');
+});
 it('overwrites one pending draft per article and clears it after saving without touching other articles',async()=>{
   const db=new Database(),repository=new DraftRepository(db);
   await repository.save(record('one','first'),1000);await repository.save(record('two','other'),1000);
@@ -24,7 +36,7 @@ it('overwrites one pending draft per article and clears it after saving without 
 });
 it('migrates only the newest pending draft and respects a newer close-time write with the same draft id',async()=>{
   const values=new Map<string,string>(),legacy={getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)} as unknown as Storage;
-  const db=new Database(),repository=new DraftRepository(db,legacy);
+  const db=new Database(),repository=new DraftRepository(db,legacy,'legacy');
   await repository.save(record('one','older'),1000);
   legacy.setItem('weava-drafts:v2',JSON.stringify({version:2,entries:{one:[{id:'one',updatedAt:2000,capturedAt:2000,pending:true,record:record('one','latest at close')}]}}));
   expect((await repository.read('one')).map(copy=>copy.record.value.title)).toEqual(['latest at close']);
@@ -39,8 +51,9 @@ it('migrates recovery only after commit, keeps failed copies, and bounds article
   const db=new Database(),repository=new DraftRepository(db,legacy);db.fail=true;
   await expect(repository.read('one')).rejects.toThrow('quota');expect(legacy.getItem('weava-draft:one')).not.toBeNull();
   db.fail=false;expect((await repository.read('one'))[0].record.value.title).toBe('legacy');expect(legacy.getItem('weava-draft:one')).toBeNull();
-  for(let index=0;index<50;index++)await repository.save(record('item-'+index,'draft'),index+2000);
-  expect(db.rows.size).toBeLessThanOrEqual(40);
+  for(let index=0;index<39;index++)await repository.save(record('item-'+index,'draft'),index+2000);
+  await expect(repository.save(record('overflow','draft'))).rejects.toThrow(/容量上限/);
+  expect(db.rows.size).toBe(40);expect((await repository.read('one'))[0].record.value.title).toBe('legacy');
   const large=record('large','large');large.value.document={version:1,format:'markdown',source:'x'.repeat(2000000)};
   await expect(repository.save(large)).rejects.toThrow(/过大/);expect(db.rows.has('large')).toBe(false);
 });

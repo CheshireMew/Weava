@@ -1,20 +1,52 @@
 import type { Entry, Release } from '@weava/contracts';
 import { mediaIdentity } from './paths.ts';
 import { referencedLayouts } from './layouts.ts';
+import { load } from 'cheerio';
+import { renderDocument } from './documents.ts';
 
 /** One file identity for authored URLs, rendered HTML, history and usage reports. */
 export function mediaReferencesIn(value: unknown): Set<string> {
   const paths = new Set<string>();
-  const visit = (item: unknown) => {
-    if (typeof item === 'string') {
-      for (const match of item.matchAll(/\/media\/[^"'<>\\\s)\]}]+/gi)) {
-        const path = match[0].split(/[?#]/)[0];
-        try {
-          paths.add(mediaIdentity(path));
-        } catch {
-          /* Invalid addresses cannot identify a served file. */
+  const add = (value: string) => {
+    try {
+      // Resolve dot segments, spaces and URL escapes as a browser does before authorization.
+      const url = new URL(value, 'https://weava.invalid/');
+      if (/^\/media\//i.test(url.pathname)) paths.add(mediaIdentity(url.pathname));
+    } catch { /* Invalid addresses cannot identify a served file. */ }
+  };
+  const scan = (text: string) => {
+    add(text);
+    for (const match of text.matchAll(/\/media\/[^"'<>\\\s)\]}]+/gi)) add(match[0]);
+  };
+  const html = (source: string) => {
+    const $ = load(source, null, false);
+    scan($.root().text());
+    $('*').each((_index, element) => {
+      if('attribs' in element) for (const [name,value] of Object.entries(element.attribs)) {
+        scan(value);
+        if(name==='srcset') {
+          // URLs in srcset may contain parentheses and commas. Descriptors are not part of the URL.
+          let at=0;
+          while(at<value.length) {
+            while(at<value.length && /[\t\n\f\r ,]/.test(value[at]))at++;
+            const start=at;while(at<value.length && !/[\t\n\f\r ]/.test(value[at]))at++;
+            const url=value.slice(start,at);add(url.replace(/,+$/,''));
+            if(url.endsWith(','))continue;
+            let brackets=0;
+            while(at<value.length) {const char=value[at++];if(char==='(')brackets++;else if(char===')')brackets=Math.max(0,brackets-1);else if(char===','&&!brackets)break;}
+          }
         }
       }
+    });
+  };
+  const visit = (item: unknown) => {
+    if (typeof item === 'string') {
+      scan(item);
+      if (/[<&]/.test(item)) {
+        // HTML entities belong to the HTML parser, not decodeURIComponent.
+        html(item);
+      }
+      if(item.includes('\\') && (item.includes('](')||item.includes(']:'))) html(renderDocument({version:1,format:'markdown',source:item}));
     } else if (Array.isArray(item)) item.forEach(visit);
     else if (item && typeof item === 'object') Object.values(item).forEach(visit);
   };
@@ -29,6 +61,7 @@ export function entryMediaReferences(
   return mediaReferencesIn([
     entry.cover,
     entry.blocks?.length ? null : entry.document,
+    !entry.blocks?.length && entry.document ? renderDocument(entry.document) : null,
     entry.blocks,
     entry.fields,
     catalog ? referencedLayouts(entry, catalog) : [],

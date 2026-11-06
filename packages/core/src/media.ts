@@ -1,26 +1,26 @@
-import { mediaReferencesIn, entryMediaReferences } from './media-references.ts';
-import { mediaIdentity } from './paths.ts';
-import { join, extname } from 'node:path';
-import { mkdirSync, existsSync, writeFileSync, statSync, readFileSync } from 'node:fs';
-import { inside } from './storage.ts';
+
+import {mediaIdentity} from './paths.ts';
+import {join,extname} from 'node:path';
+import {mkdirSync,existsSync,writeFileSync,statSync,readFileSync} from 'node:fs';
+import {inside} from '../../runtime-common/src/paths.ts';
 import sharp from 'sharp';
-import { digest, now } from './storage.ts';
-import { mediaGroupSchema, WeavaError } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { load } from 'cheerio';
-import { paginate } from './query.ts';
-import { copyFile } from 'node:fs/promises';
-import { openSync,closeSync,readSync } from 'node:fs';
-import { digestFile } from './file-io.ts';
-import { updateRevisionReferences } from './media-reference-index.ts';
-import { BoundedCache } from './cache.ts';
-import { imageDerivatives } from './media-images.ts';
+import {digest,now} from '../../runtime-common/src/identity.ts';
+import {mediaGroupSchema,WeavaError} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {load} from 'cheerio';
+import {paginate} from './query.ts';
+import {copyFile} from 'node:fs/promises';
+import {openSync,closeSync,readSync} from 'node:fs';
+import {digestFile} from './file-io.ts';
+import {updateRevisionReferences} from './media-reference-index.ts';
+import {BoundedCache} from './cache.ts';
+import {imageDerivatives} from './media-images.ts';
 const imageCaches=new WeakMap<object,{stamp:string;attributes:BoundedCache<string,any>;html:BoundedCache<string,string>}>();
 function imageCache(site:Site){
   const stamp=site.store.state('media-version')??'0';let cache=imageCaches.get(site.store);
   if(!cache||cache.stamp!==stamp){cache={stamp,attributes:new BoundedCache(2048,2*1024*1024),html:new BoundedCache(128,8*1024*1024)};imageCaches.set(site.store,cache);}return cache;
 }
-import { layouts, referencedLayouts } from './layouts.ts';
+
 export function mediaKind(url: string): 'image' | 'video' | 'audio' | 'file' {
   return /\.(png|jpe?g|webp|avif|gif|svg)$/i.test(url) ? 'image' : /\.(mp4|webm)$/i.test(url) ? 'video' : /\.mp3$/i.test(url) ? 'audio' : 'file';
 }
@@ -123,25 +123,29 @@ export async function cropMedia(site: Site, id: string, revision: number, crop: 
   if (saved.value.parentId) return saved;
   return site.store.put('media', saved.id, { ...saved.value, alt: original.value.alt ?? '', caption: original.value.caption ?? '', parentId: original.id, crop }, saved.revision, '裁切副本');
 }
-export function imageAttributes(site: Site, src: string) {
-  const cache=imageCache(site),old=cache.attributes.get(src);if(old)return {...old};
+export function imageAttributes(site: Site, src: string, display: number | { width: number; height: number; sizes?: string } = 960) {
+  const displayWidth = typeof display === 'number' ? display : display.width * 2;
+  const dimensions = typeof display === 'number' ? {} : { width: display.width, height: display.height, sizes: display.sizes ?? `${display.width}px` };
+  const key = JSON.stringify(display) + ':' + src;
+  const cache=imageCache(site),old=cache.attributes.get(key);if(old)return {...old};
   const id = /^\/media\/([a-f0-9]{24})\.[a-z]+$/i.exec(src)?.[1];
   const record = id ? site.store.get('media', id)?.value : null;
   const position = record?.focalPoint ? { style: `object-position:${record.focalPoint.x}% ${record.focalPoint.y}%` } : {};
-  if (!Array.isArray(record?.derivatives) || !record.derivatives.length) return { src, ...position };
+  if (!Array.isArray(record?.derivatives) || !record.derivatives.length) return { src, ...position, ...dimensions };
   const variants = record.derivatives
     .filter((d: any) => d.url && d.width)
     .sort((a: any, b: any) => a.width - b.width);
-  if (!variants.length) return { src };
+  if (!variants.length) return { src, ...position, ...dimensions };
   const result={
     ...position,
-    src: (variants.find((v: any) => v.width >= 960) ?? variants.at(-1)).url,
+    src: (variants.find((v: any) => v.width >= displayWidth) ?? variants.at(-1)).url,
     srcset: variants.map((v: any) => `${v.url} ${v.width}w`).join(', '),
     sizes: '(max-width: 720px) 100vw, 960px',
     width: record.width,
     height: record.height,
+    ...dimensions,
   };
-  cache.attributes.set(src,result,JSON.stringify(result).length*2);return {...result};
+  cache.attributes.set(key,result,JSON.stringify(result).length*2);return {...result};
 }
 export function responsiveImages(site: Site, html: string) {
   if (!html.includes('/media/')) return html;
@@ -153,11 +157,13 @@ export function responsiveImages(site: Site, html: string) {
     if (attributes.style) node.attr('style', [node.attr('style'), attributes.style].filter(Boolean).join(';'));
     if (!node.attr('srcset'))
       for (const [key, value] of Object.entries(attributes))
-        if (key !== 'style' && value !== undefined) node.attr(key, String(value));
+        if (key !== 'style' && value !== undefined && (!['width','height'].includes(key) || !node.attr(key))) node.attr(key, String(value));
+    if (!node.attr('loading')) node.attr('loading', 'lazy');
+    if (!node.attr('decoding')) node.attr('decoding', 'async');
   });
   const result=$.html();return cache.html.set(key,result,result.length*2);
 }
-import { validateMediaFormat } from './media-format.ts';
+import {validateMediaFormat} from './media-format.ts';
 export function stageMedia(site: Site, data: Buffer, name: string) {
   if (!data.length || data.length > 32 * 1024 * 1024)
     throw new WeavaError('附件大小需要在 32 MB 以内。');

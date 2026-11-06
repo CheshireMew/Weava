@@ -1,16 +1,17 @@
-import { join } from 'node:path';
-import { readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { randomBytes, scryptSync, scrypt, timingSafeEqual } from 'node:crypto';
-import { Storage, digest } from './storage.ts';
-import { newTotpSecret, sealSecret, openSecret, totpStep } from './two-factor.ts';
-import { validateOwnerName, validateOwnerPassword } from './password-policy.ts';
-import { validateAdminPath } from './admin-access.ts';
-import { OwnerSecurity } from './owner-security.ts';
-import { UAParser } from 'ua-parser-js';
-import { loadRelease } from './release-reader.ts';
-import { OwnerAccessLinks } from './owner-access-links.ts';
+import {join} from 'node:path';
+import {readFileSync,writeFileSync,renameSync} from 'node:fs';
+import {randomBytes,scryptSync,scrypt,timingSafeEqual} from 'node:crypto';
+import {Storage} from './storage.ts';
+import {digest} from '../../runtime-common/src/identity.ts';
+import {newTotpSecret,sealSecret,openSecret,totpStep} from './two-factor.ts';
+import {validateOwnerName,validateOwnerPassword} from './password-policy.ts';
+import {validateAdminPath} from './admin-access.ts';
+import {OwnerSecurity} from './owner-security.ts';
+import {UAParser} from 'ua-parser-js';
+import {loadRelease} from './release-reader.ts';
+import {OwnerAccessLinks} from './owner-access-links.ts';
 
-import { WeavaError } from '@weava/contracts';
+import {WeavaError} from '@weava/contracts';
 export class OwnerAuth {
   private loginInFlight = 0;
   private security: OwnerSecurity;

@@ -24,8 +24,8 @@ export const country = (code: string) => {
     return '未知';
   }
 };
-export const duration = (ms: number) =>
-  ms < 1000
+export const duration = (ms: number | null) =>
+  ms === null || ms < 1000
     ? '—'
     : ms < 60000
       ? Math.round(ms / 1000) + ' 秒'

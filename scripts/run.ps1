@@ -7,6 +7,13 @@ if ($WeavaArguments.Count -gt 0 -and $WeavaArguments[0] -eq 'start') {
     Write-Host ''
 }
 $frameworkRoot = Split-Path -Parent $PSScriptRoot
+$installationHint = Join-Path $frameworkRoot 'dist\installation.json'
+$installationRoot = if ($env:WEAVA_INSTALLATION) { $env:WEAVA_INSTALLATION } elseif (Test-Path -LiteralPath $installationHint) { (Get-Content -LiteralPath $installationHint -Raw | ConvertFrom-Json).root } else { $null }
+$developerOperation = @($WeavaArguments | Where-Object { $_ -in @('build', 'dev', 'init') }).Count -gt 0
+if ($installationRoot -and !$developerOperation) {
+    & (Join-Path $installationRoot 'weava.cmd') @WeavaArguments
+    exit $LASTEXITCODE
+}
 $nodePath = if ($env:WEAVA_NODE) { $env:WEAVA_NODE } elseif (Test-Path -LiteralPath 'D:\Tools\NodeJS\node.exe') { 'D:\Tools\NodeJS\node.exe' } else { (Get-Command node -ErrorAction Stop).Source }
 $env:PATH = (Split-Path -Parent $nodePath) + ';' + $env:PATH
 $env:WEAVA_FRAMEWORK = $frameworkRoot

@@ -34,6 +34,7 @@ it('preserves public analytics collection and contract validation for extension 
   const context = {
     request,
     url: new URL(request.url),
+    cookies: { get: () => undefined },
     identity: { network: 'test', secure: true },
   } as unknown as AdminContext;
   const response = await publicApi(

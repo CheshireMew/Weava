@@ -1,13 +1,14 @@
 import { defineMiddleware } from 'astro:middleware';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, resolve, extname } from 'node:path';
-import { site, siteExtension, analytics } from './runtime.ts';
-import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile, siteIconHead } from '@weava/core';
+import { site, siteExtension, analytics, features, maintenance, validating, ready, siteRenderer, contextFor } from './runtime.ts';
+import { requiredFeature } from '../../../packages/core/src/site-features.ts';
+import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile, siteIconHead, imageAttributes } from '@weava/core';
 import { WeavaError } from '@weava/contracts';
 import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
-import { assertRequestOrigin } from '../../../packages/core/src/request-safety.ts';
+import { assertRequestOrigin, assertRequestTransport } from '../../../packages/core/src/request-safety.ts';
 import { requestIdentity } from '@weava/core';
 import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
 import { assetResponse } from '../../../packages/core/src/asset-response.ts';
@@ -37,14 +38,21 @@ const mime: Record<string, string> = {
 };
 const serve = defineMiddleware(async (context, next) => {
   let peer='';try{peer=context.clientAddress;}catch{}
-  assertRequestOrigin(context.request,requestIdentity(context.request,peer).protocol);
+  const identity=requestIdentity(context.request,peer);
+  const probe = validating && ['GET','HEAD'].includes(context.request.method) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer) && !!process.env.WEAVA_UPGRADE_PROBE && context.request.headers.get('x-weava-upgrade-probe')===process.env.WEAVA_UPGRADE_PROBE;
+  assertRequestTransport(context.request,identity.secure,peer,probe||context.request.headers.get('authorization')==='Bearer '+site.cliToken());
+  assertRequestOrigin(context.request,identity.protocol);
   const path = context.url.pathname;
+  if (!ready && path !== '/__health') return new Response('网站正在初始化，请稍后重试。',{status:503,headers:{'Retry-After':'1','Cache-Control':'no-store'}});
+  if (maintenance && path !== '/__health' && !probe && !(validating&&context.request.method==='GET'&&context.request.headers.get('authorization')==='Bearer '+site.cliToken())) return new Response('网站正在维护，请稍后重试。',{status:503,headers:{'Retry-After':'60','Cache-Control':'no-store'}});
+  const feature = requiredFeature(path);
+  if (feature && !features.includes(feature)) return new Response('Not found',{status:404});
   if (path === '/__health')
     return Response.json({
-      status: 'ready',
+      status: ready ? 'ready' : 'starting',
       releaseId: site.store.state('release'),
-      ...(site.authenticate(context.cookies.get('weava-session')?.value??'') || context.request.headers.get('authorization')==='Bearer '+site.cliToken()?{site:site.root,pid:process.pid}:{}),
-    },{headers:{'Cache-Control':'no-store','Vary':'Cookie, Authorization'}});
+      ...(site.authenticate(context.cookies.get('weava-session')?.value??'') || context.request.headers.get('authorization')==='Bearer '+site.cliToken()?{site:site.root,pid:process.pid,nonce:process.env.WEAVA_RUN_NONCE??''}:{}),
+    },{status:ready?200:503,headers:{'Cache-Control':'no-store','Vary':'Cookie, Authorization'}});
   const adminPath=site.auth.adminPath();
   if ((path==='/admin'||path.startsWith('/admin/')||site.auth.retiredAdminPaths().some(old=>path===old||path.startsWith(old+'/'))) && !isAdminPage(path,adminPath))
     return new Response('Not found',{status:404,headers:{'Cache-Control':'no-store'}});
@@ -52,7 +60,7 @@ const serve = defineMiddleware(async (context, next) => {
     const { adminDevelopmentHtml } = await import('./admin-development.ts');
     const nonce = randomBytes(18).toString('base64');
     const html = (await adminDevelopmentHtml(context.url.pathname + context.url.search))
-      .replace('</head>', siteIconHead(site.settings().value.logo) + '</head>')
+      .replace('</head>', siteIconHead(imageAttributes(site, site.settings().value.logo, 64).src) + '</head>')
       .replace(/<script\b/g, `<script nonce="${nonce}"`);
     const response = new Response(html, { headers: {
       'Content-Type': 'text/html; charset=utf-8',
@@ -71,7 +79,7 @@ const serve = defineMiddleware(async (context, next) => {
       : join(base, 'index.html');
     if (!existsSync(file)) return new Response('后台尚未构建，请运行 build。', { status: 503 });
     if(path.startsWith('/_admin/assets/'))return assetResponse(file,context.request,mime[extname(file)]??'application/octet-stream');
-    return new Response(readFileSync(file, 'utf8').replace('</head>', siteIconHead(site.settings().value.logo) + '</head>'), {
+    return new Response(readFileSync(file, 'utf8').replace('</head>', siteIconHead(imageAttributes(site, site.settings().value.logo, 64).src) + '</head>'), {
       headers: {
         'Content-Type': mime[extname(file)] ?? 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
@@ -81,7 +89,7 @@ const serve = defineMiddleware(async (context, next) => {
   }
   if (path.startsWith('/media/')) {
     let identity: string, file: string;
-    try { identity = mediaIdentity(path); file = mediaFile(site.root, identity); }
+    try { identity = mediaIdentity(path); file = mediaFile(process.env.WEAVA_RESOURCE_ROOT??site.root, identity); }
     catch { return new Response('Not found', { status: 404 }); }
     const privateMedia = site.isPrivateMedia(identity);
     if (privateMedia && !site.authenticate(context.cookies.get('weava-session')?.value ?? '') &&
@@ -90,7 +98,7 @@ const serve = defineMiddleware(async (context, next) => {
     const type = mime[extname(file)] ?? 'application/octet-stream';
     const headers: Record<string, string> = {
       'Content-Type': type,
-      'Cache-Control': privateMedia ? 'private, no-store' : 'public, max-age=0, must-revalidate',
+      'Cache-Control': privateMedia ? 'private, no-store' : 'public, max-age=3600, must-revalidate',
       'Vary': 'Cookie, Authorization',
       'Accept-Ranges': 'bytes',
     };
@@ -101,6 +109,11 @@ const serve = defineMiddleware(async (context, next) => {
     else if(!/^(image|audio|video)\//.test(type) && type!=='text/vtt') headers['Content-Disposition']='attachment';
     return mediaResponse(file, context.request, headers);
   }
+  if (!/^\/(?:api\/admin|api\/v1|media|__preview|_admin|__health)(?:\/|$)/.test(path)) {
+    const renderer = await siteRenderer;
+    if (renderer) { const response = await renderer.render(context.request, contextFor(context.request)); if (response !== null) return response; }
+  }
+  if (!features.includes('content') && path === '/') return new Response('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Weava</title><main><h1>网站已就绪</h1></main></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
   if (!path.startsWith('/api/')) {
     const redirect = site.redirect(context.url, site.authenticate(context.cookies.get('weava-session')?.value ?? ''));
     if (redirect) return new Response(null, { status: 301, headers: { Location: redirect } });
@@ -136,13 +149,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const programAsset=context.url.pathname.startsWith('/_admin/assets/')||context.url.pathname.startsWith('/_astro/');
   const published=!admin&&!programAsset&&context.request.method==='GET'&&response.headers.get('content-type')?.includes('text/html')?site.visibleRelease():null;
   if (published && releaseIndex(published).byPath.has(context.url.pathname)) {
-    try { analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status); } catch {}
+    let peer='';try{peer=context.clientAddress;}catch{}
+    try { if(features.includes('analytics'))analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status, requestIdentity(context.request,peer).network); } catch {}
   }
   if (!programAsset) {
     const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     vary.add('Cookie');
     response.headers.set('Vary', [...vary].join(', '));
-    if (site.authenticate(context.cookies.get('weava-session')?.value ?? ''))
+    if (!context.url.pathname.startsWith('/media/') && site.authenticate(context.cookies.get('weava-session')?.value ?? ''))
       response.headers.set('Cache-Control', 'private, no-store');
   }
   const type = response.headers.get('content-type') ?? '';

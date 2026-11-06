@@ -1,9 +1,10 @@
-import { cloneBlocks, contentViewSchema, creationTemplateSchema, entrySchema, WeavaError, type Block, type CreationTemplate } from '@weava/contracts';
-import type { Site } from './site.ts';
-import { queryDrafts } from './query.ts';
-import { prepareEntryCandidate } from './content-validation.ts';
-import { uuid } from './storage.ts';
-import { renderDocument } from './documents.ts';
+import {cloneBlocks,contentViewSchema,creationTemplateSchema,entrySchema,WeavaError,isNoteType,type CreationTemplate} from '@weava/contracts';
+import type {Site} from './site.ts';
+import {queryDrafts} from './query.ts';
+import {prepareEntryCandidate} from './content-validation.ts';
+import {uuid} from '../../runtime-common/src/identity.ts';
+import {renderDocument} from './documents.ts';
+import {normalizePath} from './paths.ts';
 
 export const contentViews = (site: Site) => site.store.list('content-view');
 export const creationTemplates = (site: Site) => site.store.list('creation-template');
@@ -36,12 +37,27 @@ export function createContent(site: Site, input: { kind: 'content' | 'page'; typ
   const type = input.type ?? template?.type ?? site.store.list('type')[0]?.id ?? 'post';
   const definition = site.store.get('type', type)?.value;
   if (input.kind === 'content' && !definition) throw new WeavaError('内容类型不存在。');
-  const id = uuid(), prefix = input.kind === 'page' ? '/' : definition.pathPrefix;
+  return site.store.raw.transaction(() => {
+  const prefix = input.kind === 'page' ? '/' : definition.pathPrefix;
+  const release = site.release();
+  const occupied = new Set<string>([
+    ...(site.store.raw.prepare("SELECT json_extract(summary,'$.path') path FROM entry_list").all() as {path:string}[]).map(row=>row.path),
+    ...(release?.entries.map(entry=>entry.path)??[]),
+    ...Object.keys(release?.redirects??{}),
+    ...(site.store.raw.prepare("SELECT id FROM records WHERE scope='redirect'").all() as {id:string}[]).map(row=>row.id),
+  ]);
+  let id = '', path = '';
+  for(let attempt=0;attempt<16;attempt++){
+    id=uuid();path=normalizePath(input.path??prefix+id.slice(0,8)+'/');
+    if(input.path!==undefined||!occupied.has(path))break;
+    if(attempt===15)throw new WeavaError('暂时无法生成未使用的网址，请重试。',409);
+  }
   const value = entrySchema.parse({ ...structuredClone(template?.initial ?? {}), id, kind: input.kind, type,
-    title: input.title ?? template?.initial.title ?? '未命名' + (input.kind === 'page' ? '页面' : '内容'),
-    path: input.path ?? prefix + id.slice(0, 8) + '/', status: 'draft',
+    title: input.title ?? template?.initial.title ?? '未命名' + (input.kind === 'page' ? '页面' : isNoteType(definition)?'笔记':'内容'),
+    path, status: 'draft',
     blocks: cloneBlocks(template?.initial.blocks ?? []),
     document: template?.initial.document ?? { version: 1, format: 'lexical', source: { root: { type: 'root', version: 1, direction: null, format: '', indent: 0, children: [{ type: 'paragraph', version: 1, direction: null, format: '', indent: 0, children: [], textFormat: 0, textStyle: '' }] } } },
   });
   return site.saveEntry(value, null);
+  }).immediate();
 }

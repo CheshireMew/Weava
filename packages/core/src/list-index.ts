@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { Release } from '@weava/contracts';
+import { entryCover } from './entry-cover.ts';
 export function listIndexSchema(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS entry_list(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,summary TEXT NOT NULL,fields TEXT NOT NULL,kind TEXT NOT NULL,type TEXT NOT NULL,status TEXT NOT NULL,visibility TEXT NOT NULL,title TEXT NOT NULL,search TEXT NOT NULL,updated_at TEXT NOT NULL,published_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS entry_list_kind_type ON entry_list(kind,type,status,visibility);
@@ -14,8 +15,14 @@ export function indexListRecord(db:Database.Database,scope:string,id:string,valu
   if(scope==='entry'){
     const {document,blocks,compatibility,fields,source,...summary}=value;
     summary.visibility??='public';
+    const type=db.prepare("SELECT data FROM records WHERE scope='type' AND id=?").get(value.type??'post') as {data:string}|undefined;
+    summary.cover=entryCover(value,type?JSON.parse(type.data):undefined);
     db.prepare(`INSERT INTO entry_list VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,summary=excluded.summary,fields=excluded.fields,kind=excluded.kind,type=excluded.type,status=excluded.status,visibility=excluded.visibility,title=excluded.title,search=excluded.search,updated_at=excluded.updated_at,published_at=excluded.published_at`)
       .run(id,revision,JSON.stringify(summary),JSON.stringify(fields??{}),value.kind,value.type??'post',value.status,summary.visibility,summary.title,normalized(summary.title+' '+(summary.description??'')),updatedAt,value.publishedAt??'');
+  }
+  if(scope==='type'){
+    for(const row of db.prepare("SELECT id,data,revision,updated_at FROM records WHERE scope='entry' AND json_extract(data,'$.type')=?").all(id) as {id:string;data:string;revision:number;updated_at:string}[])
+      indexListRecord(db,'entry',row.id,JSON.parse(row.data),row.revision,row.updated_at);
   }
   if(scope==='media'){
     const kind=/\.(png|jpe?g|webp|avif|gif|svg)$/i.test(value.url)?'image':/\.(mp4|webm)$/i.test(value.url)?'video':/\.mp3$/i.test(value.url)?'audio':'file';

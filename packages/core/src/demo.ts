@@ -1,6 +1,6 @@
-import { Site } from './site.ts';
-import { entrySchema, defaultSettings, type Block } from '@weava/contracts';
-import { uuid } from './storage.ts';
+import {Site} from './site.ts';
+import {entrySchema,type Block} from '@weava/contracts';
+import {uuid} from '../../runtime-common/src/identity.ts';
 export function seedDemo(site: Site) {
   if (site.store.list('entry').length) return;
   const types = [

@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import AnalyticsPanel from '../apps/admin/src/AnalyticsPanel.tsx';
+import { adminQueries } from '../apps/admin/src/query-cache.ts';
 import { dateRange } from '../apps/admin/src/analytics/date-ranges.ts';
 import { reportLocation } from '../apps/admin/src/analytics/report-navigation.ts';
 
@@ -17,6 +18,7 @@ function fixture(query = '') {
   return data;
 }
 beforeEach(() => {
+  adminQueries.invalidate(true);
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-11-04T03:00:00Z'));
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   window.history.replaceState(null, '', '/admin/?panel=analytics');

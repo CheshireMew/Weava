@@ -1,6 +1,6 @@
 import { queryPublished, contentQuery } from '@weava/core';
 import { publishedMetadata } from '../../../../packages/core/src/release-reader.ts';
-import { WeavaError as DomainError } from '@weava/contracts';
+import { WeavaError as DomainError, supportsDiscussion } from '@weava/contracts';
 
 import { readJsonBody } from '@weava/core';
 
@@ -10,7 +10,7 @@ import type { ApiServices, AdminContext } from './types.ts';
 import { json } from './transport.ts';
 import { assertJsonRequest, assertRequestOrigin } from '../../../../packages/core/src/request-safety.ts';
 export async function publicApi(
-  services: Pick<ApiServices, 'site' | 'analytics' | 'engagement'>,
+  services: Pick<ApiServices, 'site' | 'analytics' | 'engagement'> & {siteRenderer?:Promise<import('../../../../packages/core/src/site-render.ts').SiteRenderer|null>},
   context: AdminContext,
   route: string,
 ) {
@@ -19,7 +19,7 @@ export async function publicApi(
   const method = request.method;
   assertRequestOrigin(request,identity.protocol);
   if(method==='POST')assertJsonRequest(request);
-  if (['v1/engagement', 'v1/like', 'v1/comment', 'v1/comment-captcha'].includes(route)) {
+  if (['v1/engagement', 'v1/like', 'v1/comment', 'v1/comment-like', 'v1/comment-captcha'].includes(route)) {
     const write = method === 'POST';
     if ((route === 'v1/engagement' && method !== 'GET') || (route !== 'v1/engagement' && !write))
       return json({ error: '请求方法无效。' }, 405);
@@ -27,8 +27,8 @@ export async function publicApi(
     const id = String(data?.id ?? url.searchParams.get('id') ?? '');
     const entry = site
       .visibleRelease()
-      ?.entries.find((item) => item.id === id && item.kind === 'content');
-    if (!entry) throw new DomainError('文章不存在。', 404);
+      ?.entries.find((item) => item.id === id && supportsDiscussion(item));
+    if (!entry) throw new DomainError('内容不存在。', 404);
     let reader = cookies.get('weava-reader')?.value ?? '';
     if (!/^[a-f0-9]{64}$/.test(reader)) {
       reader = randomBytes(32).toString('hex');
@@ -50,6 +50,10 @@ export async function publicApi(
         ),
       );
     const network = identity.network;
+    if(route==='v1/comment-like'){
+      if(typeof data.liked!=='boolean'||typeof data.commentId!=='string')throw new DomainError('点赞状态无效。');
+      return json(engagement.setCommentLike(id,data.commentId,reader,data.liked,network));
+    }
     if (['v1/comment-captcha', 'v1/comment'].includes(route) && entry.allowComments === false)
       throw new DomainError('这篇内容已关闭新评论。', 403);
     if (route === 'v1/comment-captcha')
@@ -91,10 +95,10 @@ export async function publicApi(
         await readJsonBody(request, 131072),
         request.headers.get('user-agent') ?? '',
         new Set(
-          site
+          [...(site
             .visibleRelease()
             ?.entries.filter((e) => e.visibility !== 'private')
-            .map((e) => e.path) ?? [],
+            .map((e) => e.path) ?? []),...((await services.siteRenderer)?.publicPaths()??[])],
         ),
         { ip, origin: url.origin, language: request.headers.get('accept-language') || '' },
       ),

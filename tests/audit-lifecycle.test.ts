@@ -78,7 +78,7 @@ it('WVA-02 lets the explicitly delegated upgrade probe migrate while the parent 
   initial.store.raw.prepare('DELETE FROM schema_migrations WHERE version=?').run(SCHEMA_VERSION);initial.close();
   await withInstanceMaintenance(root,async()=>{
     expect((await openInChild(root)).code).toBe(2);
-    const result=await openInChild(root,maintenanceEnvironment(root));expect(result.code,result.output).toBe(0);
+    const result=await openInChild(root,{...maintenanceEnvironment(root),WEAVA_DATABASE_MODE:'migrate'});expect(result.code,result.output).toBe(0);
     // The child must not release its parent's maintenance lease on completion.
     expect((await openInChild(root)).code).toBe(2);
   });
@@ -118,8 +118,8 @@ it('WVA-02 keeps a real worker alive across web connection restart, refuses rest
 it('WVA-02 schema upgrade excludes another open writer and releases a failed constructor before retry', () => {
   const root=join(base,'schema-upgrade'), writer=new Site(root);
   writer.store.raw.exec('DELETE FROM schema_migrations WHERE version>=4');
-  try { expect(()=>new Site(root)).toThrow(/占用/); } finally { writer.close(); }
-  const upgraded=new Site(root);
+  try { expect(()=>new Site(root,{mode:'migrate'})).toThrow(/占用/); } finally { writer.close(); }
+  const upgraded=new Site(root,{mode:'migrate'});
   try { expect(upgraded.store.raw.prepare('SELECT MAX(version) v FROM schema_migrations').get()).toEqual({v:SCHEMA_VERSION}); }
   finally { upgraded.close(); }
   expect(()=>assertOffline(root)).not.toThrow();

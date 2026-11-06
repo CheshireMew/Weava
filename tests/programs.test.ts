@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { join, resolve } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
-import { Site, writeProgramManifest, verifyProgram, checkProgramUpgrade, applyProgramUpgrade, recoverProgramUpgrade, selectedProgram, selectDefaultProgram, defaultProgram } from '@weava/core';
+import { Site, writeProgramManifest, verifyProgram, checkProgramUpgrade, applyProgramUpgrade, recoverProgramUpgrade, selectedProgram, selectDefaultProgram, defaultProgram, programStatus } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
 import { freezeProgramDependencies, verifyProgramDependencies } from '../packages/core/src/program-dependencies.ts';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { selected as selectedManaged } from '../packages/manager/src/state.ts';
+import { saveInstallation } from '../packages/manager/src/state.ts';
+import { onlineWorkspace } from '../packages/manager/src/operations.ts';
 const base='D:/Tools/cache/weava/tests/programs-'+Date.now();let sequence=0;const sites:Site[]=[];
 function fixture(check=''){
   const root=join(base,String(sequence++)),siteRoot=join(root,'site'),programRoot=join(root,'program'),backupRoot=join(root,'backups');mkdirSync(root,{recursive:true});
@@ -20,6 +24,58 @@ function fixture(check=''){
 }
 afterEach(()=>sites.splice(0).forEach((site)=>{try{site.close();}catch{}}));
 describe('versioned program upgrade and recovery',()=>{
+  it('stages binary theme assets for offline checks while leaving user media and raw imports in place',async()=>{
+    const root=join(base,'theme-preflight'),home=join(root,'installation'),site=new Site(join(root,'site'));sites.push(site);
+    saveInstallation(home,{version:1,id:'test',node:process.execPath,sitesRoot:root,backupRoot:join(root,'checks'),programs:{},sites:{}});
+    writeFileSync(join(site.root,'site.json'),JSON.stringify({version:2,id:'theme-check',port:4508,features:['content'],template:'blank'}));
+    mkdirSync(join(site.root,'themes/theme'),{recursive:true});mkdirSync(join(site.root,'imports'),{recursive:true});
+    const logo=Buffer.from([137,80,78,71,13,10,26,10]);writeFileSync(join(site.root,'themes/theme/logo.png'),logo);
+    writeFileSync(join(site.root,'media/user.png'),logo);writeFileSync(join(site.root,'imports/source.csv'),'user media list');writeFileSync(join(site.root,'imports/config.json'),'{}');
+    const result=await onlineWorkspace(home,site.root,{root:join(root,'program'),manifest:{id:'test'},manifestHash:'a'.repeat(64)});
+    expect(readFileSync(join(result.root,'themes/theme/logo.png'))).toEqual(logo);
+    expect(existsSync(join(result.root,'imports/config.json'))).toBe(true);
+    expect(existsSync(join(result.root,'imports/source.csv'))).toBe(false);
+    expect(existsSync(join(result.root,'media/user.png'))).toBe(false);
+  });
+  it('reads manager status metadata without scanning files while keeping execution verification mandatory',()=>{
+    const root=join(base,'manager-status'),program=join(root,'program'),site=join(root,'site');
+    mkdirSync(program,{recursive:true});mkdirSync(site,{recursive:true});
+    const id='11111111-1111-4111-8111-111111111111';
+    const source=JSON.stringify({version:1,id,framework:'0.2.0',apiVersion:1,schemaVersion:12,nodeMajor:Number(process.versions.node.split('.')[0]),files:['runtime/weava.mjs','runtime/check.mjs','runtime/worker.mjs','runtime/manager.mjs','web/server/entry.mjs','admin/index.html'].map(path=>({path,hash:'absent'}))});
+    const manifestHash=createHash('sha256').update(source).digest('hex');writeFileSync(join(program,'program.json'),source);
+    writeFileSync(join(site,'program.json'),JSON.stringify({version:2,programId:id,manifestHash,installationRoot:root,selectedAt:new Date().toISOString()}));
+    const installation={defaultProgramId:id,programs:{[id]:{root:program,manifestHash}}} as any;
+    expect(selectedManaged(installation,site,false).manifest.id).toBe(id);
+    expect(()=>selectedManaged(installation,site)).toThrow(/程序文件校验失败/);
+    writeFileSync(join(program,'program.json'),'{}');expect(()=>selectedManaged(installation,site,false)).toThrow(/发生变化/);
+  });
+  it('reads managed status without scanning program files and reflects a changed selection immediately',()=>{
+    const root=join(base,'managed-status'),installation=join(root,'installation'),site=join(root,'site');
+    mkdirSync(installation,{recursive:true});mkdirSync(site,{recursive:true});
+    const programs:Record<string,{root:string;manifestHash:string}>={};
+    for(const id of ['first','second']){
+      const folder=join(installation,id);mkdirSync(folder,{recursive:true});
+      // Deliberately absent files: display metadata must not read program bodies
+      // or dependencies. Startup verification must still reject this program.
+      const source=JSON.stringify({version:1,id,framework:'0.2.0',files:[{path:'runtime/absent.mjs',hash:'missing'}]});
+      writeFileSync(join(folder,'program.json'),source);
+      programs[id]={root:folder,manifestHash:createHash('sha256').update(source).digest('hex')};
+    }
+    writeFileSync(join(installation,'installation.json'),JSON.stringify({programs}));
+    const select=(id:string)=>writeFileSync(join(site,'program.json'),JSON.stringify({version:2,programId:id,installationRoot:installation,manifestHash:programs[id].manifestHash,siteBuildId:'custom'}));
+    select('first');expect(programStatus(site)).toMatchObject({selected:true,id:'first',framework:'0.2.0',root:resolve(programs.first.root),siteBuildId:'custom'});
+    expect(()=>selectedProgram(site)).toThrow();
+    select('second');expect(programStatus(site).id).toBe('second');
+    writeFileSync(join(programs.second.root,'program.json'),'{}');expect(()=>programStatus(site)).toThrow(/清单发生变化/);
+    writeFileSync(join(installation,'installation.json'),JSON.stringify({programs:{}}));expect(()=>programStatus(site)).toThrow(/尚未在本机登记/);
+  });
+  it('preserves unselected and legacy program status',()=>{
+    const root=join(base,'legacy-status');mkdirSync(root,{recursive:true});
+    expect(programStatus(root)).toMatchObject({selected:false});
+    const pointer={version:1,id:'legacy',framework:'0.1.0',root:'legacy-program',upgradePlanId:'reviewed'};
+    writeFileSync(join(root,'program.json'),JSON.stringify(pointer));
+    expect(programStatus(root)).toEqual({selected:true,id:pointer.id,framework:pointer.framework,root:pointer.root,siteBuildId:undefined,upgradePlanId:'reviewed'});
+  });
   it('ARC-15 keeps the selected build unchanged when a new candidate fails verification',()=>{
     const {programRoot}=fixture(),framework=join(base,'default-framework');selectDefaultProgram(framework,programRoot);
     const pointer=readFileSync(join(framework,'dist/current.json'),'utf8');expect(defaultProgram(framework)!.root).toBe(resolve(programRoot));

@@ -1,5 +1,5 @@
 ---
-import { site, siteExtension, engagement } from '../runtime.ts';
+import { site, siteExtension, engagement, features, siteRenderer, contextFor } from '../runtime.ts';
 import {
   normalizePath,
   renderBlocks,
@@ -26,17 +26,20 @@ import {
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
+import NotesTimeline from '../components/NotesTimeline.astro';
+import {notesTimeline,notesPath,paginate} from '@weava/core';
 import ArticleComments from '../themes/ArticleComments.astro';
 import SeoHead from '../components/SeoHead.astro';
 import Advertisement from '../components/Advertisement.astro';
 import SiteInfoLinks from '../components/SiteInfoLinks.astro';
-import { entrySchema, systemRoutes, WeavaError } from '@weava/contracts';
+import { entrySchema, systemRoutes, WeavaError, supportsDiscussion } from '@weava/contracts';
+import type {Release,PublishedEntry} from '@weava/contracts';
 const preview = Astro.url.pathname.startsWith('/__preview/');
 const token = Astro.cookies.get('weava-session')?.value ?? '';
 const owner = site.authenticate(token);
 if (preview && !owner) return new Response('请先登录后台。', { status: 401 });
 const publicDocument = Object.values(systemRoutes).some((path) => path === Astro.url.pathname);
-let release =
+let release:Release|null =
   site.visibleRelease(owner && !publicDocument) ??
   (preview
     ? {
@@ -49,7 +52,7 @@ let release =
       }
     : null);
 if (!release) return new Response('网站尚未发布，请登录后台发布内容。', { status: 503 });
-let entry;
+let entry:PublishedEntry|undefined;
 if (preview) {
   const id = decodeURIComponent(Astro.url.pathname.slice(11).replace(/\/$/, ''));
   const version = Number(Astro.url.searchParams.get('revision'));
@@ -70,7 +73,7 @@ if (preview) {
       type: site.store.list('type')[0]?.id ?? 'post', template: layout.kind === 'template' ? layout.id : 'page', document: { version: 1, format: 'markdown', source: '## 示例正文\n\n这里显示内容正文。' },
       blocks: layout.kind === 'template' ? [] : layout.blocks });
   }
-  entry = value ? { ...value, html: renderDocument(value.document) } : null;
+  entry = value ? { ...entrySchema.parse(value), html: renderDocument(value.document),modifiedAt:value.updatedAt??new Date().toISOString(),revisionId:version||site.store.get('entry',id)?.revision||0 } : undefined;
   if (!entry) return new Response('草稿修订不存在。', { status: 404 });
   release = {
     ...release,
@@ -80,11 +83,12 @@ if (preview) {
   };
   const selectedLayout = Astro.url.searchParams.get('layout');
   if (selectedLayout) {
-    const layout = release.layouts.find((layout) => layout.id === selectedLayout);
+    const layout = release.layouts?.find((layout) => layout.id === selectedLayout);
     if (!layout) return new Response('布局不存在。', { status: 404 });
     entry = layout.kind === 'template' ? { ...entry, template: layout.id } : { ...entry, kind: 'page', template: 'page', blocks: layout.blocks, title: layout.label };
   }
-  release = { ...release, entries: [...release.entries.filter((item) => item.id !== entry.id), entry] };
+  const previewEntry=entry;
+  release = { ...release, entries: [...release.entries.filter((item) => item.id !== previewEntry.id), previewEntry] };
 } else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname)) ?? wordpressArchiveEntry(release, Astro.url);
 try {
   const pageLayouts = entry ? referencedLayouts(entry, release) : [];
@@ -134,11 +138,19 @@ if (Astro.url.pathname === systemRoutes.rss)
       '</channel></rss>',
     { headers: { 'Content-Type': 'application/xml' } },
   );
+if (preview && entry) {
+  const renderer = await siteRenderer;
+  if (renderer) {
+    const request = new Request(new URL(entry.path, Astro.url.origin), Astro.request);
+    const response = await renderer.render(request, contextFor(request,true,entry));
+    if (response) { response.headers.set('Cache-Control','private, no-store'); response.headers.set('X-Robots-Tag','noindex,nofollow'); return response; }
+  }
+}
 if (entry) {
   const custom = await (await siteExtension)?.render?.(entry, release);
   if (custom) {
     const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, html: custom });
-    const html = composeMetadata(custom, metadata, { preview, track: !preview && !privateArticle, releaseId: release.id });
+    const html = composeMetadata(custom, metadata, { preview, track: features.includes('analytics') && !preview && !privateArticle, releaseId: release.id });
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -154,6 +166,9 @@ if (entry) {
 }
 const settings = release.settings,
   theme = settings.themeConfig;
+const isNotesIndex=entry?.kind==='page'&&entry.path===notesPath(release);
+const notesPage=paginate(isNotesIndex?notesTimeline(release):[],isNotesIndex?Number(Astro.url.searchParams.get('page')??1):1,20);
+const notesLinks=pageLinks(notesPage,Astro.url);
 const missing = !entry && Astro.url.pathname !== '/search/';
 if (missing) Astro.response.status = 404;
 const canonical = settings.domain.replace(/\/$/, '') + (entry?.path ?? Astro.url.pathname);
@@ -172,8 +187,9 @@ const results = resultsPage.items;
 const searchLinks = pageLinks(resultsPage, Astro.url);
 const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, missing, html: content + headerRegion + beforeRegion + afterRegion + footerRegion });
 const schema = metadata.schema;
-const interactive=entry?.kind==='content'&&!preview&&!privateArticle;
-const discussion=interactive?engagement.summary(entry!.id):null;
+const interactive=features.includes('engagement')&&supportsDiscussion(entry)&&!preview&&!privateArticle;
+const readerCookie=Astro.cookies.get('weava-reader')?.value;
+const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(readerCookie??'')?readerCookie:undefined):null;
 ---
 
 <!doctype html>
@@ -200,7 +216,7 @@ const discussion=interactive?engagement.summary(entry!.id):null;
       <a class="brand" href="/"
         >{
           settings.logo ? (
-            <img src={settings.logo} alt="" width="30" height="30" />
+            <img {...imageAttributes(site, settings.logo, {width:30,height:30})} alt="" decoding="async" />
           ) : (
             <span class="brand-icon">w</span>
           )
@@ -216,12 +232,12 @@ const discussion=interactive?engagement.summary(entry!.id):null;
     <main id="main" tabindex="-1" class:list={['wrap', entry?.kind === 'content' ? 'reading' : '']}>
       {entry?.kind === 'content' && <Advertisement settings={settings} position="articleTop" />}
       {
-        entry && (
-          <div class="page-body" set:html={content} />
+        isNotesIndex?<section><h1>{entry!.title}</h1><NotesTimeline release={release} items={notesPage.items} page={notesPage.page} pages={notesPage.pages} previous={notesLinks.previous} next={notesLinks.next}/></section>:entry && (
+          <div class="page-body">{entry.template==='guestbook'&&<h1>{entry.title}</h1>}<Fragment set:html={content}/></div>
         )
       }
       {entry?.kind === 'content' && <Advertisement settings={settings} position="articleBottom" />}
-      {discussion&&<div class="site-discussion"><ArticleComments items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} allowComments={entry?.allowComments}/></div>}
+      {discussion&&<div class="site-discussion"><ArticleComments guestbook={entry?.template==='guestbook'} items={discussion.items} hasMore={discussion.hasMore} language={settings.language} timezone={settings.timezone} allowComments={entry?.allowComments}/></div>}
       {
         missing && (
           <section class="hero">
@@ -276,7 +292,7 @@ const discussion=interactive?engagement.summary(entry!.id):null;
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {interactive&&<script src="/weava-article.js" defer is:inline />}
-    {!preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
+    {features.includes('analytics') && !preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   {!preview && content.includes('data-copy-code') && <script src="/weava-code.js" defer is:inline />}
   </body>
 </html>

@@ -1,5 +1,7 @@
 # 主题与扩展
 
+0.2 的网站专用页面、React 交互、接口和独立扩展构建见[共用程序与多个网站](shared-runtime.md)。公共程序构建不再同时覆盖实例扩展；新网站的专用扩展可放在 `custom/extensions.ts`，通过 `site build` 准备候选构建，再明确启用。下面的实例 `extensions` 入口继续兼容已有网站。
+
 官方主题在 Astro 页面和 core 渲染器中提供。网站设置中的 themeConfig 是运行时数据，包含颜色、字体、版心、圆角和间距。修改设置不需要构建；新增组件或主题实现需要构建。
 
 内置主题包括 Weava 和 Newsletter，可以在后台“外观与导航”中选择并发布。Newsletter 使用白底刊物布局：首页为头条、四篇推荐、热门横栏与九篇文章网格；分类和归档显示文章列表，文章详情使用独立阅读版式。无封面的列表文章可使用正文首图，原文章封面字段不变。RSS、搜索、分类和可见性沿用框架功能。
@@ -59,12 +61,13 @@ themes 声明进入后台主题选择。扩展 render 应按 release.settings.th
 
 区块名称必须以扩展编号加冒号开头。renderBlocks 可接收扩展渲染器映射。开发者应通过核心服务保存内容与设置，不直接写数据库内部表。已有内容类型不会被扩展初始化静默覆盖；修改字段需通过 saveType 验证兼容性。
 
-在停止当前站点后，为它构建代码：
+新的网站扩展放在 `custom/extensions.ts`，为它构建并应用代码：
 
 ```powershell
-$env:WEAVA_SITE='E:\Code\WeavaSites\my-site'
-powershell -NoProfile -File E:\Code\Weava\scripts\run.ps1 build
+E:\WeavaRuntime\weava.cmd site build my-site --apply
 ```
+
+构建失败继续使用原构建；公共程序构建不会覆盖网站扩展。原有 `extensions/index.mjs` 兼容入口仍保留。定时刷新应使用 `schedules`，以便维护时暂停并等待在途任务；更新验证期间不会调用 `start`，通过实际 HTTP 检查并启用后才开始运行。`start` 中的初始化工作应返回可等待的 Promise。
 
 区块定义的 label、fields 和 schema 共用于后台表单、保存类型检查和发布必填检查；未声明表单的旧扩展仍能通过 CLI/API 配置。扩展渲染器负责转义自己的文本输出。产品不提供在线代码安装或插件市场。
 

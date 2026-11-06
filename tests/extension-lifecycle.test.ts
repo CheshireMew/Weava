@@ -13,11 +13,16 @@ const create = (sources: Record<string, string>, enabled: Record<string, boolean
   writeFileSync(join(folder, 'manifest.json'), JSON.stringify({ version: 1, extensions: Object.keys(sources).map((id) => ({ id, file: id + '.mjs', enabled: enabled[id] ?? true })) }));
   return site;
 };
-const open = async (site: Site, events: string[] = [], mode: 'runtime' | 'worker' = 'runtime') => { const manager = await extension(site, { events }, { mode }); managers.push(manager); return manager; };
+const open = async (site: Site, events: string[] = [], mode: 'runtime' | 'worker' = 'runtime', migrate = false) => { const manager = await extension(site, { events }, { mode, migrate }); managers.push(manager); return manager; };
 const core = `export default ({ events }) => ({id:'base',apiVersion:1,version:'1.2.0',start(){events.push('start:base')},stop(){events.push('stop:base')}});`;
 const notice = `export default ({events,z}) => ({id:'notice',apiVersion:1,version:'1.0.0',dependencies:[{id:'base',minVersion:'1.1.0'}],blocks:{'notice:banner':(block)=>'<aside>'+block.props.text+'</aside>'},blockDefinitions:{'notice:banner':{label:'公告',fields:[{key:'text',label:'公告正文',control:'textarea',required:true}],schema:z.object({text:z.string().optional()})}},start(){events.push('start:notice')},stop(){events.push('stop:notice')}});`;
 afterEach(async () => { for (const manager of managers.splice(0)) await manager.stop(); for (const site of sites.splice(0)) site.close(); });
 describe('extension declaration and lifecycle', () => {
+  it('defers extension startup until an update validation is activated',async()=>{
+    const before=process.env.WEAVA_VALIDATION;process.env.WEAVA_VALIDATION='1';
+    try{const site=create({base:core}),events:string[]=[],manager=await open(site,events);expect(events).toEqual([]);await manager.pause(false);expect(events).toEqual(['start:base']);await manager.pause(false);expect(events).toEqual(['start:base']);}
+    finally{if(before===undefined)delete process.env.WEAVA_VALIDATION;else process.env.WEAVA_VALIDATION=before;}
+  });
   it('orders multiple extensions, shares block forms and validation, and prevents disabling current dependencies and content', async () => {
     const site = create({ notice, base: core }), events: string[] = [], manager = await open(site, events);
     expect(events).toEqual(['start:base', 'start:notice']); expect(manager.status().map((row) => row.status)).toEqual(['active', 'active']);
@@ -46,7 +51,7 @@ describe('extension declaration and lifecycle', () => {
   });
   it('backs up before schema migration, commits data and version together, and runs migrations once across processes', async () => {
     const source = `export default({site})=>({id:'data',apiVersion:1,version:'1.0.0',schemaVersion:2,migrations:[{version:1,up(){site.store.put('plugin-data','one',{value:1},null)}},{version:2,up(){site.store.put('plugin-data','two',{value:2},null)}}]});`;
-    const site = create({ data: source }), manager = await open(site), status = manager.status()[0];
+    const site = create({ data: source }), manager = await open(site, [], 'runtime', true), status = manager.status()[0];
     expect(status.status).toBe('active'); expect(status.installedSchema).toBe(2); expect(existsSync(status.backup!)).toBe(true);
     const backup = new Database(status.backup!, { readonly: true }); expect(backup.prepare("SELECT COUNT(*) n FROM records WHERE scope='plugin-data'").get()).toEqual({ n: 0 }); backup.close();
     expect(site.store.list('plugin-data')).toHaveLength(2); await manager.stop();
@@ -54,7 +59,7 @@ describe('extension declaration and lifecycle', () => {
   });
   it('rolls back every migration write on failure and exposes a diagnostic instead of breaking the admin', async () => {
     const site = create({ broken: `export default({site})=>({id:'broken',apiVersion:1,version:'1.0.0',schemaVersion:2,migrations:[{version:1,up(){site.store.put('plugin-data','one',{value:1},null)}},{version:2,up(){throw new Error('migration interrupted')}}]});` });
-    const manager = await open(site); expect(manager.status()[0]).toMatchObject({ status: 'failed', installedSchema: 0, error: 'migration interrupted' }); expect(site.store.list('plugin-data')).toEqual([]);
+    const manager = await open(site, [], 'worker', true); expect(manager.status()[0]).toMatchObject({ status: 'failed', installedSchema: 0, error: 'migration interrupted' }); expect(site.store.list('plugin-data')).toEqual([]);
     expect(site.store.get('extension-installed', 'broken')).toBeNull(); expect(site.settings()).toBeTruthy();
   });
   it('restores the prior enable state when an extension fails to start, and never starts lifecycle hooks in worker mode', async () => {

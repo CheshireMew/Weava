@@ -10,7 +10,7 @@ let host: HTMLDivElement, root: Root;
 beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 function model() {
-  return {
+  const current = {
     tab: 'content', record: null, state: { types: [{ id: 'post', value: { id: 'post', label: '文章', fields: [{ key: 'rating', label: '评分' }], admin: { columns: ['title', 'status', 'rating'] } } }] },
     items: [{ id: 'entry-1', revision: 7, published: true, updatedAt: '2026-11-01T00:00:00Z', value: { title: '已有文章', type: 'post', status: 'published', fields: { rating: 5 } } }],
     libraryLoading: false, filter: '', searchTerm: '', bulkIds: [], setBulkIds: vi.fn(), select: vi.fn(), status: 'all', setStatus: vi.fn(),
@@ -18,6 +18,8 @@ function model() {
     setFilter: vi.fn(), setLibraryPage: vi.fn(), setLibrarySort: vi.fn(), setVisibility: vi.fn(), setLibraryType: vi.fn(), setFieldFilters: vi.fn(),
     duplicateEntry: vi.fn(), deleteEntry: vi.fn(), setError: vi.fn(),
   } as any;
+  current.actions={tab:current.tab,setError:current.setError,select:current.select,duplicateEntry:current.duplicateEntry,deleteEntry:current.deleteEntry};
+  return current;
 }
 
 it('keeps configured fields, opening and batch selection without redundant status badges', async () => {

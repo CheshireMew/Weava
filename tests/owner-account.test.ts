@@ -77,7 +77,7 @@ it('does not issue a session when a password changes during password verificatio
 it('upgrades a version five database without invalidating its existing session',async()=>{
   const root=join(base,'legacy'),site=create('legacy');const token=await site.login(password);site.close();
   const db=new Database(join(root,'weava.sqlite'));db.exec('DROP TABLE owner_sessions; DROP TABLE owner_security_events; DROP TABLE owner_auth_failures; DELETE FROM schema_migrations WHERE version>=6;');db.close();
-  const upgraded=new Site(root);try{expect(upgraded.authenticate(token)).toBe(true);expect(upgraded.auth.account(token).sessions[0].current).toBe(true);}finally{upgraded.close();}
+  const upgraded=new Site(root,{mode:'migrate'});try{expect(upgraded.authenticate(token)).toBe(true);expect(upgraded.auth.account(token).sessions[0].current).toBe(true);}finally{upgraded.close();}
 });
 it('includes the encryption key in a complete backup and restores working recovery codes',async()=>{
   const site=create('backup');let backup;try{

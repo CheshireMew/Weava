@@ -304,13 +304,17 @@ export function analyticsReport(
         sessions: 0,
         views: 0,
         daily: new Map<string, number>(),
+        dailyViews: new Map<string, number>(),
+        previousViews: 0,
         previousSessions: 0,
         previousDaily: new Map<string, number>(),
+        previousDailyViews: new Map<string, number>(),
       };
       eg.sessions++;
       eg.views += selectedViews.length;
       const date = dayInZone(new Date(selectedViews[0].ts), timezone);
       eg.daily.set(date, (eg.daily.get(date) || 0) + 1);
+      eg.dailyViews.set(date, (eg.dailyViews.get(date) || 0) + selectedViews.length);
       engines.set(first.engine, eg);
     }
     if (first.source || first.campaign) {
@@ -336,12 +340,17 @@ export function analyticsReport(
       sessions: 0,
       views: 0,
       daily: new Map<string, number>(),
+      dailyViews: new Map<string, number>(),
+      previousViews: 0,
       previousSessions: 0,
       previousDaily: new Map<string, number>(),
+      previousDailyViews: new Map<string, number>(),
     };
     engine.previousSessions++;
+    engine.previousViews += previousViews.length;
     const aligned = shiftDay(dayInZone(new Date(previousViews[0].ts), timezone), days);
     engine.previousDaily.set(aligned, (engine.previousDaily.get(aligned) || 0) + 1);
+    engine.previousDailyViews.set(aligned, (engine.previousDailyViews.get(aligned) || 0) + previousViews.length);
     engines.set(first.engine, engine);
   }
   const recent = new Map<string, any>();
@@ -450,10 +459,10 @@ export function analyticsReport(
     daily: [...daily.values()],
     links: [...links.values()].sort((a, b) => b.clicks - a.clicks),
     sources: [...sources.values()].sort(byViews),
-    engines: [...engines.values()].map(({ daily, previousDaily, ...e }) => ({
+    engines: [...engines.values()].map(({ daily, previousDaily, dailyViews, previousDailyViews, ...e }) => ({
       ...e,
-      daily: [...daily].map(([date, sessions]) => ({ date, sessions })),
-      previousDaily: [...previousDaily].map(([date, sessions]) => ({ date, sessions })),
+      daily: [...daily].map(([date, sessions]) => ({ date, sessions, views: dailyViews.get(date) || 0 })),
+      previousDaily: [...previousDaily].map(([date, sessions]) => ({ date, sessions, views: previousDailyViews.get(date) || 0 })),
     })),
     campaigns: [...campaigns.values()].sort(byViews),
     countries: dimension('country'),

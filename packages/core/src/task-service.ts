@@ -12,6 +12,9 @@ export class TaskService {
   private queue: Request[] = [];
   private next = 0;
   private stopped = false;
+  get isStopped() { return this.stopped; }
+  get pending() { return this.queue.length + [...this.workers].filter(worker=>worker.request).length; }
+  get processCount() { return this.workers.size; }
   constructor(private root: string, private options: JobRunnerOptions) {}
   run(operation: string, payload: any): Promise<any> {
     if (this.stopped) return Promise.reject(new WeavaError('服务正在停止。',503));
