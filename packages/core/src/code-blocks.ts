@@ -22,6 +22,7 @@ export function renderCode(source: string, info = '', options: { lineNumbers?: b
     if (Number.isSafeInteger(from) && from > 0) for (let n = from; n <= Math.min(to || from, from + 5000); n++) highlighted.add(n);
   }
   const tokens = supported ? languageHighlighter(lang).codeToTokensBase(source, { lang, theme: 'github-light' }) : source.split('\n').map((line) => [{ content: line, color: '' }]);
-  const lines = tokens.map((line, index) => `<span class="code-line${highlighted.has(index + 1) ? ' highlighted' : ''}" data-line="${index + 1}">${line.map((token) => `<span class="syntax-${(token.color || '').replace('#', '').toLowerCase()}">${escape(token.content)}</span>`).join('')}</span>`).join('\n');
+  const visible = source.endsWith('\n') && tokens.at(-1)?.every(token => !token.content) ? tokens.slice(0, -1) : tokens;
+  const lines = visible.map((line, index) => `<span class="code-line${highlighted.has(index + 1) ? ' highlighted' : ''}" data-line="${index + 1}">${line.map((token) => `<span class="syntax-${(token.color || '').replace('#', '').toLowerCase()}">${escape(token.content)}</span>`).join('')}</span>`).join('\n') + (source.endsWith('\n') ? '\n' : '');
   return `<div class="code-block"><button type="button" data-copy-code>复制代码</button><pre class="${options.lineNumbers || /\blinenos\b/.test(info) ? 'line-numbers' : ''}" data-language="${escape(name)}" data-code-source="${encodeURIComponent(source)}"><code class="language-${escape(name)}">${lines}</code></pre></div>`;
 }

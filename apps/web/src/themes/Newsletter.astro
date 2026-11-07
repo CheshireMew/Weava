@@ -228,6 +228,6 @@ const discussion = interactive ? engagement.summary(entry!.id,/^[a-f0-9]{64}$/.t
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && (isArticle||isNoteEntry||isGuestbook) && <script src="/weava-article.js" defer is:inline />}
     {features.includes('analytics') && !preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
-  {!preview && content.includes('data-copy-code') && <script src="/weava-code.js" defer is:inline />}
+  {(!preview || Astro.url.searchParams.get('embedded') !== '1') && <script src="/weava-code.js" defer is:inline />}
   </body>
 </html>

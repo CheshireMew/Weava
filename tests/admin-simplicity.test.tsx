@@ -61,6 +61,8 @@ it('preserves existing search overrides without exposing schema or author identi
 it('defaults new advertisements to normal content fields with an independent code switch', async () => {
   const change = vi.fn(); await render(<AdvertisementSettings value={undefined} onChange={change} />);
   expect(change).not.toHaveBeenCalled(); expect(host.querySelector('iframe')).toBeNull();
+  expect(host.querySelectorAll('input,textarea')).toHaveLength(0);
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="编辑网页顶部广告"]')!.click());
   const code = host.querySelector('[aria-label="网页顶部广告代码模式"]')!;
   expect(code.getAttribute('aria-checked')).toBe('false');
   expect(host.textContent).not.toContain('接入第三方广告代码'); await input('input', '赞助商');

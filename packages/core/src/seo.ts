@@ -130,7 +130,7 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     schema: { '@context': 'https://schema.org', '@graph': graph }, indexable, pagination };
 }
 /** Apply the same metadata contract to full-document extension renders. */
-export function composeMetadata(html: string, meta: PageMetadata, options: { preview?: boolean; track?: boolean; releaseId?: string } = {}) {
+export function composeMetadata(html: string, meta: PageMetadata, options: { preview?: boolean; embedded?: boolean; track?: boolean; releaseId?: string } = {}) {
   const $ = load(html);
   $('head title, head meta[name="description"], head meta[name="robots"], head link[rel="canonical"], head meta[property^="og:"], head meta[name^="twitter:"], script[data-weava-seo]').remove();
   if (meta.icon !== undefined) $('head link').filter((_index, element) => /(^|\s)icon(\s|$)/i.test($(element).attr('rel') ?? '')).remove();
@@ -155,7 +155,7 @@ export function composeMetadata(html: string, meta: PageMetadata, options: { pre
   $('body').attr('data-track', options.track ? 'true' : 'false');
   if (options.releaseId) $('body').attr('data-release', options.releaseId);
   if (options.track && !$('script[src="/weava-analytics.js"]').length) $('body').append('<script src="/weava-analytics.js" defer></script>');
-  if (!options.preview && $('[data-copy-code]').length && !$('script[src="/weava-code.js"]').length) $('body').append('<script src="/weava-code.js" defer></script>');
+  if (!options.embedded && $('[data-copy-code]').length && !$('script[src="/weava-code.js"]').length) $('body').append('<script src="/weava-code.js" defer></script>');
   return $.html();
 }
 export function siteIconHead(logo: string) {

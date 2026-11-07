@@ -9,6 +9,9 @@ import { exchangeHandlers } from '../apps/web/src/api/exchange.ts';
 import {mkdirSync} from 'node:fs';
 import {join} from 'node:path';
 import type { ApiServices } from '../apps/web/src/api/types.ts';
+import {Site,Analytics,Engagement} from '@weava/core';
+import {entrySchema} from '@weava/contracts';
+import {contentHandlers} from '../apps/web/src/api/content.ts';
 
 it('declares every built-in admin route and gives each operation request and response documentation',()=>{
   const handlers=createAdminHandlers({} as ApiServices);
@@ -33,6 +36,33 @@ it('checks request revisions and query types with the same rules used by server 
   expect(matchAdminApi('DELETE','entry')).toBeUndefined();
   expect(()=>adminApi.saveSettings.body.parse({value:{},revision:null})).toThrow();
   expect(adminApi.importWxr.body.parse({xml:'<rss/>',options:{mediaDirectory:'D:/imports'}}).options?.mediaDirectory).toBe('D:/imports');
+});
+
+it('returns public dates, URLs and real lifetime interactions without saving or publishing working changes',async()=>{
+  const site=new Site('D:/Tools/cache/weava/tests/content-list-metrics-'+Date.now());
+  const analytics=new Analytics(site.root),engagement=new Engagement(site.store.raw,'test-secret');
+  try{
+    site.saveType({id:'post',label:'Article',fields:[],pathPrefix:'/',template:'article'},null);
+    const original=site.saveEntry(entrySchema.parse({id:'article',title:'Published article',kind:'content',type:'post',path:'/published/',status:'published',publishedAt:'2026-07-21T04:00:00Z',document:{version:1,format:'markdown',source:'Body'}}),null);
+    site.publish({ids:['article']});
+    const draft=site.saveEntry({...original.value,path:'/draft/',publishedAt:'2026-11-06T04:00:00Z'},original.revision);
+    site.saveEntry(entrySchema.parse({id:'draft',title:'Draft',kind:'content',type:'post',path:'/new/',document:{version:1,format:'markdown',source:'Draft'}}),null);
+    engagement.setLike('article','a'.repeat(64),true); engagement.setLike('other','b'.repeat(64),true);
+    const insert=site.store.raw.prepare('INSERT INTO article_comments(id,entry_id,reader_key,network_key,client_id,author,body,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)');
+    for(const status of ['visible','hidden','pending'])insert.run(status,'article','reader','network',status,'Reader','Comment',status,'2026-07-21T05:00:00Z');
+    analytics.importViewTotals({sourceId:'test-import',capturedAt:'2026-07-21T06:00:00Z',entries:[{entryId:'article',path:'/published/',views:1234}]});
+    expect(engagement.countsFor([]).size).toBe(0);
+    expect(engagement.countsFor(['article','other','empty']).get('article')).toEqual({likes:1,comments:1});
+    expect(engagement.countsFor(['empty']).get('empty')).toEqual({likes:0,comments:0});
+    const handlers=contentHandlers({site,analytics,engagement,jobs:{} as any});
+    const result=adminApi.queryEntries.response.parse(await handlers.queryEntries({} as any,{url:new URL('http://localhost/api/admin/v1/entries/query?kind=content')} as any));
+    const row=result.items.find(item=>item.id==='article')!;
+    expect(row.publication).toEqual({path:'/published/',publishedAt:'2026-07-21T04:00:00Z'});
+    expect(row.metrics).toEqual({likes:1,comments:1,views:1234});expect(row.hasChanges).toBe(true);
+    expect(result.items.find(item=>item.id==='draft')?.metrics).toBeUndefined();
+    expect(site.store.get('entry','article')?.revision).toBe(draft.revision);
+    expect(site.visibleRelease()?.entries.find(entry=>entry.id==='article')?.path).toBe('/published/');
+  }finally{analytics.close();site.close();}
 });
 it('builds encoded paths and query strings through the operation client',async()=>{
   const calls:{url:string;init?:RequestInit}[]=[];

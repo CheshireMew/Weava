@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { retryableLazy as lazy } from './ErrorBoundary.tsx';
 import { Dialog } from './Dialog.tsx';
+import {PreviewFrame} from './PreviewFrame.tsx';
 import type { ContentDialogsModel } from './content-models.ts';
 const BulkEditor = lazy(() => import('./BulkEditor.tsx'));
 const RevisionDialog = lazy(() =>
@@ -55,10 +56,9 @@ export function ContentDialogs({ model }: { model: ContentDialogsModel }) {
             </button>
             <button onClick={preview.close}>关闭</button>
           </div>
-          <iframe
+          <PreviewFrame
             title="实际页面预览"
             src={preview.url}
-            sandbox="allow-same-origin"
             style={{ width: preview.narrow ? 390 : '100%' }}
           />
         </Dialog>

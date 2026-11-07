@@ -11,6 +11,7 @@ import {adminQueries} from '../apps/admin/src/query-cache.ts';
 import {useContentLibrary} from '../apps/admin/src/useContentLibrary.ts';
 import {api} from '../apps/admin/src/api.ts';
 import {DraftRepository} from '../apps/admin/src/draft-repository.ts';
+import {importedDocument} from '../packages/core/src/imported-document.ts';
 vi.mock('../apps/admin/src/Selectors.tsx',()=>({useSelectors:()=>({media:async()=>null})}));
 vi.mock('../apps/admin/src/api.ts',()=>({api:vi.fn(async(path:string)=>path.startsWith('entries/query')?{items:[],total:0,pages:0}:[])}));
 let host:HTMLDivElement,root:Root;
@@ -19,6 +20,19 @@ afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
 const noteModel=(model:any)=>({...model,author:{name:model.state?.settings.value.name??'',logo:model.state?.siteIcon??model.state?.settings.value.logo??''},recovery:{record:null}});
 const entry=entrySchema.parse({id:'existing-note',kind:'content',type:'wordpress-moment',status:'published',title:'原有笔记',path:'/moments/133.html',document:{version:1,format:'html',source:'<div style="color:white!important"><p>正常正文<a href="https://example.com/">参考链接</a></p><img src="/media/a.png"></div>'}});
 const row={id:entry.id,value:entry,revision:10,updatedAt:'2026-11-05T00:00:00Z'};
+it('creates the requested article type and preserves the library context instead of silently filtering it',async()=>{
+ let workspace:any;const state={types:[{id:'doc',value:{id:'doc',pathPrefix:'/docs/'}},{id:'post',value:{id:'post',pathPrefix:'/posts/'}}]};
+ const result={id:'new-post',revision:1,value:entrySchema.parse({id:'new-post',kind:'content',type:'post',title:'新文章',path:'/posts/new/'})};
+ vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path==='entries/create'?result:path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);
+ function Harness(){workspace=useContentWorkspace({state,setState:vi.fn(),tab:'content',compact:false,busy:false,setError:vi.fn(),notify:vi.fn(),refresh:vi.fn(async()=>{}),task:vi.fn()});return null;}
+ await act(async()=>root.render(<EditSessionsProvider><Harness/></EditSessionsProvider>));
+ await act(async()=>{workspace.library.setFilter('原搜索');workspace.library.setStatus('published');workspace.library.setVisibility('private');});
+ await act(async()=>workspace.library.setLibraryPage(2));
+ await act(async()=>workspace.library.newEntry('post'));
+ expect(api).toHaveBeenCalledWith('entries/create',{kind:'content',type:'post',templateId:undefined});
+ expect(workspace.editor.record.value.type).toBe('post');expect(workspace.library.libraryType).toBe('');expect(workspace.library.status).toBe('published');expect(workspace.library.visibility).toBe('private');expect(workspace.library.filter).toBe('原搜索');expect(workspace.library.libraryPage).toBe(2);
+ vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);
+});
 it('opens imported notes as readable HTML without exposing source or article settings',async()=>{
  const update=vi.fn(),publish=vi.fn(async()=>{}),model={record:row,state:{settings:{value:{name:'作者',logo:''}}},persist:vi.fn(),clear:vi.fn(),update,publish,setError:vi.fn()};
  await act(async()=>root.render(<NoteEditor model={noteModel(model) as any}/>));
@@ -30,6 +44,32 @@ it('opens imported notes as readable HTML without exposing source or article set
 it('distinguishes note drafts, published notes and unpublished changes without article filters or covers',async()=>{
  const model={items:[{...row,id:'draft',published:false},{...row,id:'published',published:true,hasChanges:false},{...row,id:'changed',published:true,hasChanges:true}],library:{pages:1},filter:'',setFilter:vi.fn(),select:vi.fn(),newEntry:vi.fn(),tab:'notes'};
  await act(async()=>root.render(<NotesLibrary model={model as any}/>));expect(host.textContent).toContain('写笔记');expect([...host.querySelectorAll('.entry-state')].map(node=>node.textContent)).toEqual(['草稿','已发布','有未发布修改']);expect(host.textContent).not.toMatch(/筛选|封面/);expect(host.querySelector('img,.publication-cover,select')).toBeNull();
+});
+
+it('does not save or retitle a published legacy note when it is opened, viewed, switched or closed',async()=>{
+ const original={...row,value:{...entry,title:'B-roll 是什么？',document:importedDocument('<p>在视频制作中，<strong>B-roll</strong> 指的是补充画面。</p><ul><li><p><strong>场景：</strong>完整内容。</p></li></ul>')}};
+ let workspace:any;
+ const state={settings:{value:{name:'作者'}},types:[{id:'wordpress-moment',value:{id:'wordpress-moment',format:'note'}}]};
+ function Harness(){workspace=useContentWorkspace({state,setState:vi.fn(),tab:'notes',compact:false,busy:false,setError:vi.fn(),notify:vi.fn(),refresh:vi.fn(),task:vi.fn()});return <NoteEditor model={workspace.editor}/>;}
+ await act(async()=>{await import('../apps/admin/src/Editor.tsx');root.render(<EditSessionsProvider><Harness/></EditSessionsProvider>);});
+ await act(async()=>workspace.navigation.adopt(original));vi.mocked(api).mockClear();
+ expect(host.querySelector('.visual-editor')).not.toBeNull();
+ await act(async()=>host.querySelector<HTMLElement>('.visual-editor')!.click());
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为 Markdown"]')!.click());
+ expect(workspace.editor.record.value.document).toEqual(original.value.document);
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为富文本"]')!.click());
+ expect(workspace.editor.dirty).toBe(false);expect(workspace.editor.record.value.title).toBe('B-roll 是什么？');
+ await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='关闭')!.click());
+ expect(workspace.editor.record).toBeNull();expect(vi.mocked(api).mock.calls.filter(([path])=>path==='entry')).toHaveLength(0);
+ await act(async()=>workspace.navigation.adopt(original));
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为 Markdown"]')!.click());
+ const field=host.querySelector('textarea')!;field.setSelectionRange(0,2);
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="加粗"]')!.click());expect(workspace.editor.dirty).toBe(true);
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="撤销"]')!.click());
+ expect(workspace.editor.dirty).toBe(false);expect(workspace.editor.record.value.title).toBe('B-roll 是什么？');
+ expect(workspace.editor.record.value.document).toEqual(original.value.document);
+ await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='关闭')!.click());
+ expect(vi.mocked(api).mock.calls.filter(([path])=>path==='entry')).toHaveLength(0);
 });
 it('publishes a note in one step and leaves the editor only after success',async()=>{
  let workspace:any;const task=vi.fn(async()=>({status:'complete'})),notify=vi.fn();const state={settings:{value:{name:'站点'}},types:[{id:'wordpress-moment',value:{id:'wordpress-moment'}}]};

@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import {createPortal} from 'react-dom';
+import {Pencil, X} from 'lucide-react';
+import {Dialog} from '../Dialog.tsx';
 import { useSelectors } from '../Selectors.tsx';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $getNodeByKey, DecoratorNode, type NodeKey } from 'lexical';
@@ -183,8 +186,9 @@ export function MediaElement({
     selectors = useSelectors();
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState({ src, alt, caption, kind });
-  return (
+  return <>
     <figure className="editor-media" contentEditable={false}>
+      <div className={'editor-media-preview is-' + kind}>
       {kind === 'video' ? (
         <video src={src} controls />
       ) : kind === 'audio' ? (
@@ -194,21 +198,45 @@ export function MediaElement({
       ) : (
         <img src={src} alt={alt} />
       )}
-      {caption && <figcaption>{caption}</figcaption>}
       <button
         type="button"
-        onClick={() => {
+        className="editor-media-edit"
+        aria-label="编辑媒体"
+        title="编辑媒体"
+        aria-haspopup="dialog"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
           setDraft({ src, alt, caption, kind });
-          setEditing(!editing);
+          setEditing(true);
         }}
       >
-        编辑媒体
+        <Pencil size={16} aria-hidden="true" />
       </button>
-      {editing && (
-        <div className="media-inline-settings">
+      </div>
+      {caption && <figcaption>{caption}</figcaption>}
+    </figure>
+    {editing && createPortal(<Dialog label="编辑媒体" className="modal media-edit-dialog" onClose={() => setEditing(false)}>
+      <div className="modal-title"><h2>编辑媒体</h2><button type="button" className="media-edit-close" aria-label="关闭媒体编辑" onClick={() => setEditing(false)}><X size={18}/></button></div>
+      <form onSubmit={event => {
+        event.preventDefault();
+        editor.update(() => {
+          const node = $getNodeByKey(nodeKey);
+          if (node instanceof MediaNode) {
+            const writable = node.getWritable();
+            writable.__src = draft.src;
+            writable.__alt = draft.alt;
+            writable.__caption = draft.caption;
+            writable.__kind = draft.kind;
+          }
+        });
+        setEditing(false);
+      }}>
+        <div className="media-edit-fields">
           <label>
             地址
             <input
+              data-autofocus
               value={draft.src}
               onChange={(event) => setDraft({ ...draft, src: event.target.value })}
             />
@@ -227,6 +255,12 @@ export function MediaElement({
               onChange={(event) => setDraft({ ...draft, caption: event.target.value })}
             />
           </label>
+        </div>
+        <div className="media-edit-actions">
+          <button type="button" className="media-edit-remove" onClick={() => {
+            setEditing(false);
+            editor.update(() => $getNodeByKey(nodeKey)?.remove());
+          }}>移除媒体</button>
           <button
             type="button"
             onClick={async () => {
@@ -242,32 +276,10 @@ export function MediaElement({
           >
             更换媒体
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              editor.update(() => {
-                const node = $getNodeByKey(nodeKey);
-                if (node instanceof MediaNode) {
-                  const writable = node.getWritable();
-                  writable.__src = draft.src;
-                  writable.__alt = draft.alt;
-                  writable.__caption = draft.caption;
-                  writable.__kind = draft.kind;
-                }
-              });
-              setEditing(false);
-            }}
-          >
-            保存媒体修改
-          </button>
-          <button
-            type="button"
-            onClick={() => editor.update(() => $getNodeByKey(nodeKey)?.remove())}
-          >
-            移除媒体
-          </button>
+          <button type="button" onClick={() => setEditing(false)}>取消</button>
+          <button type="submit" className="primary">保存修改</button>
         </div>
-      )}
-    </figure>
-  );
+      </form>
+    </Dialog>, document.body)}
+  </>;
 }

@@ -73,7 +73,7 @@ export class ExtensionManager {
       const member: Member = { id: descriptor.id ?? 'legacy', file: descriptor.file, enabled: descriptor.enabled }; this.members.push(member);
       try {
         const file = inside(folder, descriptor.file);
-        const factory = (await import(pathToFileURL(file).href)).default;
+        const factory = (await import(/* @vite-ignore */ pathToFileURL(file).href)).default;
         if (typeof factory !== 'function') throw new Error('扩展需要默认导出工厂函数。');
         const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, pageMetadata, metadataHead, queryEntries, z, ...this.services });
         identifier.parse(ext.id); if (descriptor.id && ext.id !== descriptor.id) throw new Error('扩展编号与清单不一致。'); member.id = ext.id;

@@ -18,7 +18,7 @@ interface ViewOptions {
   library: ReturnType<typeof useContentLibrary>;
   options: ContentWorkspaceOptions;
   publicationNotice: string;
-  newEntry: () => Promise<void>;
+  newEntry: (type?: string) => Promise<void>;
   publish: () => Promise<void>;
   duplicateEntry: EntryActionsModel['duplicateEntry'];
   deleteEntry: EntryActionsModel['deleteEntry'];

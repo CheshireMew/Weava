@@ -1,4 +1,4 @@
-import MarkdownIt from 'markdown-it';
+import {createMarkdownParser} from '../../runtime-common/src/markdown.ts';
 import sanitizeHtml from 'sanitize-html';
 import { load } from 'cheerio';
 import type { Document, FieldDefinition } from '@weava/contracts';
@@ -13,8 +13,13 @@ export const escape = (v: any) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   );
-const md = new MarkdownIt({ html: true, linkify: false, typographer: false });
+const md = createMarkdownParser();
 md.renderer.rules.fence = (tokens, index) => renderCode(tokens[index].content, tokens[index].info);
+md.renderer.rules.code_block = (tokens, index) => renderCode(tokens[index].content);
+const tableCell = (tagName: string, attrs: Record<string, string>) => {
+  const align = attrs.align ?? /(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*(?:;|$)/i.exec(attrs.style ?? '')?.[1]?.toLowerCase();
+  return {tagName, attribs: {...attrs, ...(['left','center','right'].includes(align ?? '') ? {align} : {})}};
+};
 export function sanitize(html: string) {
   return sanitizeHtml(html, {
     allowedTags: [
@@ -45,12 +50,14 @@ export function sanitize(html: string) {
       track: ['src', 'kind', 'srclang', 'label', 'default'],
       iframe: ['src', 'title', 'sandbox', 'loading', 'allowfullscreen'],
       input: ['type', 'checked', 'disabled'],
-      ol: ['start'], li: ['value'], td: ['colspan', 'rowspan'], th: ['colspan', 'rowspan'],
+      ol: ['start'], li: ['value'], td: ['colspan', 'rowspan', 'align'], th: ['colspan', 'rowspan', 'align'],
       button: ['type'],
     },
     allowedSchemes: ['http', 'https', 'mailto', 'tel', 'entry'],
     allowProtocolRelative: false,
     transformTags: {
+      td: tableCell,
+      th: tableCell,
       a: (tag, attrs) => ({
         tagName: tag,
         attribs: { ...attrs, ...(attrs.target === '_blank' ? { rel: 'noopener noreferrer' } : {}) },

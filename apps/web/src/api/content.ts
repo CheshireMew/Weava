@@ -22,10 +22,11 @@ import {
 } from '@weava/core';
 
 import { previewBulkEdit, applyBulkEdit } from '@weava/core';
+import {siteFeatures} from '../../../../packages/core/src/site-features.ts';
 
 import type { ApiServices, AdminHandlers } from './types.ts';
-export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
-  const { site, jobs } = services;
+export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs' | 'analytics' | 'engagement'>) {
+  const { site, jobs, analytics, engagement } = services;
 
   return {
     entries: async () => {
@@ -39,7 +40,18 @@ export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
         visibility: url.searchParams.get('visibility') ?? undefined,
         format: url.searchParams.get('format') as 'article'|'note'|undefined,
       });
-      return { ...result, items: result.items.map(row => ({ ...row, thumbnail: row.value.cover ? imageAttributes(site, row.value.cover, 240).src : '' })) };
+      const publishedIds = new Set(result.items.filter(row => row.published).map(row => row.id));
+      const entries = site.visibleRelease()?.entries.filter(entry => publishedIds.has(entry.id)) ?? [];
+      const published = new Map(entries.map(entry => [entry.id, entry]));
+      const features = siteFeatures(site.root);
+      const counts = features.includes('engagement') ? engagement.countsFor(entries.map(entry => entry.id)) : new Map();
+      const views = features.includes('analytics') && entries.length ? analytics.viewTotals(entries) : new Map();
+      return { ...result, items: result.items.map(row => {
+        const entry = published.get(row.id);
+        return { ...row, thumbnail: row.value.cover ? imageAttributes(site, row.value.cover, 240).src : '',
+          ...(entry ? {publication: {path: entry.path, publishedAt: entry.publishedAt}, metrics: {...counts.get(row.id), ...(views.has(row.id) ? {views: views.get(row.id)} : {})}} : {}),
+        };
+      }) };
     },
     createEntry: async ({ body: data }) => {
       return createContent(site, data);

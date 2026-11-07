@@ -113,7 +113,7 @@ export interface ContentLibraryModel {
   setError: (message: string) => void;
   refresh: () => Promise<unknown>;
   select: (id: string) => Promise<void>;
-  newEntry: () => Promise<void>;
+  newEntry: (type?: string) => Promise<void>;
   openBulk: () => Promise<void>;
   actions: EntryActionsModel;
 }

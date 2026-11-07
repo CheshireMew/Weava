@@ -9,7 +9,7 @@ import { EditSessionsProvider, useEditSessions } from '../apps/admin/src/EditSes
 import { useContentWorkspace } from '../apps/admin/src/useContentWorkspace.ts';
 import { adminQueries } from '../apps/admin/src/query-cache.ts';
 import { uploadFile } from '../apps/admin/src/upload-file.ts';
-import { api } from '../apps/admin/src/api.ts';
+import { api,waitJob } from '../apps/admin/src/api.ts';
 import { entrySchema } from '../packages/contracts/src/index.ts';
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/upload-file.ts', () => ({ uploadFile: vi.fn() }));
@@ -40,6 +40,27 @@ beforeEach(() => {
   });
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); delete (document as any).caretRangeFromPoint; vi.restoreAllMocks(); });
+
+it('crops through the keyboard, clamps the selection and sends the same crop to the media API',async()=>{
+  const source=row(file()),cropped={...source,id:'cropped',value:{...source.value,url:'/media/cropped.png'}};library=[source];
+  const original=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(path:any,body?:any):Promise<any>=>String(path).startsWith('media/references')?{working:[],published:[],layouts:[],historicalRevisions:0}:path==='media/crop'?{id:'crop-job'}:original(path,body));
+  vi.mocked(waitJob).mockResolvedValue({result:cropped} as any);
+  await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));
+  await act(async()=>host.querySelector<HTMLButtonElement>('.media-open')!.click());
+  await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='裁切图片')!.click());
+  const region=document.querySelector<HTMLElement>('[aria-label="裁切选区"]')!;
+  const key=async(value:string,shiftKey=false)=>act(async()=>{region.dispatchEvent(new KeyboardEvent('keydown',{key:value,shiftKey,bubbles:true,cancelable:true}));});
+  await key('ArrowLeft',true);await key('ArrowUp',true);await key('ArrowRight');await key('ArrowDown');
+  expect(region.querySelector('span')!.style.left).toBe('5%');expect(region.querySelector('span')!.style.width).toBe('95%');
+  await key('ArrowRight');expect(region.querySelector('span')!.style.left).toBe('5%');
+  await key('Home');expect(region.querySelector('span')!.style.width).toBe('100%');
+  expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='保存裁切图片')!.disabled).toBe(true);
+  await key('ArrowLeft',true);await key('ArrowUp',true);await key('ArrowRight');await key('ArrowDown');
+  await act(async()=>[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='保存裁切图片')!.click());
+  expect(api).toHaveBeenCalledWith('media/crop',{id:source.id,revision:1,crop:{left:5,top:5,width:95,height:95}});
+  expect(document.querySelector('dialog[aria-label="裁切图片"]')).toBeNull();
+});
 
 it.each([false, true])('uploads multiple dropped images into the visual article/note at the drop position (compact=%s)', async compact => {
   const change = vi.fn();
@@ -107,10 +128,10 @@ it('keeps save and navigation blocked after upload failure until retry or an exp
   await act(async () => root.render(<EditSessionsProvider><Form /></EditSessionsProvider>));
   await act(async () => drag(host.querySelector('[aria-label="正文编辑器"]')!, [file()]));
   await expect(manager.prepare()).rejects.toThrow('尚未上传'); await expect(manager.flush()).rejects.toThrow('尚未上传');
-  expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Markdown')!.disabled).toBe(true);
+  expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.disabled).toBe(true);
   await act(async () => [...host.querySelectorAll<HTMLButtonElement>('.file-upload-error button')].find(button => button.textContent === '不插入这些文件')!.click());
   await expect(manager.prepare()).resolves.toBeUndefined(); await expect(manager.flush()).resolves.toBeUndefined();
-  expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Markdown')!.disabled).toBe(false);
+  expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.disabled).toBe(false);
 });
 it('waits for an in-flight image before capturing the document for save/publish', async () => {
   const upload = pending<any>(); vi.mocked(uploadFile).mockReturnValue(upload.promise); let workspace: any;
@@ -130,7 +151,7 @@ it('waits for an in-flight image before capturing the document for save/publish'
 it('preserves text typed while an image is uploading in Markdown source mode', async () => {
   const upload = pending<any>(); vi.mocked(uploadFile).mockReturnValue(upload.promise);
   function Source() { const [value, setValue] = useState<any>({ version: 1, format: 'markdown', source: '左边右边' }); return <Editor value={value} onChange={setValue} onMedia={async () => null} onError={vi.fn()} />; }
-  await act(async () => root.render(<Source />)); await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent === 'Markdown')!.click());
+  await act(async () => root.render(<Source />)); await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.click());
   const text = host.querySelector('textarea')!; text.setSelectionRange(2, 2);
   await act(async () => drag(text, [file()]));
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(text, '新增左边右边'); text.dispatchEvent(new Event('input', { bubbles: true })); });

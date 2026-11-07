@@ -15,7 +15,8 @@ interface PopoverOptions {
   onClose: () => void;
   align?: 'start' | 'end';
   gap?: number;
-  initialFocus?: string;
+  initialFocus?: string | false;
+  anchorRect?: Pick<DOMRectReadOnly, 'top' | 'bottom' | 'left' | 'right'>;
 }
 /** Shared positioning, dismissal, focus restoration and menu navigation. */
 export function usePopover({
@@ -26,6 +27,7 @@ export function usePopover({
   align = 'end',
   gap = 8,
   initialFocus = 'input,select,button',
+  anchorRect,
 }: PopoverOptions) {
   const latest = useRef(onClose);
   latest.current = onClose;
@@ -39,7 +41,7 @@ export function usePopover({
   );
   useLayoutEffect(() => {
     if (!open || !trigger.current || !popup.current) return;
-    const anchor = trigger.current.getBoundingClientRect(),
+    const anchor = anchorRect ?? trigger.current.getBoundingClientRect(),
       bounds = popup.current.getBoundingClientRect();
     const top =
       anchor.bottom + gap + bounds.height < window.innerHeight - 12
@@ -56,11 +58,11 @@ export function usePopover({
       ),
       maxHeight: Math.max(0, window.innerHeight - top - 12),
     });
-    (
+    if (initialFocus) (
       popup.current.querySelector<HTMLElement>(initialFocus) ??
       popup.current.querySelector<HTMLElement>('button,select')
     )?.focus({ preventScroll: true });
-  }, [open, align, gap, initialFocus, trigger, popup]);
+  }, [open, align, gap, initialFocus, trigger, popup, anchorRect]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: Event) => {

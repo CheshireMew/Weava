@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, useState } from 'react';
+import {PreviewFrame} from '../apps/admin/src/PreviewFrame.tsx';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EditSessionsProvider } from '../apps/admin/src/EditSessions.tsx';
@@ -29,6 +30,48 @@ function button(text: string, scope: ParentNode = document) { const node = [...s
 async function click(text: string, scope?: ParentNode) { await act(async () => button(text, scope).click()); }
 async function fill(selector: string, value: string) { await act(async () => { const node = document.querySelector<HTMLInputElement>(selector)!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); }); }
 function dialog(name: string) { return document.querySelector<HTMLDialogElement>(`dialog[aria-label="${name}"]`)!; }
+
+it('copies exact code from sandboxed previews through the parent without enabling preview scripts', async()=>{
+  const copy=vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue();
+  await render(<PreviewFrame title="代码预览" src="/__preview/example?revision=1"/>);
+  const frame=host.querySelector('iframe')!, preview=document.implementation.createHTMLDocument('预览');
+  preview.body.innerHTML='<div class="code-block"><button type="button" data-copy-code>复制代码</button><pre data-code-source="'+encodeURIComponent('first\n\n  next()')+'"></pre></div>';
+  Object.defineProperty(frame,'contentDocument',{configurable:true,value:preview});
+  await act(async()=>frame.dispatchEvent(new Event('load')));
+  await act(async()=>preview.querySelector('button')!.click());
+  expect(copy).toHaveBeenCalledWith('first\n\n  next()'); expect(preview.querySelector('button')!.textContent).toBe('已复制');
+  expect(frame.getAttribute('sandbox')).toBe('allow-same-origin'); expect(frame.getAttribute('src')).toContain('embedded=1');
+});
+
+it('explains invalid import files without sending them and accepts a corrected export afterward',async()=>{
+  await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+  const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const choose=async(text:string)=>{
+    Object.defineProperty(field,'files',{configurable:true,value:[{name:'source.json',size:text.length,text:async()=>text}]});
+    await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+    await click('预检导入');
+  };
+  await choose('{"version":2,"entries":[]}');
+  expect(host.textContent).toContain('版本暂不支持');expect(api).not.toHaveBeenCalled();
+  await choose('{"name":"weava","version":"0.2.0"}');
+  expect(host.textContent).toContain('这不是 Weava 导出的网站内容文件');expect(api).not.toHaveBeenCalled();
+  await choose('{invalid');
+  expect(host.textContent).toContain('不是有效的 JSON');expect(host.querySelector('[role="alert"] li')).toBeNull();expect(api).not.toHaveBeenCalled();
+  mocks.api.mockResolvedValue({dryRun:true,created:[],updated:[],unchanged:[]});
+  await choose('{"version":1,"entries":[]}');
+  expect(api).toHaveBeenCalledWith('import',expect.objectContaining({value:{version:1,entries:[]},options:expect.objectContaining({dryRun:true})}));
+  expect(host.textContent).toContain('预检结果');expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it('renders actionable schema and import conflicts without empty error rows',async()=>{
+  await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+  const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(field,'files',{value:[{name:'source.json',size:100,text:async()=>'{"version":1,"entries":[]}' }]});
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  mocks.api.mockRejectedValue(Object.assign(new Error('导入预检未通过'),{details:[{scope:'entries',id:'post',reason:'网址已被占用'},{path:['value','entries',0,'title'],code:'invalid_type'},{},null]}));
+  await click('预检导入');
+  const lines=[...host.querySelectorAll('[role="alert"] li')].map(item=>item.textContent);
+  expect(lines).toEqual(['内容 · post：网址已被占用','导入内容 · 内容 · 第 1 项 · 标题：数据类型不正确']);
+});
 
 it('uses a separate URL dialog, rejects invalid schemes, and preserves the media picker when cancelled', async () => {
   const selected = vi.fn();

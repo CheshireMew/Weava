@@ -16,11 +16,34 @@ function model() {
     libraryLoading: false, filter: '', searchTerm: '', bulkIds: [], setBulkIds: vi.fn(), select: vi.fn(), status: 'all', setStatus: vi.fn(),
     visibility: 'all', libraryType: '', librarySort: '', fieldFilters: {}, library: { total: 1, pages: 1 }, libraryPage: 1,
     setFilter: vi.fn(), setLibraryPage: vi.fn(), setLibrarySort: vi.fn(), setVisibility: vi.fn(), setLibraryType: vi.fn(), setFieldFilters: vi.fn(),
-    duplicateEntry: vi.fn(), deleteEntry: vi.fn(), setError: vi.fn(),
+    duplicateEntry: vi.fn(), deleteEntry: vi.fn(), setError: vi.fn(),newEntry:vi.fn(async()=>{}),
   } as any;
   current.actions={tab:current.tab,setError:current.setError,select:current.select,duplicateEntry:current.duplicateEntry,deleteEntry:current.deleteEntry};
   return current;
 }
+
+it('asks for the creation type when viewing all types and names filtered creation explicitly',async()=>{
+  const current=model();
+  current.state.types.unshift({id:'doc',value:{id:'doc',label:'文档',fields:[]}});
+  await act(async()=>root.render(<ContentLibrary model={current}/>));
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="新建内容"]')!.click());
+  const choice=document.querySelector('[role="menu"][aria-label="新建内容"]')!;
+  expect(choice.textContent).toContain('新建文档');
+  await act(async()=>[...choice.querySelectorAll('button')].find(button=>button.textContent==='新建文章')!.click());
+  expect(current.newEntry).toHaveBeenCalledWith('post');
+  current.libraryType='doc';
+  await act(async()=>root.render(<ContentLibrary model={current}/>));
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="新建文档"]')!.click());
+  expect(current.newEntry).toHaveBeenLastCalledWith('doc');
+});
+it('keeps active conditions visible and clearable even when the filtered library has results',async()=>{
+  const current=model();current.libraryType='post';current.status='changed';current.visibility='private';current.fieldFilters={rating:'5'};
+  await act(async()=>root.render(<ContentLibrary model={current}/>));
+  const conditions=host.querySelector('[aria-label="已生效的筛选"]')!;
+  expect(conditions.textContent).toContain('文章');expect(conditions.textContent).toContain('有未发布修改');expect(conditions.textContent).toContain('私密');expect(conditions.textContent).toContain('评分：5');
+  await act(async()=>[...conditions.querySelectorAll('button')].find(button=>button.textContent==='清除筛选')!.click());
+  expect(current.setLibraryType).toHaveBeenCalledWith('');expect(current.setStatus).toHaveBeenCalledWith('all');expect(current.setVisibility).toHaveBeenCalledWith('all');expect(current.setFieldFilters).toHaveBeenCalledWith({});
+});
 
 it('keeps configured fields, opening and batch selection without redundant status badges', async () => {
   const current = model();
@@ -52,6 +75,31 @@ it('shows the publication state once beside the date instead of the content type
     expect(host.querySelector('.entry-state')).toBeNull();
     expect(host.querySelector('.publication-copy')!.textContent!.split(label)).toHaveLength(2);
   }
+});
+
+it('shows the original public date, live metrics and published URL independently of later draft changes', async () => {
+  const current = model(), row = current.items[0];
+  current.state.types[0].value.admin.columns = ['updatedAt'];
+  row.updatedAt = '2026-11-06T12:00:00Z';
+  row.value.publishedAt = '2026-11-06T12:00:00Z';
+  row.value.path = '/unpublished-change/';
+  row.publication = {publishedAt: '2026-07-21T04:00:00Z', path: '/original-article/'};
+  row.metrics = {likes: 12, comments: 3, views: 1234};
+  await act(async () => root.render(<ContentEntries model={current} />));
+  expect(host.querySelector('time')?.dateTime).toBe('2026-07-21T04:00:00Z');
+  expect(host.querySelector('.publication-meta')?.textContent).not.toContain('更新于');
+  for (const label of ['点赞：12', '评论：3', '浏览量：1234']) expect(host.querySelector('[aria-label="'+label+'"]')).not.toBeNull();
+  const link = host.querySelector<HTMLAnchorElement>('a[aria-label="打开文章：已有文章"]')!;
+  expect(link.getAttribute('href')).toBe('/original-article/'); expect(link.target).toBe('_blank');
+  link.addEventListener('click', event => event.preventDefault(), {once: true});
+  await act(async () => link.click()); expect(current.select).not.toHaveBeenCalled();
+  row.metrics = {likes: 0, comments: 0, views: 0};
+  await act(async () => root.render(<ContentEntries model={current} />));
+  expect(host.querySelector('[aria-label="浏览量：0"]')).not.toBeNull();
+  row.published = false; row.value.status = 'draft';
+  await act(async () => root.render(<ContentEntries model={current} />));
+  expect(host.querySelector('.publication-metrics')).toBeNull(); expect(host.querySelector('.publication-visit')).toBeNull();
+  expect(host.querySelector('time')?.dateTime).toBe(row.updatedAt);
 });
 
 it('prevents opening or batch selection while displayed results are stale', async () => {

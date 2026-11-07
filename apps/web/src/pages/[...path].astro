@@ -150,7 +150,7 @@ if (entry) {
   const custom = await (await siteExtension)?.render?.(entry, release);
   if (custom) {
     const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, html: custom });
-    const html = composeMetadata(custom, metadata, { preview, track: features.includes('analytics') && !preview && !privateArticle, releaseId: release.id });
+    const html = composeMetadata(custom, metadata, { preview, embedded: Astro.url.searchParams.get('embedded') === '1', track: features.includes('analytics') && !preview && !privateArticle, releaseId: release.id });
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -293,7 +293,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {interactive&&<script src="/weava-article.js" defer is:inline />}
     {features.includes('analytics') && !preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
-  {!preview && content.includes('data-copy-code') && <script src="/weava-code.js" defer is:inline />}
+  {(!preview || Astro.url.searchParams.get('embedded') !== '1') && <script src="/weava-code.js" defer is:inline />}
   </body>
 </html>
 </>}

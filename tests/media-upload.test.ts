@@ -1,12 +1,46 @@
-import { expect,it } from 'vitest';
+import { expect,it,vi } from 'vitest';
 import { join,resolve } from 'node:path';
 import { existsSync,readFileSync,readdirSync } from 'node:fs';
 import { Site,JobRunner } from '@weava/core';
-import { beginMediaUpload,mediaUploadStatus,receiveMediaChunk,finishMediaUpload } from '../packages/core/src/media-upload.ts';
+import { beginMediaUpload,mediaUploadStatus,receiveMediaChunk,finishMediaUpload,completeMediaUpload } from '../packages/core/src/media-upload.ts';
 import { createAdminClient } from '@weava/contracts/api-client';
 import { readMediaUploadRequest } from '../packages/core/src/legacy-media-upload.ts';
 const base='D:/Tools/cache/weava/tests/media-upload-'+Date.now();
 const chunk=(value:string|Uint8Array)=>new Request('http://localhost/api/admin/v1/media/uploads/id',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:value as BodyInit});
+it('finishes WebP uploads on their first attempt and deduplicates repeated files without leftover staging files',async()=>{
+  const site=new Site(join(base,'webp')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
+  try{
+    for(const [index,name] of ['picsum-10.webp','picsum-11.webp','picsum-10.webp'].entries()){
+      const saved=index===2?site.store.list('media').find(row=>row.value.name==='picsum-10.webp'):undefined;
+      const renamed=saved?site.store.put('media',saved.id,{...saved.value,name:'自定义名称',alt:'已编辑的图片说明'},saved.revision):undefined;
+      const bytes=readFileSync(resolve('apps/web/public/default-covers',name)),upload=beginMediaUpload(site,name,bytes.length);
+      await receiveMediaChunk(site,upload.id,0,chunk(bytes));
+      const result=await runner.wait(finishMediaUpload(site,runner,upload.id).id,15000);
+      expect(readFileSync(join(site.root,result.value.url.slice(1)))).toEqual(bytes);
+      expect(mediaUploadStatus(site,upload.id).status).toBe('complete');
+      expect(readdirSync(join(site.root,'uploads'))).toEqual([]);
+      if(renamed){expect(result.revision).toBe(renamed.revision);expect(result.value.name).toBe('自定义名称');expect(result.value.alt).toBe('已编辑的图片说明');}
+    }
+    expect(site.store.list('media')).toHaveLength(2);
+  }finally{runner.stop();site.close();}
+},45000);
+it('recovers the durable file after an interrupted database commit without publishing a failed upload',async()=>{
+  const site=new Site(join(base,'commit-recovery')),runner=new JobRunner(site,{startPaused:true,framework:resolve('.'),source:true});
+  try{
+    const upload=beginMediaUpload(site,'recover.txt',7);
+    await receiveMediaChunk(site,upload.id,0,chunk('recover'));
+    const job=finishMediaUpload(site,runner,upload.id);
+    const put=vi.spyOn(site.store,'put').mockImplementationOnce(()=>{throw new Error('interrupted commit');});
+    await expect(completeMediaUpload(site,upload.id,job.id)).rejects.toThrow('interrupted commit');
+    put.mockRestore();
+    expect(site.store.list('media')).toEqual([]);
+    expect(mediaUploadStatus(site,upload.id).status).toBe('processing');
+    const result=await completeMediaUpload(site,upload.id,job.id);
+    expect(readFileSync(join(site.root,result.value.url.slice(1)),'utf8')).toBe('recover');
+    expect(mediaUploadStatus(site,upload.id).status).toBe('complete');
+    expect(site.store.list('media')).toHaveLength(1);
+  }finally{runner.stop();site.close();}
+});
 it('resumes binary chunks across connections, recovers a partial write and deduplicates processing',async()=>{
   const site=new Site(join(base,'resume')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{

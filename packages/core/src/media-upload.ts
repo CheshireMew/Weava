@@ -1,10 +1,12 @@
-import {mkdir,open} from 'node:fs/promises';
+import {mkdir,open,unlink} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {extname,join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {WeavaError} from '../../contracts/src/errors.ts';
 import type {Site} from './site.ts';
 import type {JobRunner} from './job-runner.ts';
 import {inside} from '../../runtime-common/src/paths.ts';
+import {prepareMedia} from './media.ts';
 interface Upload {id:string;name:string;size:number;offset:number;status:string;path:string;expires:number;lease:string|null;lease_until:number;job_id:string|null}
 export const uploadChunkBytes=1024*1024;
 const allowed=new Set(['.png','.jpg','.jpeg','.webp','.gif','.avif','.pdf','.txt','.csv','.vtt','.srt','.mp3','.mp4','.webm']);
@@ -56,4 +58,39 @@ export function finishMediaUpload(site:Site,jobs:Pick<JobRunner,'enqueue'>,id:st
     const job=jobs.enqueue('media',{path:row.path,name:row.name,uploadId:id,size:row.size},'media-upload:'+id+(old?':'+old.id:''));
     site.store.raw.prepare("UPDATE media_uploads SET status='processing',job_id=? WHERE id=?").run(job.id,id);return job;
   }).immediate();
+}
+
+/** Commit the library record only after the durable file and upload state agree. */
+export async function completeMediaUpload(site:Site,id:string,jobId:string){
+  const upload=find(site,id);
+  if(upload.job_id!==jobId)throw new WeavaError('上传任务已变化，请重新读取上传状态。',409);
+  const staging=inside(site.root,'uploads/'+upload.id+'.bin');
+  const selected=inside(site.root,upload.path);
+  try{
+    const prepared=await prepareMedia(site,existsSync(selected)?selected:staging,upload.name);
+    const destination=prepared.value.url.slice(1);
+    // Persist a readable recovery location before releasing the owned staging
+    // file. A retry can resume here even if the database commit is interrupted.
+    const recorded=site.store.raw.prepare('UPDATE media_uploads SET path=? WHERE id=? AND job_id=?').run(destination,id,jobId);
+    if(recorded.changes!==1)throw new WeavaError('上传任务已变化，请重新读取上传状态。',409);
+    for(let attempt=0;;attempt++){
+      try{await unlink(staging);break;}
+      catch(error:any){
+        if(error.code==='ENOENT')break;
+        if(!['EBUSY','EPERM','EACCES'].includes(error.code)||attempt===4)throw error;
+        await new Promise(resolve=>setTimeout(resolve,25*2**attempt));
+      }
+    }
+    return site.store.raw.transaction(()=>{
+      if(find(site,id).job_id!==jobId)throw new WeavaError('上传任务已变化，请重新读取上传状态。',409);
+      const existing=site.store.get('media',prepared.id);
+      const record=existing??site.store.put('media',prepared.id,prepared.value,null,'上传');
+      site.store.raw.prepare("UPDATE media_uploads SET status='complete',path=? WHERE id=?").run(destination,id);
+      return record;
+    }).immediate();
+  }catch(error:any){
+    if(['EBUSY','EPERM','EACCES'].includes(error.code))throw new WeavaError('文件暂时被占用，请稍后重试上传，已传送的文件会继续保留。',409);
+    if(error.code==='ENOENT')throw new WeavaError('上传文件已不存在，请重新选择文件上传。',410);
+    throw error;
+  }
 }

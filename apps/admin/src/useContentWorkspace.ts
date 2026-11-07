@@ -35,12 +35,9 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     if (request !== selection.current) return;
     editor.adopt(row);
     editor.setPreview('');
-    library.setFilter('');
-    library.setStatus('all');
-    library.setLibraryType(kind === 'content' ? type : '');
 
   }
-  async function newEntry() {
+  async function newEntry(requestedType?: string) {
     try {
       await persist();
       if(tab==='notes'){
@@ -53,9 +50,11 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
         editor.setPreview('');
         return;
       }
+      const available=state.types.filter((row:any)=>!isNoteType(row.value));
       const kind = 'content' as const,
-        type = library.libraryType || state.types.find((row:any)=>tab==='notes'?isNoteType(row.value):!isNoteType(row.value))?.id;
-      if(!type)throw new Error(tab==='notes'?'网站尚未配置笔记类型。':'网站尚未配置文章类型。');
+        type = requestedType || library.libraryType || available.find((row:any)=>row.id==='post')?.id || (available.length===1?available[0].id:undefined);
+      if(!type)throw new Error(available.length?'请先选择要新建的内容类型。':'网站尚未配置文章类型。');
+      if(!available.some((row:any)=>row.id===type))throw new Error('这个内容类型已不可用，请重新选择。');
       await createNew(kind, type);
     } catch (error: any) {
       setError(error.message);

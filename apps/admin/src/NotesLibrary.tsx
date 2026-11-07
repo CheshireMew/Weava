@@ -8,7 +8,7 @@ export function NotesLibrary({model}:{model:Pick<ContentLibraryModel,'items'|'li
  const {items,library,libraryLoading,filter,setFilter,select,newEntry,libraryPage,setLibraryPage}=model;
  const pending=(model.pendingDrafts??[]).filter(copy=>copy.record.revision===0&&copy.record.id!==model.record?.id&&!items.some((row:any)=>row.id===copy.record.id)&&isNoteType(model.state?.types.find((type:any)=>type.id===copy.record.value.type)?.value));
  return <section className="notes-library" aria-label="笔记">
-  <header><h1>笔记</h1><button className="primary" onClick={newEntry}><Plus size={18}/>写笔记</button></header>
+  <header><h1>笔记</h1><button className="primary" onClick={()=>void newEntry()}><Plus size={18}/>写笔记</button></header>
   <div className="notes-search"><Search size={18} aria-hidden="true"/><input aria-label="搜索笔记" placeholder="搜索笔记" value={filter} onChange={event=>setFilter(event.target.value)}/></div>
   {pending.length>0&&<div className="recovery-banner" role="status">有尚未保存到网站的笔记。{[...new Map(pending.map(copy=>[copy.record.id,copy])).values()].map(copy=><button key={copy.record.id} onClick={()=>select(copy.record.id)}>恢复 {copy.record.value.title}</button>)}</div>}
   <div className="notes-list" aria-busy={libraryLoading}>

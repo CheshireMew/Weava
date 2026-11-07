@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
-import { useSelectors, type SelectedMedia } from '../Selectors.tsx';
+import { useState, useEffect, useRef } from 'react';
+import {FormattingToolbar, ToolbarOutlet, type FormatAction} from './FormattingToolbar.tsx';
+import {type SelectedMedia} from '../Selectors.tsx';
+import {$parentLink, OPEN_LINK_EDITOR_COMMAND} from './LinkEditorPlugin.tsx';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND } from '@lexical/list';
-import { TOGGLE_LINK_COMMAND } from '@lexical/link';
 import { $createCodeNode, $isCodeNode } from '@lexical/code';
 import {
   TableCellNode,
@@ -26,20 +26,7 @@ import {
   UNDO_COMMAND,
   REDO_COMMAND,
 } from 'lexical';
-import {
-  Bold,
-  Italic,
-  Quote,
-  List,
-  ListOrdered,
-  Code,
-  ImagePlus,
-  Link,
-  Table,
-  Undo2,
-  Redo2,
-  Video,
-} from 'lucide-react';
+
 import { MediaNode } from './nodes.tsx';
 import { transformers } from './transformers.tsx';
 
@@ -84,16 +71,6 @@ export function TableTools() {
   ) : null;
 }
 
-export function ToolbarOutlet({
-  target,
-  children,
-}: {
-  target?: HTMLElement | null;
-  children: ReactNode;
-}) {
-  return target ? createPortal(children, target) : children;
-}
-
 export function Toolbar({
   onMode,
   onMedia,
@@ -110,24 +87,25 @@ export function Toolbar({
   onEdit: () => void;
 }) {
   const [editor] = useLexicalComposerContext();
-  const selectors = useSelectors();
+  const [linkActive, setLinkActive] = useState(false);
   const [codeLanguage, setCodeLanguage] = useState('text');
   const [blockType, setBlockType] = useState('paragraph');
   const blockSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const codeSelection = useRef<ReturnType<typeof $getSelection>>(null);
   const linkSelection = useRef<ReturnType<typeof $getSelection>>(null);
-  const captureLink = (mode: 'link' | 'video') => {
+  const captureLink = () => {
     linkSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);
-    setLink(link ? null : mode);
+    setLink(link ? null : 'video'); setUrl('');
   };
-  const [link, setLink] = useState<'link' | 'video' | null>(null),
+  const [link, setLink] = useState<'video' | null>(null),
     [url, setUrl] = useState('');
   useEffect(
     () =>
       editor.registerUpdateListener(({ editorState }) =>
         editorState.read(() => {
           const selection = $getSelection();
-          if (!$isRangeSelection(selection)) return;
+          if (!$isRangeSelection(selection)) {setLinkActive(false); return;}
+          setLinkActive(!!$parentLink(selection.anchor.getNode()));
           const type = selection.anchor.getNode().getTopLevelElement()?.getType();
           setBlockType(
             type === 'heading' ? 'h2' : type === 'quote' || type === 'code' ? type : 'paragraph',
@@ -163,143 +141,35 @@ export function Toolbar({
       }
     });
   }
-  const button = (title: string, icon: any, run: () => void) => (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={run}
-    >
-      {icon}
-    </button>
-  );
+  function action(command: FormatAction) {
+    if (command === 'undo' || command === 'redo') editor.dispatchCommand(command === 'undo' ? UNDO_COMMAND : REDO_COMMAND, undefined);
+    else if (command === 'bold' || command === 'italic') editor.dispatchCommand(FORMAT_TEXT_COMMAND, command);
+    else if (command === 'quote' || command === 'code') block(command);
+    else if (command === 'bullet' || command === 'ordered') editor.dispatchCommand(command === 'bullet' ? INSERT_UNORDERED_LIST_COMMAND : INSERT_ORDERED_LIST_COMMAND, undefined);
+    else if (command === 'link') editor.dispatchCommand(OPEN_LINK_EDITOR_COMMAND, undefined);
+    else if (command === 'video') captureLink();
+    else if (command === 'table') editor.dispatchCommand(INSERT_TABLE_COMMAND, {rows: '3', columns: '3', includeHeaders: true});
+    else if (command === 'media') {
+      const selection = editor.getEditorState().read(() => $getSelection()?.clone());
+      void onMedia().then(media => { if (media) editor.update(() => {
+        if (selection) $setSelection(selection);
+        $insertNodes([new MediaNode(media.url, media.alt ?? media.name, media.kind, undefined, media.caption)]);
+      }); });
+    }
+  }
   return (
     <ToolbarOutlet target={target}>
-      <div
-        className="format-toolbar"
-        role="toolbar"
-        aria-label="正文格式"
-        onClickCapture={onEdit}
-        onChangeCapture={onEdit}
-        onKeyDownCapture={onEdit}
-      >
-        {button('撤销', <Undo2 size={16} />, () => editor.dispatchCommand(UNDO_COMMAND, undefined))}
-        {button('重做', <Redo2 size={16} />, () => editor.dispatchCommand(REDO_COMMAND, undefined))}
-        <span className="toolbar-divider" aria-hidden="true" />
-        {!compact && (
-          <select
-            aria-label="段落格式"
-            value={blockType}
-            onMouseDown={() => {
-              blockSelection.current = editor
-                .getEditorState()
-                .read(() => $getSelection()?.clone() ?? null);
-            }}
-            onChange={(event) => block(event.target.value)}
-          >
-            <option value="paragraph">正文</option>
-            <option value="h2">标题</option>
-            <option value="quote">引用</option>
-            <option value="code">代码</option>
-          </select>
-        )}
-        <span className="toolbar-divider" aria-hidden="true" />
-        {button('加粗', <Bold size={16} />, () =>
-          editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'bold'),
-        )}
-        {button('斜体', <Italic size={16} />, () =>
-          editor.dispatchCommand(FORMAT_TEXT_COMMAND, 'italic'),
-        )}
-        <span className="toolbar-divider" aria-hidden="true" />
-        {!compact && button('引用', <Quote size={16} />, () => block('quote'))}
-        {button('无序列表', <List size={17} />, () =>
-          editor.dispatchCommand(INSERT_UNORDERED_LIST_COMMAND, undefined),
-        )}
-        {!compact &&
-          button('有序列表', <ListOrdered size={17} />, () =>
-            editor.dispatchCommand(INSERT_ORDERED_LIST_COMMAND, undefined),
-          )}
-        {!compact && button('代码', <Code size={17} />, () => block('code'))}
-        {blockType === 'code' && (
-          <select
-            aria-label="代码语言"
-            value={codeLanguage}
-            onMouseDown={() => {
-              codeSelection.current = editor
-                .getEditorState()
-                .read(() => $getSelection()?.clone() ?? null);
-            }}
-            onChange={(event) => {
-              const language = event.target.value;
-              setCodeLanguage(language);
-              editor.update(() => {
-                if (codeSelection.current) $setSelection(codeSelection.current);
-                const selection = $getSelection();
-                if ($isRangeSelection(selection))
-                  for (const node of selection.getNodes()) {
-                    const top = node.getTopLevelElement();
-                    if ($isCodeNode(top)) top.setLanguage(language);
-                  }
-              });
-            }}
-          >
-            {[
-              'text',
-              'typescript',
-              'javascript',
-              'python',
-              'json',
-              'html',
-              'css',
-              'bash',
-              'sql',
-              'yaml',
-            ].map((language) => (
-              <option key={language}>{language}</option>
-            ))}
-          </select>
-        )}
-        {button('链接', <Link size={16} />, () => captureLink('link'))}
-        {!compact && button('插入视频', <Video size={17} />, () => captureLink('video'))}
-        {!compact &&
-          button('表格', <Table size={16} />, () =>
-            editor.dispatchCommand(INSERT_TABLE_COMMAND, {
-              rows: '3',
-              columns: '3',
-              includeHeaders: true,
-            }),
-          )}
-        {button('插入媒体', <ImagePlus size={17} />, async () => {
-          const selection = editor.getEditorState().read(() => $getSelection()?.clone());
-          const media = await onMedia();
-          if (media)
-            editor.update(() => {
-              if (selection) $setSelection(selection);
-              $insertNodes([
-                new MediaNode(
-                  media.url,
-                  media.alt ?? media.name,
-                  media.kind,
-                  undefined,
-                  media.caption,
-                ),
-              ]);
-            });
-        })}
-        <span className="toolbar-divider" aria-hidden="true" />
-        {!compact && (
-          <button
-            className="text-button"
-            disabled={uploading}
-            onClick={() =>
-              editor.getEditorState().read(() => onMode($convertToMarkdownString(transformers)))
-            }
-          >
-            Markdown
-          </button>
-        )}
-      </div>
+      <FormattingToolbar mode="visual" compact={compact} uploading={uploading} onEdit={onEdit} linkActive={linkActive}
+        onMode={() => editor.getEditorState().read(() => onMode($convertToMarkdownString(transformers)))}
+        onAction={action} blockType={blockType} onBlock={block}
+        onCaptureBlock={() => {blockSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);}}
+        codeLanguage={codeLanguage} onCaptureLanguage={() => {codeSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);}}
+        onLanguage={language => {setCodeLanguage(language); editor.update(() => {
+          if (codeSelection.current) $setSelection(codeSelection.current);
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) for (const node of selection.getNodes()) {const top = node.getTopLevelElement(); if ($isCodeNode(top)) top.setLanguage(language);}
+        });}}
+      />
       {link && (
         <div className="inline-input">
           <input
@@ -312,35 +182,14 @@ export function Toolbar({
             onClick={() => {
               editor.update(() => {
                 if (linkSelection.current) $setSelection(linkSelection.current);
-                if (link === 'video') {
-                  $insertNodes([new MediaNode(url, '', 'video')]);
-                } else editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);
+                $insertNodes([new MediaNode(url, '', 'video')]);
               });
               setLink(null);
             }}
           >
-            {link === 'video' ? '插入视频' : '插入链接'}
+            插入视频
           </button>
-          {link === 'link' && (
-            <button
-              type="button"
-              onClick={async () => {
-                const selection = linkSelection.current;
-                const content = await selectors.content();
-                if (content)
-                  editor.update(() => {
-                    if (selection) $setSelection(selection);
-                    editor.dispatchCommand(
-                      TOGGLE_LINK_COMMAND,
-                      'entry:' + encodeURIComponent(content.id),
-                    );
-                  });
-                setLink(null);
-              }}
-            >
-              链接到内容
-            </button>
-          )}
+
         </div>
       )}
     </ToolbarOutlet>

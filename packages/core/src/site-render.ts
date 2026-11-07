@@ -12,7 +12,7 @@ export async function loadSiteRenderer(root:string):Promise<SiteRenderer|null>{
  const routes=siteRoutes(root);if(!routes.build)return null;
  const {folder,manifest}=routes.build;
  for(const file of manifest.files){const path=inside(folder,file.path);if(lstatSync(path).isSymbolicLink()||createHash('sha256').update(readFileSync(path)).digest('hex')!==file.hash)throw new Error('网站构建文件校验失败：'+file.path);}
- const server=await import(pathToFileURL(inside(folder,manifest.entry)).href);
+ const server=await import(/* @vite-ignore */ pathToFileURL(inside(folder,manifest.entry)).href);
  const paths=new Set<string>();
  return {publicPaths:()=>[...paths],async render(request,context){
   const url=new URL(request.url),prefix='/_site/'+manifest.id+'/';

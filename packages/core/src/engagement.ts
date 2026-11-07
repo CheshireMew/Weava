@@ -47,6 +47,17 @@ export class Engagement {
     const comments = (this.db.prepare("SELECT COUNT(*) count FROM article_comments WHERE entry_id=? AND status='visible'").get(entryId) as any).count;
     return { likes, comments };
   }
+  countsFor(entryIds: string[]) {
+    const result = new Map(entryIds.map(id => [id, {likes: 0, comments: 0}]));
+    for (let offset = 0; offset < entryIds.length; offset += 200) {
+      const batch = entryIds.slice(offset, offset + 200), marks = batch.map(() => '?').join(',');
+      for (const [table, key, condition] of [['article_likes', 'likes', ''], ['article_comments', 'comments', " AND status='visible'"]] as const) {
+        const rows = this.db.prepare(`SELECT entry_id,COUNT(*) count FROM ${table} WHERE entry_id IN (${marks})${condition} GROUP BY entry_id`).all(...batch) as {entry_id: string; count: number}[];
+        for (const row of rows) result.get(row.entry_id)![key] = row.count;
+      }
+    }
+    return result;
+  }
   summary(entryId: string, token?: string, page = 1, sort: 'latest' | 'oldest' = 'latest') {
     const counts = this.counts(entryId);
     const liked = token ? !!this.db.prepare('SELECT 1 FROM article_likes WHERE entry_id=? AND reader_key=?').get(entryId, this.reader(token)) : false;

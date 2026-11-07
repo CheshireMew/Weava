@@ -1,6 +1,35 @@
 import { load } from 'cheerio';
 import type { Document } from '@weava/contracts';
 
+function emptyParagraph(node: Record<string, any>) {
+  return node.type === 'paragraph' && !node.$?.weavaAnchor && (node.children ?? []).every((child: Record<string, any>) =>
+    child.type === 'linebreak' || child.type === 'text' && typeof child.text === 'string' && !child.text.replace(/[\s\u200b\ufeff]/g, ''));
+}
+
+/** Remove standalone blank paragraphs, retaining code whitespace and the empty editor's insertion point. */
+export function withoutEmptyDocumentParagraphs(document: Document): Document {
+  if (document.format !== 'lexical') return document;
+  const root = document.source.root as Record<string, any> | undefined;
+  if (!Array.isArray(root?.children)) return document;
+  const children = root.children.filter((node: Record<string, any>) => !emptyParagraph(node));
+  if (!children.length || children.length === root.children.length) return document;
+  return { ...document, source: { ...document.source, root: { ...root, children } } };
+}
+
+/** HTML indentation is not a list item, table row or table cell. */
+export function withoutStructuralWhitespace(document: Document): Document {
+  if (document.format !== 'lexical') return document;
+  const clean = (node: Record<string, any>): Record<string, any> => {
+    if (!Array.isArray(node.children)) return node;
+    const children = node.children.filter((child: Record<string, any>) =>
+      !(['list', 'table', 'tablerow'].includes(node.type) && child.type === 'text' && !child.text?.trim())).map(clean);
+    return children.length === node.children.length && children.every((child: any, index: number) => child === node.children[index]) ? node : {...node, children};
+  };
+  const root = document.source.root as Record<string, any>;
+  const result = clean(root);
+  return result === root ? document : {...document, source: {...document.source, root: result}};
+}
+
 /** This was injected by the old site's theme, separately from authored content. */
 export function withoutImportedPromotion(html: string) {
   const $ = load(html, null, false), cards = $('[id^="crypto-card-final-"]');
@@ -44,7 +73,11 @@ export function importedDocument(html: string): Document {
     switch (tag) {
       case 'span': return children();
       case 'div': case 'section': case 'article': case 'main': return paragraphs(children());
-      case 'p': return paragraphs(children()).length ? paragraphs(children()) : [element('paragraph', [], { textFormat: 0, textStyle: '' })];
+      case 'p': {
+        const content = paragraphs(children());
+        if (!content.length && attrs.id) return [element('paragraph', [], { textFormat: 0, textStyle: '' })];
+        return content.filter(item => !emptyParagraph(item) || !!attrs.id);
+      }
       case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': return [element('heading', children(), { tag })];
       case 'br': return [{ type: 'linebreak', version: 1 }];
       case 'hr': return [{ type: 'horizontalrule', version: 1 }];
@@ -81,5 +114,5 @@ export function importedDocument(html: string): Document {
     }
   }
   const children = paragraphs($.root().contents().toArray().flatMap(node => convert(node)));
-  return { version: 1, format: 'lexical', source: { root: element('root', children.length ? children : [element('paragraph', [], { textFormat: 0, textStyle: '' })]) } };
+  return withoutStructuralWhitespace({ version: 1, format: 'lexical', source: { root: element('root', children.length ? children : [element('paragraph', [], { textFormat: 0, textStyle: '' })]) } });
 }

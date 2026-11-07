@@ -1,5 +1,5 @@
 import {Popover} from './Popover.tsx';
-import {Plus,Search,SlidersHorizontal} from 'lucide-react';
+import {Plus,Search,SlidersHorizontal,X} from 'lucide-react';
 import {isNoteType,type FieldDefinition} from '@weava/contracts';
 
 import {SavedViewControls} from './AuthoringControls.tsx';
@@ -43,7 +43,17 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
     newEntry,
   } = model;
   const notes=tab==='notes',label=notes?'笔记':'文章';
+  const types=state.types.filter(row=>notes?isNoteType(row.value):!isNoteType(row.value));
+  const selectedType=types.find(row=>row.id===libraryType);
+  const createLabel=notes?'写笔记':'新建'+(selectedType?.value.label??(types.length===1?types[0].value.label:types.length>1?'内容':'文章'));
   const hasFilters = !!filter || status !== 'all' || visibility !== 'all' || !!libraryType || Object.values(fieldFilters).some(Boolean);
+  const clearFilters=()=>{setFilter('');setStatus('all');setVisibility('all');setLibraryType('');setFieldFilters({});setLibraryPage(1);};
+  const extraFilters=[
+    ...(!['all','published','draft'].includes(status)?[{key:'status',label:status==='changed'?'有未发布修改':'已归档',clear:()=>setStatus('all')}]:[]),
+    ...(visibility!=='all'?[{key:'visibility',label:visibility==='private'?'私密':'公开',clear:()=>setVisibility('all')}]:[]),
+    ...(libraryType?[{key:'type',label:selectedType?.value.label??libraryType,clear:()=>{setLibraryType('');setFieldFilters({});}}]:[]),
+    ...Object.entries(fieldFilters).filter(([,value])=>!!value).map(([key,value])=>({key:'field.'+key,label:(selectedType?.value.fields.find(field=>field.key===key)?.label??key)+'：'+value,clear:()=>setFieldFilters(previous=>({...previous,[key]:''}))})),
+  ];
   const sortControl = <select aria-label="内容排序" value={librarySort || state.types.find((row: any) => row.id === libraryType)?.value.admin?.sort || '-updatedAt'} onChange={event => { setLibrarySort(event.target.value); setLibraryPage(1); }}>
     {Object.entries({ title: '标题升序', '-title': '标题降序', '-updatedAt': '最近修改', '-publishedAt': '最近发布', oldest: '最早发布' }).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
   </select>;
@@ -59,9 +69,11 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
         <div className="library-status-tabs" role="group" aria-label="内容状态">
           {Object.entries({ all: '全部', published: '已发布', draft: '草稿' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}
         </div>
-        <button className="primary library-create" aria-label={'新建'+label} title={'新建'+label} onClick={newEntry}>
-          <Plus size={18} />{notes?'写笔记':'新建文章'}
-        </button>
+        {!notes&&!selectedType&&types.length>1?<div className="library-create library-create-picker"><Popover label={createLabel} menu className="library-create-menu" trigger={<><Plus size={18}/>{createLabel}</>}>
+          {types.map(type=><button type="button" role="menuitem" key={type.id} onClick={()=>void newEntry(type.id)}>{'新建'+type.value.label}</button>)}
+        </Popover></div>:<button className="primary library-create" aria-label={createLabel} title={createLabel} onClick={()=>void newEntry(selectedType?.id)}>
+          <Plus size={18} />{createLabel}
+        </button>}
       </div>
       <div className="library-tools">
         <div className="library-search">
@@ -178,6 +190,10 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
           onError={setError}
         /></Popover>}
       </div>
+      {(extraFilters.length>0||filter)&&<div className="library-active-filters" role="group" aria-label="已生效的筛选">
+        {extraFilters.map(item=><button type="button" key={item.key} onClick={item.clear} aria-label={'移除筛选：'+item.label}>{item.label}<X size={13} aria-hidden="true"/></button>)}
+        <button type="button" className="library-clear-filters" onClick={clearFilters}>清除筛选</button>
+      </div>}
       {showBulkEditing && bulkIds.length > 0 && (
         <button
           className="library-bulk-action"
@@ -203,7 +219,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
             {hasFilters
               ? '没有符合筛选条件的内容。'
               : '还没有内容，可以新建第一篇。'}
-          </p>{hasFilters ? <button onClick={() => { setFilter(''); setStatus('all'); setVisibility('all'); setLibraryType(''); setFieldFilters({}); setLibraryPage(1); }}>清除筛选</button> : <button className="primary" onClick={newEntry}>新建内容</button>}</div>
+          </p>{hasFilters && <button onClick={clearFilters}>清除筛选</button>}</div>
         )}
         {items.length > 0 && <ContentEntries model={model} selectable={showBulkEditing} />}
       </div>

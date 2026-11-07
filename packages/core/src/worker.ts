@@ -3,8 +3,8 @@ import {createBackup,verifyBackup} from './backup.ts';
 import {uploadMedia,cropMedia} from './media.ts';
 import {inside} from '../../runtime-common/src/paths.ts';
 import {join} from 'node:path';
-import {readFileSync,existsSync} from 'node:fs';
-import {rename} from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
+import {completeMediaUpload} from './media-upload.ts';
 import {extension} from './extensions.ts';
 import {Analytics} from './analytics.ts';
 import {importWordPressWxr} from './wordpress-wxr.ts';
@@ -65,17 +65,8 @@ try {
     );
   else if (job.operation === 'verify') result = verifyBackup(job.payload.path);
   else if (job.operation === 'media'){
-    const upload=job.payload.uploadId?site.store.raw.prepare('SELECT path,job_id FROM media_uploads WHERE id=?').get(job.payload.uploadId) as {path:string;job_id:string}|undefined:undefined;
-    if(job.payload.uploadId&&upload?.job_id!==id)throw new Error('上传任务与暂存文件不一致。');
-    const selected=job.payload.uploadId?inside(site.root,upload!.path):inside(join(site.root,'media'),job.payload.path);
-    const path=existsSync(selected)?selected:inside(site.root,job.payload.path);
-    result=await uploadMedia(site,path,job.payload.name);
-    if(upload){
-      const destination=inside(site.root,result.value.url.slice(1));
-      // Persist the recovery location before moving. An interrupted move can still use the staged path.
-      site.store.raw.prepare("UPDATE media_uploads SET status='complete',path=? WHERE id=?").run(result.value.url.slice(1),job.payload.uploadId);
-      if(path!==destination)await rename(path,destination);
-    }
+    result=job.payload.uploadId?await completeMediaUpload(site,job.payload.uploadId,id)
+      :await uploadMedia(site,inside(join(site.root,'media'),job.payload.path),job.payload.name);
   }
   else if (job.operation === 'media-edit') result = await cropMedia(site, job.payload.id, job.payload.revision, job.payload.crop);
   else if (job.operation === 'media-variant') result = await imageVariant(site, job.payload);

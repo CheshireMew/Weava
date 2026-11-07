@@ -213,17 +213,20 @@ export async function prepareMedia(site: Site, data: Buffer|string, name: string
   const image = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif'].includes(ext);
   if (!image && !['.pdf', '.txt', '.csv', '.vtt', '.srt', '.mp3', '.mp4', '.webm'].includes(ext))
     throw new WeavaError('不支持这个附件格式。');
+  const file = existing?.value.url?.slice('/media/'.length) ?? id + ext,
+    dir = join(site.root, 'media'), destination = join(dir, file);
+  mkdirSync(dir, { recursive: true });
+  if(typeof data==='string'){if(data!==destination)await copyFile(data,destination);}else writeFileSync(destination, data);
+  // Native image readers may retain file handles on Windows. Read the durable
+  // copy so the upload's temporary file can be released before committing it.
+  const imageInput = typeof data === 'string' ? destination : data;
   let metadata: any = {};
   if (image) {
-    metadata = await sharp(data, { limitInputPixels: 32000000 }).metadata();
+    metadata = await sharp(imageInput, { limitInputPixels: 32000000 }).metadata();
     if (!metadata.format || Math.max(metadata.width ?? 0, metadata.height ?? 0) > 12000)
       throw new WeavaError('图片格式或尺寸无效。');
   }
-  const file = existing?.value.url?.slice('/media/'.length) ?? id + ext,
-    dir = join(site.root, 'media');
-  mkdirSync(dir, { recursive: true });
-  if(typeof data==='string'){if(data!==join(dir,file))await copyFile(data,join(dir,file));}else writeFileSync(join(dir, file), data);
-  const derivatives = image ? await imageDerivatives(site.root, data, id, metadata, size) : [];
+  const derivatives = image ? await imageDerivatives(site.root, imageInput, id, metadata, size) : [];
   return {
     id, revision: existing?.revision ?? null,
     value: {

@@ -1,4 +1,4 @@
-import {FileText} from 'lucide-react';
+import {ArrowUpRight,Eye,FileText,Heart,MessageCircle} from 'lucide-react';
 import type {ContentLibraryModel} from './content-models.ts';
 import {entryStatus} from './EntryStatus.tsx';
 import {EntryActions} from './EntryActions.tsx';
@@ -24,6 +24,9 @@ export function ContentEntries({ model, selectable = false }: { model: Pick<Cont
     {items.map((row: any) => {
       const type = state.types.find((item: any) => item.id === row.value.type)?.value;
       const status = entryStatus(row);
+      const published = !!row.published;
+      const publishedAt = row.publication?.publishedAt ?? row.value.publishedAt;
+      const publishedPath = row.publication?.path ?? row.value.path;
       const columns: string[] = type?.admin?.columns ?? ['status', ...(tab === 'content' ? ['type'] : []), 'updatedAt'];
       const custom = columns.filter(key => !['title', 'status', 'type', 'updatedAt', 'publishedAt'].includes(key));
       return <article role="listitem" className={'publication-row' + (bulkIds.includes(row.id) ? ' checked' : '')} key={row.id}>
@@ -33,14 +36,17 @@ export function ContentEntries({ model, selectable = false }: { model: Pick<Cont
           <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>
             {tab === 'pages' && <span className="publication-page-path">{row.value.path === '/' ? '首页' : row.value.path}</span>}
             <span className="publication-meta">
-              {columns.includes('updatedAt') && <time dateTime={row.updatedAt}>更新于 {date(row.updatedAt)}</time>}
-              {columns.includes('publishedAt') && row.value.publishedAt && <time dateTime={row.value.publishedAt}>发布于 {date(row.value.publishedAt)}</time>}
+              {published && publishedAt ? <time dateTime={publishedAt}>发布于 {date(publishedAt)}</time> : columns.includes('updatedAt') && <time dateTime={row.updatedAt}>更新于 {date(row.updatedAt)}</time>}
               <span>{status.key === 'changed' ? '已发布（有未发布修改）' : status.label}</span>
               {row.value.visibility === 'private' && <span>私密</span>}
             </span>
+            {published && row.metrics && <span className="publication-metrics">
+              {([['likes',Heart,'点赞'],['comments',MessageCircle,'评论'],['views',Eye,'浏览量']] as const).map(([key,Icon,label]) => row.metrics[key] !== undefined && <span key={key} aria-label={label+'：'+row.metrics[key]} title={label}><Icon size={15} aria-hidden="true"/>{row.metrics[key].toLocaleString('zh-CN')}</span>)}
+            </span>}
             {custom.length > 0 && <span className="publication-custom">{custom.map(key => <span key={key}>{type?.fields.find((field: any) => field.key === key)?.label ?? key}：{valueFor(row, key)}</span>)}</span>}
           </span>
         </button>
+        {published && publishedPath && <a className="publication-visit" href={publishedPath} target="_blank" rel="noopener noreferrer" aria-label={'打开文章：'+row.value.title} title="打开文章"><ArrowUpRight size={20} aria-hidden="true"/></a>}
         <EntryActions row={row} model={model.actions} disabled={disabled || model.busy} />
       </article>;
     })}

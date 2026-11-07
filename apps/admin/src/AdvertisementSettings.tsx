@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { advertisementSlots, type AdvertisementPosition, type Advertisements } from '@weava/contracts';
 import { HtmlPageText } from './ImportedContentEditor.tsx';
 import { useSelectors } from './Selectors.tsx';
@@ -21,6 +21,8 @@ function advertisementSource(slot: Advertisement) {
 function AdvertisementEditor({ id, label, slot, onChange }: { id: AdvertisementPosition; label: string; slot: Advertisement; onChange: (value: Advertisement) => void }) {
   const selectors = useSelectors();
   const [code, setCode] = useState(false);
+  const [expanded,setExpanded]=useState(slot.enabled);
+  const editorId=useId();
   const source = advertisementSource(slot);
   const edit = (html: string) => onChange({ ...slot, html, content: undefined });
   const content = slot.content ?? { title: '', text: '', image: '', url: '' };
@@ -29,15 +31,17 @@ function AdvertisementEditor({ id, label, slot, onChange }: { id: AdvertisementP
     <div className="advertisement-heading">
       <h3>{label}</h3>
       <div className="advertisement-controls">
-      <button type="button" className="advertisement-switch" role="switch" aria-label={`启用${label}广告`} aria-checked={slot.enabled} onClick={() => onChange({ ...slot, enabled: !slot.enabled })}>
+      <button type="button" className="advertisement-switch" role="switch" aria-label={`启用${label}广告`} aria-checked={slot.enabled} onClick={() => {setExpanded(!slot.enabled);onChange({ ...slot, enabled: !slot.enabled });}}>
         <span>启用</span><span className="advertisement-switch-track" aria-hidden="true" />
       </button>
-      <button type="button" className="advertisement-switch" role="switch" aria-label={`${label}广告代码模式`} aria-checked={code} onClick={() => setCode(!code)}>
+      {expanded&&<button type="button" className="advertisement-switch" role="switch" aria-label={`${label}广告代码模式`} aria-checked={code} onClick={() => setCode(!code)}>
         <span>代码</span><span className="advertisement-switch-track" aria-hidden="true" />
-      </button>
+      </button>}
+      <button type="button" className="advertisement-disclosure" aria-label={(expanded?'收起':'编辑')+label+'广告'} aria-expanded={expanded} aria-controls={editorId} onClick={()=>setExpanded(!expanded)}>{expanded?'收起':'编辑'}</button>
       </div>
     </div>
-    <div className="advertisement-editor">
+    <div className="advertisement-editor" id={editorId} hidden={!expanded}>
+      {expanded&&<>
       {code ? <textarea aria-label={`${label}广告代码`} className="advertisement-code" rows={8} spellCheck={false} autoCapitalize="off" autoCorrect="off" value={source} onChange={event => edit(event.target.value)} />
         : slot.html.trim() && !slot.content ? <HtmlPageText value={source} onChange={edit} minHeight={120} /> : <>
           <label>标题<input value={content.title} onChange={event => editContent({ title: event.target.value })} /></label>
@@ -45,6 +49,7 @@ function AdvertisementEditor({ id, label, slot, onChange }: { id: AdvertisementP
           <label>链接<input type="url" value={content.url} onChange={event => editContent({ url: event.target.value })} /></label>
           <div className="site-logo">{content.image && <img src={content.image} alt={content.title} />}<button type="button" onClick={async () => { const media = await selectors.media('image'); if (media) editContent({ image: media.url }); }}>选择广告图片</button>{content.image && <button type="button" onClick={() => editContent({ image: '' })}>移除图片</button>}</div>
         </>}
+      </>}
     </div>
   </section>;
 }

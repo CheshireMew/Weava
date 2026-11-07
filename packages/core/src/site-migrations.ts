@@ -8,7 +8,7 @@ export async function migrateWebsite(root:string,buildId?:string,mode:'open'|'mi
  const builds=process.env.WEAVA_SITE_BUILDS_ROOT??join(root,'site-builds'),folder=join(builds,buildId);
  const manifest=JSON.parse(readFileSync(join(folder,'site-build.json'),'utf8'));
  if(!manifest.migrations)return;
- const module=await import(pathToFileURL(join(folder,manifest.migrations)).href);
+ const module=await import(/* @vite-ignore */ pathToFileURL(join(folder,manifest.migrations)).href);
  if(!Array.isArray(module.default))throw new Error('网站迁移必须默认导出迁移数组。');
  const business=new BusinessStore(root,mode);
  try{

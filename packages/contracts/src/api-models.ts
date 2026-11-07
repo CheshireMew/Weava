@@ -21,7 +21,11 @@ export const settingsSchema = z.object({ featuredOrder:z.array(z.string()).max(1
 export const entryRecord = record(entrySchema);
 export const layoutRecord = record(layoutSchema).extend({ revision:nullableRevision,builtIn:z.boolean().optional() });
 export const entrySummarySchema = entrySchema.omit({ document:true, blocks:true, compatibility:true, source:true, fields:true }).extend({ fields: jsonObject.optional() });
-export const entrySummaryRecord = record(entrySummarySchema).extend({ thumbnail:z.string().optional() });
+export const entrySummaryRecord = record(entrySummarySchema).extend({
+  thumbnail:z.string().optional(),
+  publication:z.object({path:z.string(),publishedAt:z.string().optional()}).optional(),
+  metrics:z.object({likes:z.number().int().nonnegative().optional(),comments:z.number().int().nonnegative().optional(),views:z.number().int().nonnegative().optional()}).optional(),
+});
 export const publishedEntrySchema = entrySchema.extend({ html:z.string(), modifiedAt:z.string(), revisionId:revision });
 export const redirectSchema = z.object({ target:z.string(), entryId:z.string().optional(), disabled:z.boolean().optional() });
 export const releaseSchema = z.object({ id, createdAt:z.string(), entries:z.array(publishedEntrySchema), settings:settingsSchema, types:z.array(typeSchema), label:z.string(), redirects:z.record(z.string(),redirectSchema).optional(), terms:z.array(termSchema).optional(), layouts:z.array(layoutSchema).optional() });

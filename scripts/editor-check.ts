@@ -43,11 +43,11 @@ const open = async (p: any) => {
 };
 try {
   await open(page);
-  await page.getByRole('button', { name: '可视化编辑', exact: true }).click();
+  await page.getByRole('button', { name: '切换为富文本', exact: true }).click();
   assert.equal(await page.locator('.visual-editor table').count(), 1);
   assert.equal(await page.locator('.visual-editor img').count(), 1);
   assert((await page.locator('.visual-editor').innerText()).includes('const value = 1;'));
-  await page.getByRole('button', { name: 'Markdown', exact: true }).click();
+  await page.getByRole('button', { name: '切换为 Markdown', exact: true }).click();
   let source = await page.getByLabel('正文源码').inputValue();
   assert(source.includes('![图片]'));
   assert(source.includes('| 中文 | 测试 |'));

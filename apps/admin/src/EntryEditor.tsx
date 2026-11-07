@@ -52,7 +52,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
           </div>
           <h2>从一个想法开始</h2>
           <p>选择一篇内容继续编辑，或写下新的想法。</p>
-          <button className="primary" onClick={newEntry}>
+          <button className="primary" onClick={()=>void newEntry()}>
             <Plus size={16} />
             新建内容
           </button>
@@ -83,6 +83,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
               {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
               {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
             </span>
+            {article && <EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} />}
             <div className="editor-actions">
               <div className="editor-tools">
               {!article && <button className="editor-plain editor-settings-toggle" aria-label="内容设置" aria-expanded={settingsOpen} aria-controls="entry-settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(open => !open)}><Settings2 size={18} /><span>设置</span></button>}
@@ -144,7 +145,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
               </button>
             </div>
           </div>
-          {article && <><EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} /><div className="editor-toolbar-slot" ref={setToolbarTarget} /></>}
+          {article && <div className="editor-toolbar-slot" ref={setToolbarTarget} />}
           </div>
           <EntryRecovery model={model.recovery} />
 
