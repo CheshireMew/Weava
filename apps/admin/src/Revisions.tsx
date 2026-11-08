@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
 import {PreviewFrame} from './PreviewFrame.tsx';
+import {LoadingState} from './LoadingState.tsx';
 import { blockDefinitions } from '@weava/contracts';
 
 const names: Record<string, string> = { title: '标题', description: '摘要', path: '网址', document: '正文', source: '内容', fields: '自定义字段', blocks: '页面区块', cover: '封面', categories: '分类', tags: '标签', status: '状态', visibility: '可见性', template: '模板', termIds: '分类关联', indexable: '搜索收录', publishedAt: '发布日期' };
@@ -35,7 +36,7 @@ export function RevisionDialog({ id, history, onClose, onRestore, onError }: { i
     <div className="revision-pair">{picker('比较版本', before, setBefore)}{picker('目标版本', after, setAfter)}</div>
     <div className="revision-actions"><button onClick={() => setPreview(!preview)}>{preview ? '查看内容差异' : '查看页面对照'}</button><button className="primary" disabled={busy || !comparison} onClick={async () => { setBusy(true); try { await onRestore(after); } catch (error: any) { setFailure(error.message); } finally { setBusy(false); } }}>将目标版本恢复为工作稿</button></div>
     {failure && <p className="error" role="alert">{failure} <button onClick={() => setReload((value) => value + 1)}>重新读取</button></p>}
-    {!comparison ? !failure && <p role="status">正在读取版本…</p> : preview ? <div className="revision-pair revision-previews">{[before, after].map((version, index) => <PreviewFrame key={index} title={index ? '目标版本预览' : '比较版本预览'} src={'/__preview/' + encodeURIComponent(id) + '?revision=' + version} />)}</div> : <Changes changes={comparison.changes} />}
+    {!comparison ? !failure && <LoadingState label="读取版本" /> : preview ? <div className="revision-pair revision-previews">{[before, after].map((version, index) => <PreviewFrame key={index} title={index ? '目标版本预览' : '比较版本预览'} src={'/__preview/' + encodeURIComponent(id) + '?revision=' + version} />)}</div> : <Changes changes={comparison.changes} />}
   </Dialog>;
 }
 export function MergeDialog({ plan, onSave, onRemote, onClose, onError }: { plan: any; onSave: (choices: Record<string, 'local' | 'remote'>) => Promise<any>; onRemote: () => void; onClose: () => void; onError: (message: string) => void }) {

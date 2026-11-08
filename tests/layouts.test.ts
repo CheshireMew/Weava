@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Site, layouts, saveLayout, renderEntryTemplate, renderSharedRegion, exportSite, importSite, copyPattern } from '@weava/core';
 import { entrySchema, type Layout } from '@weava/contracts';
-const base = 'D:/Tools/cache/weava/tests/layouts-' + Date.now();
+const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/layouts-' + Date.now();
 const sites: Site[] = []; let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null); return site; };
 const page = (id: string, extra = {}) => entrySchema.parse({ id, kind: 'page', title: '页面 ' + id, path: '/' + id + '/', status: 'published', blocks: [{ id: 'text', type: 'text', props: { text: '原页面独有内容' } }], ...extra });
@@ -9,6 +9,13 @@ const region = (id: string, text: string): Layout => ({ id, kind: 'region', labe
 const template = (id: string): Layout => ({ id, kind: 'template', label: id, appliesTo: 'any', blocks: [{ id: 'heading', type: 'hero', props: { title: '模板标题' } }, { id: 'body', type: 'entry-body', props: {} }] });
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 describe('templates and shared regions', () => {
+  it('prevents a concurrent region change from introducing a cycle after validation',()=>{
+    const site=create(),a=saveLayout(site,region('a','A'),null),b=saveLayout(site,region('b','B'),null),other=new Site(site.root);sites.push(other);other.store.raw.pragma('busy_timeout=1');
+    const nextB={...b.value,blocks:[{id:'shared',type:'shared',props:{layoutId:'a'}}]},put=site.store.put.bind(site.store);let attempted=false;
+    site.store.put=((...args:Parameters<typeof put>)=>{if(args[0]==='layout'&&args[1]==='a'&&!attempted){attempted=true;expect(()=>saveLayout(other,nextB,b.revision)).toThrow(/locked/);}return put(...args);}) as typeof put;
+    saveLayout(site,{...a.value,blocks:[{id:'shared',type:'shared',props:{layoutId:'b'}}]},a.revision);
+    expect(attempted).toBe(true);expect(()=>saveLayout(other,nextB,b.revision)).toThrow(/循环/);
+  });
   it('uses type defaults and entry overrides, preserving the body when the published theme changes', () => {
     const site = create(); const type = site.store.get('type', 'post')!;
     site.saveType({ ...type.value, template: 'portfolio' }, type.revision);
@@ -72,7 +79,8 @@ describe('templates and shared regions', () => {
     expect(renderEntryTemplate(release.entries[0], release)).toContain('可迁移区域');
   });
   it('updates shared-region search without copying unchanged entries, and rolls search back with the release',()=>{
-    const site=create(),shared=saveLayout(site,region('shared-search','共享旧搜索词'),null);site.saveEntry(page('one',{blocks:[{id:'shared',type:'shared',props:{layoutId:shared.id}}]}),null);const first=site.publish();
+    // Keep the authored summary independent of region text so this tests the body index.
+    const site=create(),shared=saveLayout(site,region('shared-search','共享旧搜索词'),null);site.saveEntry(page('one',{description:'固定页面摘要',blocks:[{id:'shared',type:'shared',props:{layoutId:shared.id}}]}),null);const first=site.publish();
     expect(site.search('共享旧搜索词')).toHaveLength(1);const before=(site.store.raw.prepare("SELECT COUNT(*) n FROM publication_objects WHERE kind='entry'").get() as any).n;
     saveLayout(site,region(shared.id,'共享新搜索词'),shared.revision);site.publish({scope:'layouts'});expect(site.search('共享新搜索词')).toHaveLength(1);expect(site.search('共享旧搜索词')).toHaveLength(0);
     expect((site.store.raw.prepare("SELECT COUNT(*) n FROM publication_objects WHERE kind='entry'").get() as any).n).toBe(before);site.rollback(first.id);expect(site.search('共享旧搜索词')).toHaveLength(1);expect(site.search('共享新搜索词')).toHaveLength(0);

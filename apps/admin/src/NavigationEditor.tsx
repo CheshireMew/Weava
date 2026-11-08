@@ -12,12 +12,13 @@ export function NavigationEditor({ value, onChange, depth = 0 }: {
       <div className="navigation-row">
         <label>文字<input value={item.label} onChange={(event) => patch(index, { label: event.target.value })} /></label>
         <label>网址{item.url.startsWith('entry:') ? <ReferenceField value={decodeURIComponent(item.url.slice(6))} onChange={id => patch(index, { url: id ? 'entry:' + encodeURIComponent(id) : '/' })} /> : <input value={item.url} onChange={(event) => patch(index, { url: event.target.value })} />}</label>
-        {!item.url.startsWith('entry:') && <button type="button" onClick={async () => { const content = await selectors.content(); if (content) patch(index, { url: 'entry:' + encodeURIComponent(content.id) }); }}>选择内容</button>}
+        <div className="navigation-actions">{!item.url.startsWith('entry:') && <button type="button" onClick={async () => { const content = await selectors.content(); if (content) patch(index, { url: 'entry:' + encodeURIComponent(content.id) }); }}>选择内容</button>}
         <button aria-label="上移导航" disabled={index === 0} onClick={() => {
           const next = [...value]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; onChange(next);
         }}>上移</button>
         <button aria-label="下移导航" disabled={index === value.length - 1} onClick={() => { const next = [...value]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; onChange(next); }}>下移</button>
         <button onClick={() => onChange(value.filter((_, i) => i !== index))}>移除</button>
+        </div>
       </div>
       {!!item.children?.length && <NavigationEditor value={item.children} onChange={(children) => patch(index, { children })} depth={depth + 1} />}
     </div>)}

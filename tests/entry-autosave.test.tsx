@@ -9,9 +9,10 @@ import { EntryRecovery } from '../apps/admin/src/EntryRecovery.tsx';
 import { useEntryEditor } from '../apps/admin/src/useEntryEditor.ts';
 import { DraftRepository, type DraftDatabase, type DraftRow } from '../apps/admin/src/draft-repository.ts';
 import { localDrafts } from '../apps/admin/src/local-drafts.ts';
+import {contentCommands} from '../apps/admin/src/content-commands.ts';
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), repository: null as DraftRepository | null }));
-vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
+const mocks = vi.hoisted(() => ({ api: vi.fn(),waitJob:vi.fn(), repository: null as DraftRepository | null }));
+vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api,waitJob:mocks.waitJob }));
 vi.mock('../apps/admin/src/draft-repository.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../apps/admin/src/draft-repository.ts')>(),
   drafts: () => mocks.repository!,
@@ -21,8 +22,7 @@ let root: Root, host: HTMLDivElement, model: ReturnType<typeof useEntryEditor>;
 let server: Revision<Entry>, rows: Map<string, DraftRow>;
 const setError = vi.fn();
 function Harness() {
-  const [, setLibrary] = useState<any>({ items: [] }), [, setState] = useState<any>({});
-  model = useEntryEditor({ setError, setLibrary, setState, compact: false });
+  model = useEntryEditor({ setError, onSaved:vi.fn(), receiveSchedules:vi.fn(), compact: false });
   return <EntryRecovery model={entryRecoveryModel(model,setError)} />;
 }
 async function mount() {
@@ -46,6 +46,23 @@ it('keeps editor selection and returning to the list in sync with the URL',async
   await act(async()=>model.clear());expect(new URLSearchParams(location.search).has('entry')).toBe(false);
   const listUrl=location.href;await act(async()=>model.select(server.id,false));expect(location.href).toBe(listUrl);
   await act(async()=>model.clear(false));expect(location.href).toBe(listUrl);
+});
+it('saves a body before its title without inserting placeholder text or losing its author',async()=>{
+  await mount();
+  const blank={id:'new-article',revision:0,updatedAt:'',value:entrySchema.parse({id:'new-article',kind:'content',path:'/new-article/',title:'',author:'柴郡'})};
+  await act(async()=>model.adopt(blank));mocks.api.mockClear();
+  expect(new URLSearchParams(location.search).has('entry')).toBe(false);
+  await act(async()=>model.update({document:{version:1,format:'markdown',source:'先写正文'}}));await advance(1200);
+  expect(mocks.api).toHaveBeenCalledWith('entry',expect.objectContaining({revision:null,value:expect.objectContaining({title:'',author:'柴郡',document:expect.objectContaining({source:'先写正文'})})}));
+  expect(model.record?.revision).toBe(1);expect(model.record?.value.title).toBe('');expect(model.dirty).toBe(false);
+});
+it('does not retain an empty new article after text is erased before autosave',async()=>{
+  await mount();
+  await act(async()=>model.adopt({id:'empty',revision:0,updatedAt:'',value:entrySchema.parse({id:'empty',kind:'content',path:'/empty/',title:''})}));mocks.api.mockClear();
+  await act(async()=>model.update({title:'随后清空'}));await advance(250);
+  await act(async()=>model.update({title:''}));await advance(1500);
+  expect(model.dirty).toBe(false);expect(rows.has('empty')).toBe(false);expect(closePage().defaultPrevented).toBe(false);
+  expect(mocks.api).not.toHaveBeenCalledWith('entry',expect.anything());
 });
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -156,4 +173,34 @@ it('preserves edits made during a save and clears them only after the latest req
   expect(model.dirty).toBe(false); expect(model.record?.value.title).toBe('继续写的第二段');
   expect(rows.has('article')).toBe(false); expect(localDrafts('article')).toEqual([]);
   expect(closePage().defaultPrevented).toBe(false);
+});
+it('recomputes a delayed conflict comparison and preserves edits made while saving its result',async()=>{
+  await mount();
+  const pending:{path:string;body:any;resolve:(value:any)=>void}[]=[];
+  mocks.api.mockImplementation((path:string,body:any)=>new Promise(resolve=>pending.push({path,body,resolve})));
+  await act(async()=>model.update({title:'Edit A'}));
+  let comparing:Promise<void>;
+  await act(async()=>{comparing=model.showConflict(model.record!);});
+  await act(async()=>model.update({title:'Edit B'}));
+  const comparison=(index:number)=>({id:server.id,base:server,remote:server,local:pending[index].body.value,fields:[]});
+  await act(async()=>pending[0].resolve(comparison(0)));
+  expect(pending).toHaveLength(2);expect(pending[1].body.value.title).toBe('Edit B');
+  await act(async()=>{pending[1].resolve(comparison(1));await comparing!;});
+  const commands=()=>contentCommands({editor:model,library:{} as any,refresh:async()=>{},notify:()=>{}});
+  let saving:Promise<void>;await act(async()=>{saving=commands().saveMerge({});});
+  expect(pending[2].body.value.title).toBe('Edit B');
+  await act(async()=>model.update({title:'Edit C'}));
+  await act(async()=>pending[2].resolve({...server,revision:2,value:pending[2].body.value}));
+  expect(model.record?.value.title).toBe('Edit C');expect(model.dirty).toBe(true);
+  await act(async()=>{pending[3].resolve(comparison(3));await saving!;});
+  expect(model.conflict.local.title).toBe('Edit C');
+});
+it('reconciles a completed withdrawal with edits typed while the task was running',async()=>{
+ await mount();let finish:(value:any)=>void;
+ mocks.waitJob.mockImplementation(()=>new Promise(resolve=>finish=resolve));
+ mocks.api.mockImplementation(async(path:string,body:any)=>path==='withdraw'?{id:'withdraw-job'}:path==='entry/merge'?{id:server.id,base:server,remote:server,local:body.value}:server);
+ let withdrawing:Promise<void>;await act(async()=>{withdrawing=contentCommands({editor:model,library:{} as any,refresh:async()=>{},notify:()=>{}}).withdraw();});
+ await act(async()=>model.update({title:'Typed while withdrawing'}));server={...server,revision:2};
+ await act(async()=>{finish!({status:'complete'});await withdrawing!;});
+ expect(model.record?.value.title).toBe('Typed while withdrawing');expect(model.dirty).toBe(true);expect(model.conflict.local.title).toBe('Typed while withdrawing');
 });

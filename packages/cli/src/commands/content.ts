@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 import { open as openFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import {createHash} from 'node:crypto';
 import type { CliContext } from '../context.ts';
 
 export function registerContentCommands({
@@ -47,11 +48,15 @@ export function registerContentCommands({
       try {
         const info = await handle.stat();
         if (!info.isFile()) throw new Error('请选择普通文件。');
+        if(info.size<1||info.size>32*1024*1024)throw new Error('附件大小需要在 32 MB 以内。');
+        const hash=createHash('sha256'),part=Buffer.allocUnsafe(1024*1024);
+        for(let offset=0;offset<info.size;){const {bytesRead}=await handle.read(part,0,Math.min(part.length,info.size-offset),offset);if(!bytesRead)throw new Error('文件在校验期间发生变化。');hash.update(part.subarray(0,bytesRead));offset+=bytesRead;}
+        const sha256=hash.digest('hex');
         let state = options.uploadId
           ? await request('media/uploads/' + encodeURIComponent(options.uploadId))
-          : await request('media/uploads', { name: basename(path), size: info.size });
-        if (state.size !== info.size || state.name !== basename(path))
-          throw new Error('上传状态对应的文件名称或大小不同。');
+          : await request('media/uploads', { name: basename(path), size: info.size,sha256 });
+        if (state.size !== info.size || state.name !== basename(path)||state.sha256!==sha256)
+          throw new Error('上传状态对应的文件内容、名称或大小不同，请重新开始上传。');
         output({ uploadId: state.id, offset: state.offset, size: state.size });
         const buffer = Buffer.allocUnsafe(state.chunkBytes);
         while (state.offset < state.size) {
@@ -84,6 +89,7 @@ export function registerContentCommands({
         await handle.close();
       }
     });
+  program.command('media-upload-cancel').requiredOption('--id <id>').action(async options=>output(await request('media/uploads/cancel',{id:options.id})));
 
   for (const name of ['content', 'page', 'settings', 'media']) {
     const command = program.command(name);
@@ -281,17 +287,18 @@ export function registerContentCommands({
     .requiredOption('--input <file>')
     .option('--merge', '合并已有对象，需要输入文件提供 revisions')
     .option('--dry-run', '完整校验并报告，不保存')
+    .option('--wait', '等待后台导入或预检完成')
     .action(async (opts) => {
       const data = JSON.parse(readFileSync(resolve(opts.input), 'utf8').replace(/^\ufeff/, ''));
       output(
-        await request('import', {
+        await wait(await request('import', {
           value: data,
           options: {
             mode: opts.merge ? 'merge' : 'create',
             dryRun: !!opts.dryRun,
             revisions: data.revisions,
           },
-        }),
+        }),!!opts.wait),
       );
     });
 }

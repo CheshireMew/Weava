@@ -4,9 +4,9 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useTransientMessage } from '../apps/admin/src/useTransientMessage.ts';
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
-function Feedback({ context }: { context: string }) {
+function Feedback({ context, duration }: { context: string; duration?: number }) {
   const [message, setMessage] = useState('');
-  useTransientMessage(message, () => setMessage(''), context);
+  useTransientMessage(message, () => setMessage(''), context, duration);
   return <><button onClick={() => setMessage('操作提示')}>提示</button><span role="status">{message}</span></>;
 }
 beforeEach(() => { vi.useFakeTimers(); (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
@@ -23,4 +23,12 @@ it('expires short feedback and cancels the timer when leaving its view', async (
   await act(async () => host.querySelector('button')!.click());
   await act(async () => vi.advanceTimersByTime(2000));
   expect(host.querySelector('[role=status]')?.textContent).toBe('操作提示');
+});
+it('keeps errors visible until dismissed or the user leaves the affected view', async () => {
+  await act(async () => root.render(<Feedback context="article:1" duration={0} />));
+  await act(async () => host.querySelector('button')!.click());
+  await act(async () => vi.advanceTimersByTime(30000));
+  expect(host.querySelector('[role=status]')?.textContent).toBe('操作提示');
+  await act(async () => root.render(<Feedback context="article:list" duration={0} />));
+  expect(host.querySelector('[role=status]')?.textContent).toBe('');
 });

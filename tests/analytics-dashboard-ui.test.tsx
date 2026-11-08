@@ -6,6 +6,7 @@ import AnalyticsPanel from '../apps/admin/src/AnalyticsPanel.tsx';
 import { adminQueries } from '../apps/admin/src/query-cache.ts';
 import { dateRange } from '../apps/admin/src/analytics/date-ranges.ts';
 import { reportLocation } from '../apps/admin/src/analytics/report-navigation.ts';
+import { VisitorDetails } from '../apps/admin/src/analytics/VisitorDetails.tsx';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), fail: false }));
 vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
@@ -33,11 +34,47 @@ afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi
 async function render() { await act(async () => root.render(<AnalyticsPanel onError={vi.fn()} />)); }
 async function click(element: Element | null) { expect(element).not.toBeNull(); await act(async () => (element as HTMLElement).click()); }
 const button = (name: string) => document.querySelector('[aria-label="' + name + '"]');
+const visitorDetail = (label: string, page = 1) => ({ page, pages: 2, total: 51, events: [{ ts: '2026-11-01T12:00:00Z', session: 'visit', kind: 'view', path: '/article/', label, activeMs: 1000, scroll: 20 }] });
+it('reopens cached visitor records immediately and keeps pages scoped to the visitor and date range', async () => {
+  mocks.api.mockImplementation(async (path: string) => { const p = new URLSearchParams(path.split('?')[1]);return visitorDetail(p.get('id') + ':' + p.get('page'), Number(p.get('page'))); });
+  const show = (id: string, data = fixture()) => root.render(<VisitorDetails visitor={id} setVisitor={vi.fn()} data={data} />);
+  await act(async () => show('one'));expect(host.textContent).toContain('one:1');
+  await click([...host.querySelectorAll('button')].find(node => node.textContent === '下一页')!);expect(host.textContent).toContain('one:2');
+  await act(async () => show('two'));expect(host.textContent).toContain('two:1');expect(host.textContent).not.toContain('one:2');
+  await act(async () => root.render(null));const calls = mocks.api.mock.calls.length;
+  await act(async () => show('one'));expect(host.textContent).toContain('one:1');expect(host.querySelector('.loading-state')).toBeNull();expect(mocks.api).toHaveBeenCalledTimes(calls);
+  let finish!: (value: any) => void;mocks.api.mockReturnValue(new Promise(resolve => finish = resolve));
+  await act(async () => show('one', fixture('start=2026-10-01&end=2026-10-02')));expect(host.textContent).not.toContain('one:1');expect(host.querySelector('[aria-label="读取访问记录"]')).not.toBeNull();
+  await act(async () => finish(visitorDetail('new range')));expect(host.textContent).toContain('new range');
+});
+it('keeps visitor records readable during background refresh and offers retry without hiding cached records', async () => {
+  mocks.api.mockResolvedValue(visitorDetail('retained visit'));
+  await act(async () => root.render(<VisitorDetails visitor="one" setVisitor={vi.fn()} data={fixture()} />));
+  let fail!: (error: Error) => void;mocks.api.mockReturnValue(new Promise((_resolve, reject) => fail = reject));
+  await act(async () => adminQueries.invalidate(false, path => path.startsWith('analytics/visitor?')));
+  expect(host.textContent).toContain('retained visit');expect(host.querySelector('.loading-state')).toBeNull();
+  await act(async () => fail(new Error('连接中断')));expect(host.textContent).toContain('retained visit');expect(host.querySelector('[role=alert]')?.textContent).toContain('连接中断');
+  mocks.api.mockResolvedValue(visitorDetail('updated visit'));await click([...host.querySelectorAll('button')].find(node => node.textContent === '重新读取')!);
+  expect(host.textContent).toContain('updated visit');expect(host.querySelector('[role=alert]')).toBeNull();
+});
 async function tab(name: string) { await click([...host.querySelectorAll('[role="tab"]')].find(node => node.textContent === name)!); }
 async function sevenDays() {
   await click(host.querySelector('.analytics-card-footer .analytics-date-menu > button'));
   await click([...document.querySelectorAll('.analytics-date-choices button')].find(node => node.textContent === '近 7 天')!);
 }
+it('paginates sources in ten rows and retains the page on refresh while resetting for a new date range',async()=>{
+ mocks.api.mockImplementation(async(path:string)=>{
+  const data=fixture(path.split('?')[1]);
+  data.sources=Array.from({length:23},(_,index)=>({name:'来源 '+(index+1),host:'source'+index+'.test',channel:'referral',views:23-index,visitors:1,sessions:1}));
+  return path.startsWith('analytics?')?data:data.realtime;
+ });
+ await render();await tab('来源');
+ const card=()=>[...host.querySelectorAll('h2')].find(heading=>heading.textContent==='访问来源')!.closest('section')!;
+ expect(card().querySelectorAll('tbody tr')).toHaveLength(10);
+ await click(card().querySelector('[aria-label="下一页"]'));expect(card().querySelector('tbody tr')?.textContent).toContain('来源 11');
+ await click(button('刷新统计'));expect(card().querySelector('tbody tr')?.textContent).toContain('来源 11');
+ await sevenDays();expect(card().querySelector('tbody tr')?.textContent).toContain('来源 1');expect(card().querySelector('.analytics-pagination')?.textContent).toContain('1 / 3');
+});
 const period = () => host.querySelector('.analytics-card-footer .analytics-date-menu')!.textContent;
 async function source(value: string) {
   await click(button('筛选报表'));

@@ -12,6 +12,11 @@ export function indexRecord(
   revision: number,
   timestamp: string,
 ) {
+  if(scope==='publication-plan'||scope==='publication-schedule') {
+    const due=typeof value.dueAt==='string'?Date.parse(value.dueAt):NaN;
+    if(value.status==='scheduled'&&Number.isFinite(due))db.prepare('INSERT INTO publication_due VALUES(?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET revision=excluded.revision,due_at=excluded.due_at').run(scope,id,revision,due);
+    else db.prepare('DELETE FROM publication_due WHERE scope=? AND id=?').run(scope,id);
+  }
   indexMediaRecord(db, scope, id, value);
   indexListRecord(db, scope, id, value, revision, timestamp);
   indexAuthoredMedia(db, scope, id, value);

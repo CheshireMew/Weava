@@ -6,7 +6,7 @@ import { Site, digest, Analytics } from '@weava/core';
 import { migrateWordPress, migrateWordPressViews } from '../packages/core/src/migrate-wordpress.ts';
 
 it('imports WordPress Markdown, paths, covers and privacy without duplicating or overwriting edited articles', async () => {
-  const base = 'D:/Tools/cache/weava/tests/wordpress-' + Date.now(), source = join(base,'source'), target = join(base,'target');
+  const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wordpress-' + Date.now(), source = join(base,'source'), target = join(base,'target');
   mkdirSync(join(source,'media'),{ recursive:true });
   mkdirSync(join(source,'articles'),{ recursive:true });
   const image = await sharp({ create:{ width:20,height:20,channels:3,background:'#315c4c' } }).png().toBuffer();

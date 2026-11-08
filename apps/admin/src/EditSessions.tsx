@@ -43,7 +43,7 @@ export function EditSessionsProvider({ children }: { children: ReactNode }) {
   },[]);
   return <Context.Provider value={api.current}>{children}
     {[...guards.current].filter(guard=>guard.session?.recovery || guard.session?.notice).map((guard,index)=><div className="recovery-banner" role="status" key={guard.label+index}>{guard.session!.notice || `${guard.label}有浏览器保留的未保存修改。`}{guard.session!.recovery&&<><button onClick={guard.session!.recover}>恢复本地修改</button><button onClick={guard.session!.discardRecovery}>放弃本地副本</button></>}</div>)}
-    {failure&&<Dialog label="修改尚未保存" onClose={()=>failure.resolve(false)}><h2>{failure.guard.label}尚未保存</h2><p role="alert">{failure.error}</p><button onClick={()=>failure.resolve(false)}>留在当前页</button><button onClick={()=>failure.resolve(true)}>放弃修改并继续</button></Dialog>}
+    {failure&&<Dialog label="修改尚未保存" onClose={()=>failure.resolve(false)}><h2>{failure.guard.label}尚未保存</h2><p role="alert">{failure.error}</p><div className="dialog-actions"><button onClick={()=>failure.resolve(false)}>留在当前页</button><button onClick={()=>failure.resolve(true)}>放弃修改并继续</button></div></Dialog>}
   </Context.Provider>;
 }
 export function useEditSessions() { const value=useContext(Context); if (!value) throw new Error('Missing edit session provider'); return value; }

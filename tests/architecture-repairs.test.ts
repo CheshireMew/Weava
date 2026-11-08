@@ -25,6 +25,8 @@ import {applyFeatures,checkFeatures,selection} from '../packages/manager/src/ope
 import {atomic,loadInstallation,updateInstallation,descriptor} from '../packages/manager/src/state.ts';
 import {requestHost} from '../packages/manager/src/host.ts';
 import {fixtureBuild,fixtureProgram} from './fixtures/managed-program.ts';
+import {queueJsonImport} from '../packages/core/src/json-import.ts';
+import {previewTemporaryCleanup} from '../packages/core/src/temporary-files.ts';
 
 const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/architecture-repair-20261106';
 const sites:Site[]=[];
@@ -58,7 +60,7 @@ it('ARC-R08 migrates existing list covers without changing authored revisions or
  const site=fixture(),row=site.saveEntry({...page(),document:{version:1,format:'markdown',source:'![Cover](https://example.com/cover.png)'}},null);
  const count=site.store.raw.prepare('SELECT COUNT(*) n FROM revisions').get();
  site.store.raw.prepare("UPDATE entry_list SET summary=json_remove(summary,'$.cover') WHERE id=?").run(row.id);
- site.store.raw.prepare('DELETE FROM schema_migrations WHERE version=14').run();site.close();
+ site.store.raw.prepare('DELETE FROM schema_migrations WHERE version>=14').run();site.close();
  expect(()=>new Site(site.root,{mode:'open'})).toThrow(/需要迁移/);
  const migrated=new Site(site.root,{mode:'migrate'});sites.push(migrated);
  expect(migrated.store.get('entry',row.id)!.revision).toBe(row.revision);expect(migrated.store.raw.prepare('SELECT COUNT(*) n FROM revisions').get()).toEqual(count);
@@ -87,12 +89,16 @@ it('ARC-R05/12/13 rebuilds active dependency references on restore and shares de
 });
 
 it('ARC-R18 invalidates copied upload offsets and unfinished media jobs without changing the live upload',async()=>{
- const site=fixture(),upload=beginMediaUpload(site,'pending.txt',4);
+ const site=fixture(),upload=beginMediaUpload(site,'pending.txt',4,undefined,'a'.repeat(64));
  await receiveMediaChunk(site,upload.id,0,new Request('http://localhost/',{method:'POST',headers:{'content-type':'application/octet-stream'},body:Buffer.from('ab')}));
- const processing=beginMediaUpload(site,'processing.txt',2),job=site.createJob('media',{uploadId:processing.id});
+ const processing=beginMediaUpload(site,'processing.txt',2,undefined,'b'.repeat(64)),job=site.createJob('media',{uploadId:processing.id});
  site.updateJob(job.id,{status:'running',workerPid:123});site.store.raw.prepare("UPDATE media_uploads SET status='processing',offset=2,job_id=? WHERE id=?").run(job.id,processing.id);
+ const runner=new JobRunner(site,{framework:resolve('.'),source:true});
+ let imported:any;try{imported=await queueJsonImport(site,runner,new Request('http://localhost',{method:'POST',body:'{"value":{"version":1}}'}));}finally{runner.stop();}
  const backup=await createBackup(site,join(base,'backups')),target=join(base,'upload-restored-'+randomUUID());await restoreBackup(backup.path,target,join(base,'before-restores'));
- const restored=new Site(target);try{expect(mediaUploadStatus(restored,upload.id)).toMatchObject({offset:0,status:'expired'});expect(Date.parse(mediaUploadStatus(restored,upload.id).expiresAt)).toBe(0);expect(mediaUploadStatus(restored,processing.id).status).toBe('expired');expect(restored.job(job.id)).toMatchObject({status:'failed',errorStatus:409});expect(site.job(job.id).status).toBe('running');expect(mediaUploadStatus(site,upload.id).offset).toBe(2);expect(existsSync(join(site.root,'uploads',upload.id+'.bin'))).toBe(true);}finally{restored.close();}
+ const restored=new Site(target);try{expect(mediaUploadStatus(restored,upload.id)).toMatchObject({offset:0,status:'expired'});expect(Date.parse(mediaUploadStatus(restored,upload.id).expiresAt)).toBe(0);expect(mediaUploadStatus(restored,processing.id).status).toBe('expired');expect(restored.job(job.id)).toMatchObject({status:'failed',errorStatus:409});expect(site.job(job.id).status).toBe('running');expect(mediaUploadStatus(site,upload.id).offset).toBe(2);expect(existsSync(join(site.root,'uploads',upload.id+'.bin'))).toBe(true);
+ expect(restored.job(imported.id)).toMatchObject({status:'failed',errorStatus:409});expect(site.job(imported.id).status).toBe('queued');expect(previewTemporaryCleanup(restored).files.some(file=>file.kind==='request')).toBe(true);
+ }finally{restored.close();}
 });
 
 it('ARC-R02/03 requires explicit conflict choices when another window saved a local-only note first',()=>{

@@ -1,89 +1,32 @@
-import { storageUsage, schedules, layouts, settingsPublicationState } from '@weava/core';
 import { WeavaError as DomainError } from '@weava/contracts';
+import { adminState } from '../../../../packages/core/src/admin-state.ts';
 
 import { readJobLog } from '@weava/core';
-import { contentViews, creationTemplates } from '@weava/core';
 
-import { publicationPlans } from '@weava/core';
+import { historyArchives } from '@weava/core';
+import { join } from 'node:path';
 
 import {
-  planHistoryArchive,
-  historyArchives,
-  historyArchiveContents,
-  programStatus,
-  SCHEMA_VERSION,
-} from '@weava/core';
-import { join } from 'node:path';
-import { siteFeatures } from '../../../../packages/core/src/site-features.ts';
-
-import type { ApiServices, AdminHandlers } from './types.ts';
-import { resolveSiteInfo } from '../../../../packages/core/src/site-info.ts';
-import { imageAttributes } from '@weava/core';
+  cleanupTemporaryFiles,
+  previewTemporaryCleanup,
+} from '../../../../packages/core/src/temporary-files.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 
 export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>) {
   const { site, siteExtension, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    cancelJob: async ({ body }) => jobs.cancel(body.id),
+    previewTemporaryCleanup: async () => previewTemporaryCleanup(site),
+    cleanupTemporaryFiles: async ({ body }) => cleanupTemporaryFiles(site, body.review),
     state: async ({}, context) => {
       const { url } = context;
-      const settings = site.settings();
-      const settingsPanel = ['appearance', 'comments'].includes(url.searchParams.get('panel') ?? '');
-      const published = settingsPanel ? site.release() : null;
-      return {
-        settings,
-        siteIcon: imageAttributes(site, settings.value.logo, 64).src,
-        features:siteFeatures(site.root),
-        ...(settingsPanel ? settingsPublicationState(settings.value, site.terms().map(row => row.value), published) : {}),
-        ...(url.searchParams.get('panel') === 'appearance' ? { siteInfo: resolveSiteInfo(site) } : {}),
-        types: site.store.list('type'),
-        contentViews: contentViews(site),
-        creationTemplates: creationTemplates(site),
-        terms: site.terms(),
-        layouts: layouts(site),
-        schedules:
-          url.searchParams.get('summary') === '1'
-            ? url.searchParams.get('entryId')
-              ? schedules(site, url.searchParams.get('entryId')!)
-              : []
-            : schedules(site),
-        publicationPlans: url.searchParams.get('summary') === '1' ? [] : publicationPlans(site),
-        entries: url.searchParams.get('summary') === '1' ? [] : site.entries(),
-        entryCount: site.store.raw
-          .prepare("SELECT COUNT(*) n FROM records WHERE scope='entry'")
-          .get() as { n: number },
-        media: url.searchParams.get('summary') === '1' ? [] : site.store.list('media'),
-        jobs:
-          url.searchParams.get('summary') === '1'
-            ? url.searchParams.get('panel') === 'operations'
-              ? site.jobs(true)
-              : []
-            : site.jobs(),
-        releases:
-          url.searchParams.get('summary') === '1'
-            ? url.searchParams.get('panel') === 'operations'
-              ? (site.store.raw
-                  .prepare('SELECT id,created_at FROM releases ORDER BY created_at DESC LIMIT 20')
-                  .all() as { id: string; created_at: string }[])
-              : []
-            : site.releases(),
-        themes: [
-          { id: 'weava', label: 'Weava' },
-          { id: 'newsletter', label: 'Newsletter' },
-          ...((await siteExtension)?.themes ?? []),
-        ],
-        extensionPanels: (await siteExtension)?.panels ?? [],
-        fieldWidgets: site.fieldWidgets,
-        extensionBlocks: Object.keys((await siteExtension)?.blocks ?? {}),
-        extensionBlockDefinitions: Object.fromEntries(
-          Object.entries((await siteExtension).blockDefinitions).map(([key, value]) => [
-            key,
-            { label: value.label, fields: value.fields.map((field) => ({ ...field })) },
-          ]),
-        ),
-        extensions: (await siteExtension).status(),
-        program: { ...programStatus(site.root), databaseSchema: SCHEMA_VERSION },
-      };
+      return adminState(site, await siteExtension, {
+        panel: url.searchParams.get('panel'),
+        summary: url.searchParams.get('summary') === '1',
+        entryId: url.searchParams.get('entryId'),
+      });
     },
     extensions: async () => {
       return (await siteExtension).status();
@@ -97,10 +40,10 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       return await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null);
     },
     maintenance: async () => {
-      return jobs.query('storage-usage',{});
+      return jobs.query('storage-usage', {});
     },
     previewArchive: async ({ body: data }) => {
-      return jobs.query('archive-plan',data);
+      return jobs.query('archive-plan', data);
     },
     archiveHistory: async ({ body: data }) => {
       return await execute('archive-history', data);
@@ -113,7 +56,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     },
     archiveContents: async ({}, context) => {
       const { url } = context;
-      return jobs.query('archive-contents',{id:url.searchParams.get('id')??''});
+      return jobs.query('archive-contents', { id: url.searchParams.get('id') ?? '' });
     },
     jobs: async () => {
       return site.jobs();
@@ -159,6 +102,9 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     | 'archiveContents'
     | 'jobs'
     | 'job'
+    | 'cancelJob'
+    | 'previewTemporaryCleanup'
+    | 'cleanupTemporaryFiles'
     | 'logs'
     | 'backup'
     | 'verify'

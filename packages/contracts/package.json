@@ -8,6 +8,7 @@
     "./api": "./src/admin-api.ts",
     "./api-client": "./src/api-client.ts",
     "./api-error": "./src/api-error.ts",
-    "./session-api": "./src/session-api.ts"
+    "./session-api": "./src/session-api.ts",
+    "./api-transport": "./src/api-transport.ts"
   }
 }

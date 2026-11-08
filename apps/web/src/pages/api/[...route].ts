@@ -11,6 +11,8 @@ import { assertRequestOrigin,assertJsonRequest } from '../../../../../packages/c
 import { ZodError } from 'zod';
 import { readMediaUploadRequest } from '../../../../../packages/core/src/legacy-media-upload.ts';
 import { anonymousSessionOperations } from '@weava/contracts/session-api';
+import {queueJsonImport} from '../../../../../packages/core/src/json-import.ts';
+import {importRequestBytes} from '../../../../../packages/contracts/src/import-limits.ts';
 const dispatch = createAdminDispatcher(services);
 export const ALL: APIRoute = async (context) => {
   try {
@@ -45,13 +47,14 @@ export const ALL: APIRoute = async (context) => {
         (await publicApi(services, requestContext, route)) ?? json({ error: '接口不存在。' }, 404)
       );
     if (!match) return json({ error: '接口或请求方法不存在。' }, 404);
+    if(match.operation==='import')return json(await queueJsonImport(services.site,services.jobs,context.request),202);
     const limit =
       match.operation === 'login' ? 4096 : ['accountAccess','completeAccountAccess'].includes(match.operation)
         ? 16384
         : match.operation === 'uploadMedia'
           ? 45 * 1024 * 1024
           : match.operation === 'importWxr'
-            ? 192 * 1024 * 1024
+            ? importRequestBytes
             : 16 * 1024 * 1024;
     const body = match.operation==='uploadMedia' ? await readMediaUploadRequest(services.site,services.jobs,context.request) : write && match.operation!=='uploadChunk' ? await readJsonBody(context.request, limit) : undefined;
     return await dispatch(match.operation, match.params, body, requestContext);

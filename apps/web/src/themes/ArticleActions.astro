@@ -19,9 +19,9 @@ const { position, counts } = Astro.props;
   <div class="nl-action-right">
     <button type="button" class="nl-share-action" data-article-action="share">分享</button>
     <div class="nl-more-wrap">
-      <button type="button" class="nl-round-action" data-article-action="more" aria-label="更多文章操作" aria-expanded="false" aria-controls={`article-menu-${position}`}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg></button>
-      <div class="nl-more-menu" id={`article-menu-${position}`} hidden>
-        <button type="button" data-article-action="copy">复制链接</button><button type="button" data-article-action="print">打印文章</button>
+      <button type="button" class="nl-round-action" data-article-action="more" aria-label="更多文章操作" aria-haspopup="menu" aria-expanded="false" aria-controls={`article-menu-${position}`}><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg></button>
+      <div class="nl-more-menu" id={`article-menu-${position}`} role="menu" aria-label="更多文章操作" hidden>
+        <button type="button" role="menuitem" tabindex="-1" data-article-action="copy">复制链接</button><button type="button" role="menuitem" tabindex="-1" data-article-action="print">打印文章</button>
       </div>
     </div>
   </div>

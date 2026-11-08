@@ -10,7 +10,8 @@ import {
   planWordpressStatistics,
   importWordpressStatistics,
 } from '@weava/core';
-import { migrateCrypto } from '../../../core/src/migrate.ts';
+import { migrateCrypto } from '../../../crypto-migration/src/migrate.ts';
+import { convertCryptoSite } from '../../../crypto-migration/src/convert.ts';
 import { migrateWordPress, migrateWordPressViews } from '../../../core/src/migrate-wordpress.ts';
 import { migrateWordPressRoutes } from '../../../core/src/migrate-wordpress-routes.ts';
 import { importWordPressWxr } from '../../../core/src/wordpress-wxr.ts';
@@ -26,6 +27,10 @@ export function registerMigrationCommands({
   wait,
 }: CliContext) {
   const migrate = program.command('migrate');
+  migrate.command('library')
+    .option('--dry-run', '检查加密旧站转换，不保存')
+    .action(async opts => output(await withInstanceMaintenance(root(), () =>
+      convertCryptoSite(root(),root(),{apply:true,dryRun:!!opts.dryRun}))));
 
   migrate
     .command('wxr')

@@ -1,4 +1,5 @@
 import {Plus,Search} from 'lucide-react';
+import {LoadingState} from './LoadingState.tsx';
 import type {ContentLibraryModel} from './content-models.ts';
 import {EntryActions} from './EntryActions.tsx';
 import {isNoteType} from '@weava/contracts';
@@ -12,7 +13,7 @@ export function NotesLibrary({model}:{model:Pick<ContentLibraryModel,'items'|'li
   <div className="notes-search"><Search size={18} aria-hidden="true"/><input aria-label="搜索笔记" placeholder="搜索笔记" value={filter} onChange={event=>setFilter(event.target.value)}/></div>
   {pending.length>0&&<div className="recovery-banner" role="status">有尚未保存到网站的笔记。{[...new Map(pending.map(copy=>[copy.record.id,copy])).values()].map(copy=><button key={copy.record.id} onClick={()=>select(copy.record.id)}>恢复 {copy.record.value.title}</button>)}</div>}
   <div className="notes-list" aria-busy={libraryLoading}>
-   {libraryLoading&&!items.length&&<p className="library-status" role="status">正在载入笔记…</p>}
+   {libraryLoading&&!items.length&&<LoadingState label="读取笔记" />}
    {!libraryLoading&&!items.length&&<p className="library-status">{filter?'没有找到笔记。':'随手记点什么吧。'}</p>}
    {items.map((row:any)=><article className="notes-list-item" key={row.id}>
     <button className="notes-list-open" onClick={()=>select(row.id)}><span>{row.value.title==='未命名笔记'?'继续写笔记…':row.value.title}</span><div className="notes-list-meta"><time dateTime={row.value.publishedAt||row.updatedAt}>{new Date(row.value.publishedAt||row.updatedAt).toLocaleString('zh-CN',{dateStyle:'medium',timeStyle:'short'})}</time><EntryStatus row={row}/>{row.value.visibility==='private'&&<span>私密</span>}</div></button>

@@ -64,8 +64,8 @@ export function queryReferences(site: Site, input: { referenceTypes?: string[]; 
     args.push('$.'+JSON.stringify(key),...type.split(','),typeof expected==='boolean'?(expected?'1':'0'):String(expected));
   }
   const where=clauses.join(' AND '),total=(site.store.raw.prepare('SELECT COUNT(*) n FROM entry_list WHERE '+where).get(...args) as {n:number}).n;
-  const rows=site.store.raw.prepare('SELECT id FROM entry_list WHERE '+where+' ORDER BY title COLLATE NOCASE,id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string}[];
-  return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:rows.map(row=>site.store.get('entry',row.id)!)};
+  const rows=site.store.raw.prepare("SELECT id,revision,title,kind,type,json_extract(summary,'$.path') AS path,updated_at FROM entry_list WHERE "+where+' ORDER BY title COLLATE NOCASE,id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;title:string;kind:Entry['kind'];type:string;path:string;updated_at:string}[];
+  return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:rows.map(row=>({id:row.id,revision:row.revision,updatedAt:row.updated_at,value:{id:row.id,title:row.title,path:row.path,kind:row.kind,type:row.type}}))};
 }
 
 export function contentQuery(params: URLSearchParams): ContentQuery {

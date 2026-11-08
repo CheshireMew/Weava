@@ -84,6 +84,7 @@ export class Storage {
   put(scope: string, id: string, value: any, expected: number | null, label = '保存') {
     return this.raw
       .transaction(() => {
+        this.assertTask();
         const current = this.get(scope, id);
         if ((current?.revision ?? null) !== expected)
           throw new WeavaError('内容已被其他窗口修改，请重新载入。', 409, {
@@ -128,9 +129,15 @@ export class Storage {
     return (this.raw.prepare('SELECT value FROM state WHERE key=?').get(key) as any)?.value;
   }
   setState(key: string, value: string) {
-    this.raw
+    this.raw.transaction(()=>{this.assertTask();this.raw
       .prepare('INSERT INTO state VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-      .run(key, value);
+      .run(key, value);}).immediate();
+  }
+  assertTask(){
+    if(!process.env.WEAVA_JOB_ID||process.env.WEAVA_JOB_ROOT!==this.root)return;
+    const row=this.raw.prepare('SELECT data FROM jobs WHERE id=?').get(process.env.WEAVA_JOB_ID) as {data:string}|undefined;
+    const job=row?JSON.parse(row.data):null;
+    if(!job||job.cancelRequestedAt||job.deadlineAt&&Date.now()>=job.deadlineAt)throw new WeavaError('任务已取消或超过执行期限。',409);
   }
   close() {
     if (this.raw.open) this.raw.close();

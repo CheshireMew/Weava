@@ -31,6 +31,7 @@ export function serveTasks(root:string) {
       if(operation==='analytics-export')return analytics.export(params,payload.timezone);
     }
     const {site,manager}=await content();
+    if(operation==='seo-audits')return (await import('./seo-audit.ts')).seoAudits(site);
     if(operation==='legacy-media-stage')return (await import('./legacy-media-upload.ts')).decodeLegacyMediaUpload(site,payload.path);
     const {preparePublication,savePublicationReview,readPublicationCandidate}=await import('./publication.ts');
     if(operation==='publication-review'){
@@ -44,20 +45,9 @@ export function serveTasks(root:string) {
       const options=planOptions(site,row.value),prepared=preparePublication(site,options);await manager.validateRelease(prepared.release);
       return {plan:row,review:savePublicationReview(site,options,prepared)};
     }
-    if(operation==='schedule-create')return (await import('./schedules.ts')).schedulePublication(site,payload.id,payload.revision,payload.dueAt);
-    if(operation==='plan-save')return (await import('./publication-plans.ts')).savePublicationPlan(site,payload.value,payload.revision??null);
-    if(operation==='withdraw'||operation==='entry-delete'){
-      const options=site.withdrawalOptions(payload.id,payload.revision);
-      if(options)await manager.validateRelease(readPublicationCandidate(site,options).release);
-      return operation==='entry-delete'
-        ? (await import('./entry-actions.ts')).deleteContent(site,payload.id,payload.revision,options)
-        : site.withdraw(payload.id,payload.revision,!!payload.archive,options);
-    }
     if(operation==='media-references')return (await import('./media.ts')).mediaReferences(site,payload.id);
     if(operation==='storage-usage'){
-      const generation=(site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get() as {n:number}).n;
-      if(usage&&usage.generation===generation&&Date.now()-usage.at<10000)return usage.value;
-      const value=(await import('./maintenance.ts')).storageUsage(site);usage={at:Date.now(),generation,value};return value;
+      return (await import('./maintenance.ts')).storageUsage(site);
     }
     if(operation==='archive-plan'){
       const plan=(await import('./history-archive.ts')).planHistoryArchive(site,payload);

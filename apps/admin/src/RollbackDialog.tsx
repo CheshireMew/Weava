@@ -2,6 +2,7 @@ import {useEffect,useState} from 'react';
 import type {ApiOutput} from '@weava/contracts/api';
 import {api} from './api.ts';
 import {Dialog} from './Dialog.tsx';
+import {LoadingState} from './LoadingState.tsx';
 
 export function RollbackDialog({id,onClose,onRestored,onError}:{id:string;onClose:()=>void;onRestored:()=>unknown;onError:(message:string)=>void}){
   const [review,setReview]=useState<ApiOutput<'previewRollback'>|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[restoring,setRestoring]=useState(false),[attempt,setAttempt]=useState(0);
@@ -12,7 +13,7 @@ export function RollbackDialog({id,onClose,onRestored,onError}:{id:string;onClos
   },[id,attempt]);
   return <Dialog label="恢复公开版本" onClose={onClose} dismissible={!restoring}>
     <div className="modal-title"><h2>恢复公开版本</h2><button disabled={restoring} onClick={onClose}>关闭</button></div>
-    {loading&&<p role="status">正在检查恢复内容…</p>}
+    {loading&&<LoadingState label="检查恢复内容" />}
     {error&&<div role="alert"><p>{error}</p><button disabled={restoring} onClick={()=>setAttempt(value=>value+1)}>重新检查</button></div>}
     {review&&<>
       <p>{new Date(review.createdAt).toLocaleString()} · {review.label}</p>

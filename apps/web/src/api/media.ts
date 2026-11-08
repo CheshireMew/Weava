@@ -1,37 +1,48 @@
-import {
-  stageMedia,
-  queryMedia,
-  saveMediaMetadata,
-  mediaReferences,
-  archiveMedia,
-} from '@weava/core';
+import { archiveMedia, queryMedia, saveMediaMetadata, stageMedia } from '@weava/core';
+import { mediaVariants } from '../../../../packages/core/src/image-variants.ts';
+import { mediaRecords } from '../../../../packages/core/src/media.ts';
 
-import { mediaGroups, saveMediaGroup, moveMedia } from '@weava/core';
+import { mediaGroups, moveMedia, saveMediaGroup } from '@weava/core';
 
 import { imagePresets, saveImagePreset } from '@weava/core';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
-import { beginMediaUpload,receiveMediaChunk,mediaUploadStatus,finishMediaUpload } from '../../../../packages/core/src/media-upload.ts';
+import {
+  beginMediaUpload,
+  finishMediaUpload,
+  mediaUploadStatus,
+  receiveMediaChunk,
+} from '../../../../packages/core/src/media-upload.ts';
+import { cancelUpload } from '../../../../packages/core/src/temporary-files.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const { site, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    cancelUpload: async ({ body }) => cancelUpload(site, body.id),
     media: async () => {
-      return site.store.list('media');
+      return mediaRecords(site);
     },
     uploadMedia: async ({ body: data }, context) => {
       const { request } = context;
-      if('uploadId' in data)return finishMediaUpload(site,jobs,data.uploadId);
+      if ('uploadId' in data) return finishMediaUpload(site, jobs, data.uploadId);
       return await execute(
         'media',
         stageMedia(site, Buffer.from(data.base64, 'base64'), String(data.name ?? '')),
         request.headers.get('Idempotency-Key') ?? undefined,
       );
     },
-    beginUpload:async({body},context)=>beginMediaUpload(site,body.name,body.size,context.request.headers.get('Idempotency-Key')??undefined),
-    uploadStatus:async({params})=>mediaUploadStatus(site,params.id),
-    uploadChunk:async({params,query},context)=>receiveMediaChunk(site,params.id,query.offset,context.request),
+    beginUpload: async ({ body }, context) =>
+      beginMediaUpload(
+        site,
+        body.name,
+        body.size,
+        context.request.headers.get('Idempotency-Key') ?? undefined,
+        body.sha256,
+      ),
+    uploadStatus: async ({ params }) => mediaUploadStatus(site, params.id),
+    uploadChunk: async ({ params, query }, context) =>
+      receiveMediaChunk(site, params.id, query.offset, context.request),
     mediaQuery: async ({}, context) => {
       const { url } = context;
       return queryMedia(site, url.searchParams);
@@ -41,7 +52,7 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     },
     mediaReferences: async ({}, context) => {
       const { url } = context;
-      return jobs.query('media-references',{id:url.searchParams.get('id')??''});
+      return jobs.query('media-references', { id: url.searchParams.get('id') ?? '' });
     },
     archiveMedia: async ({ body: data }) => {
       return archiveMedia(site, data.items, !!data.archived);
@@ -67,9 +78,7 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     },
     variants: async ({}, context) => {
       const { url } = context;
-      return site.store
-        .list('media-variant')
-        .filter((row) => row.value.parentId === url.searchParams.get('id'));
+      return mediaVariants(site, url.searchParams.get('id'));
     },
     imageVariant: async ({ body: data }, context) => {
       const { request } = context;
@@ -82,6 +91,7 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   } satisfies Pick<
     AdminHandlers,
     | 'media'
+    | 'cancelUpload'
     | 'uploadMedia'
     | 'beginUpload'
     | 'uploadStatus'

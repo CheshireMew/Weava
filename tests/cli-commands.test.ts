@@ -32,6 +32,7 @@ it('retains the public command groups and backup, owner and migration operations
     [
       'schema',
       'media-upload',
+      'media-upload-cancel',
       'content',
       'page',
       'settings',

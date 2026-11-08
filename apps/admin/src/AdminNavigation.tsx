@@ -12,6 +12,7 @@ import {
   NotebookPen,
 } from 'lucide-react';
 import {isNoteType} from '@weava/contracts';
+import type {ContentState} from './content-models.ts';
 
 export const tabs = [
   ['content', '文章', FileText],
@@ -23,6 +24,11 @@ export const tabs = [
   ['operations', '备份与维护', Settings2],
   ['account', '账户', UserRound],
 ] as const;
+export function adminTabLabel(key: string, types: ContentState['types'] = []) {
+  const contentTypes = types.filter(row => !isNoteType(row.value));
+  if (key === 'content') return contentTypes.length > 1 ? '内容' : contentTypes[0]?.value.label ?? '文章';
+  return tabs.find(tab => tab[0] === key)?.[1];
+}
 export function AdminNavigation({
   compact,
   state,
@@ -44,7 +50,7 @@ export function AdminNavigation({
   const group = (keys: string[]) => keys.filter(key=>(key!=='notes'||state?.types?.some((row:any)=>isNoteType(row.value)))&&(!state?.features||!capability[key]||state.features.includes(capability[key]))).map(key => tabs.find(tab => tab[0] === key)!);
   const links = (items: (typeof tabs)[number][]) => items.map(([key, label, Icon]) => (
     <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''}
-      key={key} onPointerEnter={() => preload?.(key)} onFocus={() => preload?.(key)} onClick={() => navigate(key)}><Icon size={18} />{label}</button>
+      key={key} onPointerEnter={() => preload?.(key)} onFocus={() => preload?.(key)} onClick={() => navigate(key)}><Icon size={18} />{adminTabLabel(key, state?.types) ?? label}</button>
   ));
   return (
     <>

@@ -1,4 +1,4 @@
-import { api } from './api.ts';
+import { api,waitJob } from './api.ts';
 import { drafts } from './draft-repository.ts';
 import type { useEntryEditor } from './useEntryEditor.ts';
 import type { useContentLibrary } from './useContentLibrary.ts';
@@ -17,17 +17,20 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
   async function check() {
     const row = current();
     if (!row) return;
+    const checkpoint = session.checkpoint();
     const result = await api('entry/check', { value: row.value });
-    if (current()?.id === row.id) editor.setContentCheck({ ...result, id: row.id });
+    if (session.unchanged(checkpoint)) editor.setContentCheck({ ...result, id: row.id });
   }
   async function openHistory() {
     const row = await persist();
     if (!row) return;
+    if (!row.revision) { editor.setHistory([]); return; }
     const rows = await api(`history?id=${encodeURIComponent(row.id)}`);
     if (current()?.id === row.id) editor.setHistory(rows);
   }
   async function openPreview() {
     const row = await persist();
+    if (row && !row.revision) throw new Error('请先填写标题或正文。');
     if (row && current()?.id === row.id)
       editor.setPreview('/__preview/' + row.id + '?revision=' + row.revision);
   }
@@ -51,9 +54,10 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
   async function restoreHistory(version: number) {
     const row = current();
     if (!row) return;
+    const checkpoint = session.checkpoint();
     const restored = await api('restore', { id: row.id, version, revision: row.revision });
     if (current()?.id === row.id) {
-      adopt(restored);
+      if (!adopt(restored, checkpoint)) await editor.showConflict(current()!);
       editor.setHistory(null);
     }
     await refresh();
@@ -62,6 +66,10 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
   async function saveMerge(choices: any) {
     const conflict = editor.conflict;
     if (!conflict) return;
+    if (!conflict.checkpoint || !session.unchanged(conflict.checkpoint)) {
+      await compare();
+      throw new Error('比较期间内容已变化，请查看更新后的合并结果。');
+    }
     try {
       const row = await api('entry/merge/save', {
         id: conflict.id,
@@ -70,7 +78,7 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
         value: conflict.local,
         choices,
       });
-      if (current()?.id === row.id) adopt(row);
+      if (current()?.id === row.id && !adopt(row, conflict.checkpoint)) await editor.showConflict(current()!);
       await refresh();
       notify('已保存合并结果。');
     } catch (error: any) {
@@ -83,33 +91,36 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
     library.setBulkOpen(true);
   }
   async function finishBulk() {
-    await refresh();
+    const checkpoint = session.checkpoint();
     const row = current();
+    await refresh();
     if (row && library.bulkIds.includes(row.id)) {
       const remote = await api(`entry/${encodeURIComponent(row.id)}`);
-      if (current()?.id === row.id) adopt(remote);
+      if (current()?.id === row.id && !adopt(remote, checkpoint)) await editor.showConflict(current()!);
     }
     library.setBulkIds([]);
   }
   async function withdraw(archive = false) {
     const row = await persist();
     if (!row) return;
-    await api('withdraw', {
+    const checkpoint=session.checkpoint();
+    await waitJob(await api('withdraw', {
       id: row.id,
       revision: row.revision,
       ...(archive ? { archive: true } : {}),
-    });
+    }),()=>{});
     await refresh();
-    if (current()?.id === row.id) await editor.select(row.id);
+    const remote=await api(`entry/${encodeURIComponent(row.id)}`);
+    if (current()?.id === row.id&&!adopt(remote,checkpoint)) await editor.showConflict(current()!);
   }
   async function schedule() {
     const row = await persist();
     if (!row) return;
-    await api('schedule', {
+    await waitJob(await api('schedule', {
       id: row.id,
       revision: row.revision,
       dueAt: new Date(editor.scheduleDueAt).toISOString(),
-    });
+    }),()=>{});
     editor.setScheduleDueAt('');
     await refresh();
     notify('定时发布已安排');

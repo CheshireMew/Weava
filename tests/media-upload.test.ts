@@ -5,7 +5,9 @@ import { Site,JobRunner } from '@weava/core';
 import { beginMediaUpload,mediaUploadStatus,receiveMediaChunk,finishMediaUpload,completeMediaUpload } from '../packages/core/src/media-upload.ts';
 import { createAdminClient } from '@weava/contracts/api-client';
 import { readMediaUploadRequest } from '../packages/core/src/legacy-media-upload.ts';
-const base='D:/Tools/cache/weava/tests/media-upload-'+Date.now();
+import {createHash} from 'node:crypto';
+const sha=(value:string|Uint8Array)=>createHash('sha256').update(value).digest('hex');
+const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/media-upload-'+Date.now();
 const chunk=(value:string|Uint8Array)=>new Request('http://localhost/api/admin/v1/media/uploads/id',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:value as BodyInit});
 it('finishes WebP uploads on their first attempt and deduplicates repeated files without leftover staging files',async()=>{
   const site=new Site(join(base,'webp')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
@@ -13,7 +15,7 @@ it('finishes WebP uploads on their first attempt and deduplicates repeated files
     for(const [index,name] of ['picsum-10.webp','picsum-11.webp','picsum-10.webp'].entries()){
       const saved=index===2?site.store.list('media').find(row=>row.value.name==='picsum-10.webp'):undefined;
       const renamed=saved?site.store.put('media',saved.id,{...saved.value,name:'自定义名称',alt:'已编辑的图片说明'},saved.revision):undefined;
-      const bytes=readFileSync(resolve('apps/web/public/default-covers',name)),upload=beginMediaUpload(site,name,bytes.length);
+      const bytes=readFileSync(resolve('apps/web/public/default-covers',name)),upload=beginMediaUpload(site,name,bytes.length,undefined,sha(bytes));
       await receiveMediaChunk(site,upload.id,0,chunk(bytes));
       const result=await runner.wait(finishMediaUpload(site,runner,upload.id).id,15000);
       expect(readFileSync(join(site.root,result.value.url.slice(1)))).toEqual(bytes);
@@ -27,7 +29,7 @@ it('finishes WebP uploads on their first attempt and deduplicates repeated files
 it('recovers the durable file after an interrupted database commit without publishing a failed upload',async()=>{
   const site=new Site(join(base,'commit-recovery')),runner=new JobRunner(site,{startPaused:true,framework:resolve('.'),source:true});
   try{
-    const upload=beginMediaUpload(site,'recover.txt',7);
+    const upload=beginMediaUpload(site,'recover.txt',7,undefined,sha('recover'));
     await receiveMediaChunk(site,upload.id,0,chunk('recover'));
     const job=finishMediaUpload(site,runner,upload.id);
     const put=vi.spyOn(site.store,'put').mockImplementationOnce(()=>{throw new Error('interrupted commit');});
@@ -44,7 +46,7 @@ it('recovers the durable file after an interrupted database commit without publi
 it('resumes binary chunks across connections, recovers a partial write and deduplicates processing',async()=>{
   const site=new Site(join(base,'resume')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{
-    const upload=beginMediaUpload(site,'notes.txt',10,'stable');expect(beginMediaUpload(site,'notes.txt',10,'stable').id).toBe(upload.id);
+    const upload=beginMediaUpload(site,'notes.txt',10,'stable',sha('0123456789'));expect(beginMediaUpload(site,'notes.txt',10,'stable',sha('0123456789')).id).toBe(upload.id);
     await receiveMediaChunk(site,upload.id,0,chunk('0123'));
     expect(()=>finishMediaUpload(site,runner,upload.id)).toThrow(/完整上传/);
     await expect(receiveMediaChunk(site,upload.id,0,chunk('0123'))).rejects.toMatchObject({status:409});
@@ -61,7 +63,7 @@ it('resumes binary chunks across connections, recovers a partial write and dedup
 it('validates the entire streamed text, rejects oversized chunks, and permits retry after a worker failure',async()=>{
   const site=new Site(join(base,'validation')),runner=new JobRunner(site,{startPaused:false,framework:resolve('.'),source:true});
   try{
-    const upload=beginMediaUpload(site,'bad.txt',70000),bytes=new Uint8Array(70000).fill(65);bytes[69999]=0;
+    const bytes=new Uint8Array(70000).fill(65);bytes[69999]=0;const upload=beginMediaUpload(site,'bad.txt',70000,undefined,sha(bytes));
     await expect(receiveMediaChunk(site,upload.id,0,chunk(new Uint8Array(70001)))).rejects.toMatchObject({status:413});
     expect(mediaUploadStatus(site,upload.id).offset).toBe(0);
     await receiveMediaChunk(site,upload.id,0,chunk(bytes));const job=finishMediaUpload(site,runner,upload.id);
@@ -71,7 +73,7 @@ it('validates the entire streamed text, rejects oversized chunks, and permits re
 },20000);
 it('sends raw binary through the shared typed client and documents its distinct wire format',async()=>{
   const body=new Uint8Array([1,2,3]),calls:RequestInit[]=[];
-  const client=createAdminClient({fetch:async(_url,init)=>{calls.push(init!);return Response.json({id:'id',name:'file.txt',size:3,offset:3,status:'receiving',expiresAt:new Date().toISOString(),chunkBytes:1024*1024});}});
+  const client=createAdminClient({fetch:async(_url,init)=>{calls.push(init!);return Response.json({id:'id',name:'file.txt',size:3,offset:3,status:'receiving',sha256:sha(body),expiresAt:new Date().toISOString(),chunkBytes:1024*1024});}});
   await client.request('media/uploads/id?offset=0',body);
   expect(new Headers(calls[0].headers).get('Content-Type')).toBe('application/octet-stream');expect(calls[0].body).toBe(body);
 });

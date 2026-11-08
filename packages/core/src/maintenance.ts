@@ -1,10 +1,18 @@
 import {mediaIdentity} from './paths.ts';
 import {join,relative} from 'node:path';
-import {statSync,existsSync} from 'node:fs';
+import {statSync,existsSync,lstatSync,readdirSync} from 'node:fs';
 import type {Site} from './site.ts';
 import {walk} from '../../runtime-common/src/files.ts';
 import {maintenanceReferences} from './maintenance-reference-cache.ts';
+import {expireUploads,previewTemporaryCleanup} from './temporary-files.ts';
+function localBytes(path:string):number {
+  if(!existsSync(path))return 0;
+  const stat=lstatSync(path);if(stat.isSymbolicLink())return 0;
+  if(stat.isFile())return stat.size;
+  return stat.isDirectory()?readdirSync(path).reduce((sum,name)=>sum+localBytes(join(path,name)),0):0;
+}
 export function storageUsage(site: Site) {
+  expireUploads(site);
   const refs = maintenanceReferences(site);
   for (const row of site.store.list('media'))
     if (refs.has(mediaIdentity(row.value.url)))
@@ -44,6 +52,12 @@ export function storageUsage(site: Site) {
   return {
     databaseBytes: physical('weava.sqlite'),
     analyticsBytes: physical('analytics.sqlite'),
+    businessBytes:physical('business.sqlite'),
+    temporary:previewTemporaryCleanup(site),
+    pendingUploads:site.store.raw.prepare("SELECT id,name,size,offset,status FROM media_uploads WHERE status NOT IN ('complete','purged') ORDER BY expires LIMIT 100").all() as {id:string;name:string;size:number;offset:number;status:string}[],
+    uploadsBytes:localBytes(join(site.root,'uploads')),
+    logsBytes:localBytes(join(site.root,'logs')),
+    importsBytes:localBytes(join(site.root,'imports')),
     versions: versions as {count:number;bytes:number},
     releases: releases as {count:number;bytes:number},
     publicationObjects: site.store.raw.prepare('SELECT kind,COUNT(*) count,SUM(LENGTH(CAST(data AS BLOB))) bytes FROM publication_objects INDEXED BY publication_object_bytes GROUP BY kind').all() as {kind:string;count:number;bytes:number}[],

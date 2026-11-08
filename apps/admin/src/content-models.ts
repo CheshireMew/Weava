@@ -1,16 +1,45 @@
-import type { Dispatch, SetStateAction } from 'react';
-import type { Entry, Revision, BlockDefinition } from '@weava/contracts';
+import type { Entry, Revision } from '@weava/contracts';
 import type { ApiOutput } from '@weava/contracts/api';
+import type { Dispatch, SetStateAction } from 'react';
 import type { LocalDraft } from './local-drafts.ts';
 
 export type ContentState = ApiOutput<'state'>;
 export type EntryRecord = Revision<Entry>;
 export type ContentPage = ApiOutput<'queryEntries'>;
 export type EntrySummary = ContentPage['items'][number];
-export type ContentCatalog = Pick<
-  ContentState,
-  'types' | 'terms' | 'entries' | 'layouts' | 'fieldWidgets' | 'extensionBlocks'
-> & { extensionBlockDefinitions: Record<string, Pick<BlockDefinition, 'label' | 'fields'>> };
+export type ContentCatalog = Pick<ContentState,'types'|'terms'|'entries'|'layouts'|'fieldWidgets'|'extensionBlocks'|'extensionBlockDefinitions'>;
+export type ContentWorkspaceData = ContentCatalog &
+  Pick<ContentState, 'contentViews' | 'schedules' | 'features'> & {
+    author: { name: string; logo: string };
+  };
+export function workspaceData(state: ContentState | null): ContentWorkspaceData | null {
+  if (!state) return null;
+  const {
+    types,
+    terms,
+    entries,
+    layouts,
+    fieldWidgets,
+    extensionBlocks,
+    extensionBlockDefinitions,
+    contentViews,
+    schedules,
+    features,
+  } = state;
+  return {
+    types,
+    terms,
+    entries,
+    layouts,
+    fieldWidgets,
+    extensionBlocks,
+    extensionBlockDefinitions,
+    contentViews,
+    schedules,
+    features,
+    author: { name: state.settings.value.name, logo: state.siteIcon ?? state.settings.value.logo },
+  };
+}
 export type ContentCheck = ApiOutput<'checkEntry'> & { id: string };
 type Change<T> = Dispatch<SetStateAction<T>>;
 
@@ -83,7 +112,21 @@ export interface EntryActionsModel {
   duplicateEntry: (row: { id: string; revision: number }) => Promise<void>;
   deleteEntry: (row: { id: string; revision: number }) => Promise<void>;
 }
-export type NoteEditorModel = Pick<EntryEditorModel,'record'|'saving'|'update'|'persist'|'publish'|'setError'|'clear'|'editorEpoch'|'busy'|'author'|'publicationNotice'|'recovery'>;
+export type NoteEditorModel = Pick<
+  EntryEditorModel,
+  | 'record'
+  | 'saving'
+  | 'update'
+  | 'persist'
+  | 'publish'
+  | 'setError'
+  | 'clear'
+  | 'editorEpoch'
+  | 'busy'
+  | 'author'
+  | 'publicationNotice'
+  | 'recovery'
+>;
 export interface ContentLibraryModel {
   record: EntryRecord | null;
   state: Pick<ContentState, 'types' | 'contentViews'>;

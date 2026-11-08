@@ -15,7 +15,7 @@ export function mediaReferencesIn(value: unknown): Set<string> {
     } catch { /* Invalid addresses cannot identify a served file. */ }
   };
   const scan = (text: string) => {
-    add(text);
+    if (/^(?:https?:\/\/[^/]+)?\/media\/[^<>"\r\n]+$/i.test(text.trim())) { add(text.trim()); return; }
     for (const match of text.matchAll(/\/media\/[^"'<>\\\s)\]}]+/gi)) add(match[0]);
   };
   const html = (source: string) => {
@@ -23,7 +23,6 @@ export function mediaReferencesIn(value: unknown): Set<string> {
     scan($.root().text());
     $('*').each((_index, element) => {
       if('attribs' in element) for (const [name,value] of Object.entries(element.attribs)) {
-        scan(value);
         if(name==='srcset') {
           // URLs in srcset may contain parentheses and commas. Descriptors are not part of the URL.
           let at=0;
@@ -35,18 +34,17 @@ export function mediaReferencesIn(value: unknown): Set<string> {
             let brackets=0;
             while(at<value.length) {const char=value[at++];if(char==='(')brackets++;else if(char===')')brackets=Math.max(0,brackets-1);else if(char===','&&!brackets)break;}
           }
-        }
+        } else scan(value);
       }
     });
   };
   const visit = (item: unknown) => {
     if (typeof item === 'string') {
-      scan(item);
       if (/[<&]/.test(item)) {
         // HTML entities belong to the HTML parser, not decodeURIComponent.
         html(item);
-      }
-      if(item.includes('\\') && (item.includes('](')||item.includes(']:'))) html(renderDocument({version:1,format:'markdown',source:item}));
+      } else if(item.includes('](')||item.includes(']:')) html(renderDocument({version:1,format:'markdown',source:item}));
+      else scan(item);
     } else if (Array.isArray(item)) item.forEach(visit);
     else if (item && typeof item === 'object') Object.values(item).forEach(visit);
   };

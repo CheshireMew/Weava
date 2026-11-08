@@ -50,7 +50,7 @@ export function customEvidence(html: string, entry: Entry) {
   ($('main').length ? $('main').first() : $('body')).append(renderEvidence(entry));
   return $.html();
 }
-export function pageMetadata(entry: Entry | undefined, release: Release, url: URL, options: { preview?: boolean; missing?: boolean; html?: string; contribution?: MetadataContribution } = {}): PageMetadata {
+export function pageMetadata(entry: Entry | undefined, release: Release, url: URL, options: { preview?: boolean; missing?: boolean; html?: string; media?: boolean; contribution?: MetadataContribution } = {}): PageMetadata {
   const settings = release.settings, base = settings.domain.replace(/\/$/, ''), seo = { ...options.contribution, ...entry?.seo };
   const socialTitle = seo.title || entry?.title || (options.missing ? '页面未找到' : '搜索');
   const description = seo.description ?? entry?.description ?? settings.description;
@@ -117,6 +117,13 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
       if (question && answer) questions.push({ '@type': 'Question', name: question, acceptedAnswer: { '@type': 'Answer', text: answer } });
     });
     if (questions.length) graph.push({ '@type': 'FAQPage', '@id': canonical + '#faq', mainEntity: questions });
+    if (options.media && entry && !hidden) $('video[src]').each((index, node) => {
+      const video=$(node), poster=video.attr('poster')||image;
+      if (!poster) return;
+      graph.push({'@type':'VideoObject','@id':canonical+'#video-'+index,name:socialTitle,
+        description:description||socialTitle,thumbnailUrl:webUrl(poster,base),contentUrl:webUrl(video.attr('src')!,base),
+        ...(entry.publishedAt?{uploadDate:entry.publishedAt}:{})});
+    });
   }
   let title = seo.documentTitle || (socialTitle === settings.name ? socialTitle : `${socialTitle} · ${settings.name}`);
   if (wordpressPage && wordpressPage > 1) {

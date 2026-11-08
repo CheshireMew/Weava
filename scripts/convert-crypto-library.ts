@@ -1,0 +1,2 @@
+import {convertCryptoSite} from '../packages/crypto-migration/src/convert.ts';
+console.log(JSON.stringify(await convertCryptoSite(process.argv[2]??'E:/Code/WeavaSites/crypto-blacknico',process.argv[3]??'D:/Tools/cache/weava/tasks/library-20261108/site',{apply:process.argv.includes('--apply'),dryRun:process.argv.includes('--dry-run'),backupRoot:'D:/Tools/cache/weava/tasks/library-20261108'}),null,2));

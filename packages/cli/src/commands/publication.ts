@@ -20,9 +20,10 @@ export function registerPublicationCommands({
   plans
     .command('save')
     .requiredOption('--input <file>')
+    .option('--wait')
     .action(async (opts) =>
       output(
-        await request('plans', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, ''))),
+        await wait(await request('plans', JSON.parse(readFileSync(opts.input, 'utf8').replace(/^\ufeff/, ''))),!!opts.wait),
       ),
     );
 
@@ -146,9 +147,10 @@ export function registerPublicationCommands({
     .requiredOption('--id <id>')
     .requiredOption('--revision <revision>')
     .requiredOption('--at <time>', '带时区的发布时间')
+    .option('--wait')
     .action(async (opts) =>
       output(
-        await request('schedule', { id: opts.id, revision: Number(opts.revision), dueAt: opts.at }),
+        await wait(await request('schedule', { id: opts.id, revision: Number(opts.revision), dueAt: opts.at }),!!opts.wait),
       ),
     );
 

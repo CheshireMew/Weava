@@ -1,5 +1,5 @@
-import { createRequire } from 'node:module';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join, posix, resolve } from 'node:path';
 import { validationToolsRoot } from './setup-validation.ts';
 
@@ -22,6 +22,8 @@ export function checkModuleBoundaries() {
     'packages/manager/src',
     'packages/cli/src',
     'packages/site-runtime/src',
+    'packages/crypto-extension/src',
+    'packages/crypto-migration/src',
     'apps/admin/src',
     'apps/web/src',
   ])
@@ -31,6 +33,14 @@ export function checkModuleBoundaries() {
   for (const file of files) {
     const ast = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true),
       targets: string[] = [];
+    if (file.startsWith('apps/web/src/api/')) {
+      const inspect = (node: any) => {
+        if (ts.isPropertyAccessExpression(node) && node.name.text === 'store')
+          throw new Error('HTTP 接口应通过业务服务访问数据：' + file);
+        ts.forEachChild(node, inspect);
+      };
+      inspect(ast);
+    }
     for (const statement of ast.statements) {
       if (
         !(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) ||

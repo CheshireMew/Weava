@@ -86,7 +86,7 @@ export function Reauthentication({
                 {reauthError}
               </p>
             )}
-            <button type="submit" disabled={loginPending || !!model.cooldown.seconds}>
+            <div className="dialog-actions"><button type="submit" disabled={loginPending || !!model.cooldown.seconds}>
               {model.cooldown.seconds ? `${model.cooldown.seconds} 秒后重试` : dirty ? '登录并保存草稿' : '重新登录'}
             </button>
             <button
@@ -99,6 +99,7 @@ export function Reauthentication({
             >
               稍后登录
             </button>
+            </div>
           </form>
         </Dialog>
       )}

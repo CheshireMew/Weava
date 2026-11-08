@@ -34,6 +34,12 @@ async function validateRestoredSite(root:string){
         site.store.raw.prepare("UPDATE media_uploads SET status='expired',expires=0,offset=0,lease=NULL,lease_until=0 WHERE id=?").run(upload.id);
         if(upload.job_id){const job=site.job(upload.job_id);if(['queued','running'].includes(job.status))site.updateJob(job.id,{status:'failed',workerPid:undefined,errorStatus:409,message:'网站已从备份恢复，请重新选择文件上传。'});}
       }
+      // Request spools share the excluded upload staging area. A restored job
+      // cannot execute against an absent file or retain a lease from the old process.
+      for(const request of site.store.raw.prepare('SELECT job_id FROM staged_requests').all() as {job_id:string|null}[]){
+        if(request.job_id){const job=site.job(request.job_id);if(['queued','running'].includes(job.status))site.updateJob(job.id,{status:'failed',workerPid:undefined,errorStatus:409,message:'网站已从备份恢复，请重新选择导入文件。'});}
+      }
+      site.store.raw.prepare('UPDATE staged_requests SET active_until=0,expires=0').run();
     }).immediate();
     if(site.store.raw.pragma('integrity_check',{simple:true})!=='ok')throw new WeavaError('恢复数据库校验失败。');
     if(routes.build){

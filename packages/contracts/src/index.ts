@@ -45,6 +45,7 @@ export const fieldSchema: z.ZodType<FieldDefinition> = z.lazy(() =>
     required: z.boolean().optional(),
     multiple: z.boolean().optional(),
     options: z.array(z.string()).optional(),
+    optionLabels: z.record(z.string(), z.string()).optional(),
     filterable: z.boolean().optional(),
     fields: z.array(fieldSchema).optional(),
     defaultValue: z.unknown().optional(),
@@ -74,6 +75,7 @@ export interface FieldDefinition {
   required?: boolean;
   multiple?: boolean;
   options?: string[];
+  optionLabels?: Record<string,string>;
   filterable?: boolean;
   fields?: FieldDefinition[];
   defaultValue?: unknown;
@@ -147,7 +149,7 @@ export const entrySchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['content', 'page']),
   type: z.string().default('post'),
-  title: z.string().min(1).max(300),
+  title: z.string().max(300),
   path: z.string().startsWith('/'),
   description: z.string().default(''),
   summaryMode: z.enum(['manual', 'marker', 'auto']).default('auto'),
@@ -284,6 +286,8 @@ export const defaultSettings: Settings = {
   sourceUrl: '',
 };
 export const blockTypes = [
+  'collection',
+  'link-list',
   'code',
   'text',
   'richtext',
@@ -367,13 +371,16 @@ export { systemRoutes, isReservedContentPath } from './routes.ts';
 export interface Job {
   id: string;
   operation: string;
-  status: 'queued' | 'running' | 'complete' | 'failed' | 'recovery_required';
+  status: 'queued' | 'running' | 'complete' | 'failed' | 'recovery_required' | 'cancelled';
   createdAt: string;
   updatedAt: string;
   message: string;
   result?: any;
   payload?: any;
   workerPid?: number;
+  deadlineAt?:number;
+  heartbeatAt?:number;
+  cancelRequestedAt?:number;
   managed?: boolean;
   errorStatus?: number;
   errorDetails?: unknown;
@@ -385,3 +392,5 @@ export * from './publication-plans.ts';
 
 export { siteInfoSchema } from './site-info.ts';
 export type { SiteInfo } from './site-info.ts';
+
+export * from './media-rules.ts';

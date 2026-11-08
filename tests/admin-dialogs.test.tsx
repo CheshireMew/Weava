@@ -11,6 +11,7 @@ import MediaManager from '../apps/admin/src/MediaManager.tsx';
 import HistoryMaintenance from '../apps/admin/src/HistoryMaintenance.tsx';
 import Operations from '../apps/admin/src/Operations.tsx';
 import ImportManager from '../apps/admin/src/ImportManager.tsx';
+import {TemporaryMaintenance} from '../apps/admin/src/TemporaryMaintenance.tsx';
 import { AnalyticsReportView } from '../apps/admin/src/AnalyticsReportView.tsx';
 import { ReportWorkspace } from '../apps/admin/src/analytics/report-workspace.ts';
 import { api, waitJob } from '../apps/admin/src/api.ts';
@@ -57,10 +58,20 @@ it('explains invalid import files without sending them and accepts a corrected e
   expect(host.textContent).toContain('这不是 Weava 导出的网站内容文件');expect(api).not.toHaveBeenCalled();
   await choose('{invalid');
   expect(host.textContent).toContain('不是有效的 JSON');expect(host.querySelector('[role="alert"] li')).toBeNull();expect(api).not.toHaveBeenCalled();
-  mocks.api.mockResolvedValue({dryRun:true,created:[],updated:[],unchanged:[]});
+  mocks.api.mockResolvedValue({id:'import-job',status:'queued'});
+  mocks.waitJob.mockResolvedValue({status:'complete',result:{dryRun:true,created:[],updated:[],unchanged:[]}});
   await choose('{"version":1,"entries":[]}');
   expect(api).toHaveBeenCalledWith('import',expect.objectContaining({value:{version:1,entries:[]},options:expect.objectContaining({dryRun:true})}));
   expect(host.textContent).toContain('预检结果');expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it('shows the exact temporary cleanup preview and requires its explicit delete button',async()=>{
+  const refresh=vi.fn(async()=>{}),onError=vi.fn();
+  mocks.api.mockImplementation(async(path:string)=>path==='maintenance/temporary'?{files:[{id:'ended',kind:'upload',path:'uploads/ended.bin',bytes:1024}],bytes:1024,review:'review-current',skipped:[]}:{});
+  await render(<TemporaryMaintenance usage={{uploadsBytes:1024,importsBytes:0,logsBytes:0,businessBytes:0,pendingUploads:[{id:'ended',name:'old.txt',offset:1024,size:1024,status:'expired'}]}} refresh={refresh} onError={onError}/>);
+  await click('检查可清理的暂存文件');expect(dialog('清理暂存文件').textContent).toContain('old.txt');
+  expect(api).not.toHaveBeenCalledWith('maintenance/temporary/cleanup',expect.anything());
+  await click('删除这 1 个暂存文件');expect(api).toHaveBeenCalledWith('maintenance/temporary/cleanup',{review:'review-current',confirm:true});
+  expect(dialog('清理暂存文件')).toBeNull();expect(onError).not.toHaveBeenCalled();
 });
 it('renders actionable schema and import conflicts without empty error rows',async()=>{
   await render(<ImportManager refresh={vi.fn(async()=>{})}/>);

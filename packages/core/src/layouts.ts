@@ -71,6 +71,7 @@ export function validateLayouts(catalog: Layout[]) {
   }
 }
 export function saveLayout(site: Site, value: Layout, revision: number | null) {
+  return site.store.raw.transaction(() => {
   const layout = layoutSchema.parse(value);
   site.validateBlocks(layout.blocks);
   const current = site.store.get('layout', layout.id);
@@ -78,5 +79,6 @@ export function saveLayout(site: Site, value: Layout, revision: number | null) {
   const catalog = layouts(site).map((row) => row.value as Layout).filter((item) => item.id !== layout.id);
   validateLayouts([...catalog, layout]);
   return site.store.put('layout', layout.id, layout, revision);
+  }).immediate();
 }
 export function copyPattern(layout: Layout): Block[] { return cloneBlocks(layout.blocks); }

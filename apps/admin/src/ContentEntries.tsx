@@ -13,7 +13,7 @@ function valueFor(row: any, key: string) {
   return typeof value === 'object' ? '字段组' : String(value);
 }
 
-export function ContentEntries({ model, selectable = false }: { model: Pick<ContentLibraryModel,'items'|'state'|'libraryLoading'|'filter'|'searchTerm'|'bulkIds'|'setBulkIds'|'select'|'tab'|'busy'|'actions'>; selectable?: boolean }) {
+export function ContentEntries({ model, selectable = false, showType = false }: { model: Pick<ContentLibraryModel,'items'|'state'|'libraryLoading'|'filter'|'searchTerm'|'bulkIds'|'setBulkIds'|'select'|'tab'|'busy'|'actions'>; selectable?: boolean; showType?: boolean }) {
   const { items, state, libraryLoading, filter, searchTerm, bulkIds, setBulkIds, select, tab } = model;
   const disabled = libraryLoading || filter !== searchTerm;
   const selected = items.length > 0 && items.every((row: any) => bulkIds.includes(row.id));
@@ -36,6 +36,7 @@ export function ContentEntries({ model, selectable = false }: { model: Pick<Cont
           <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>
             {tab === 'pages' && <span className="publication-page-path">{row.value.path === '/' ? '首页' : row.value.path}</span>}
             <span className="publication-meta">
+              {showType && <span className="publication-type">{type?.label ?? row.value.type}</span>}
               {published && publishedAt ? <time dateTime={publishedAt}>发布于 {date(publishedAt)}</time> : columns.includes('updatedAt') && <time dateTime={row.updatedAt}>更新于 {date(row.updatedAt)}</time>}
               <span>{status.key === 'changed' ? '已发布（有未发布修改）' : status.label}</span>
               {row.value.visibility === 'private' && <span>私密</span>}
@@ -46,7 +47,7 @@ export function ContentEntries({ model, selectable = false }: { model: Pick<Cont
             {custom.length > 0 && <span className="publication-custom">{custom.map(key => <span key={key}>{type?.fields.find((field: any) => field.key === key)?.label ?? key}：{valueFor(row, key)}</span>)}</span>}
           </span>
         </button>
-        {published && publishedPath && <a className="publication-visit" href={publishedPath} target="_blank" rel="noopener noreferrer" aria-label={'打开文章：'+row.value.title} title="打开文章"><ArrowUpRight size={20} aria-hidden="true"/></a>}
+        {published && publishedPath && <a className="publication-visit" href={publishedPath} target="_blank" rel="noopener noreferrer" aria-label={'打开'+(type?.label ?? '内容')+'：'+row.value.title} title={'打开'+(type?.label ?? '内容')}><ArrowUpRight size={20} aria-hidden="true"/></a>}
         <EntryActions row={row} model={model.actions} disabled={disabled || model.busy} />
       </article>;
     })}

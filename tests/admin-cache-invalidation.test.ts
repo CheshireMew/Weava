@@ -7,10 +7,11 @@ vi.mock('@weava/contracts/api-client', () => ({ createAdminClient: (options: any
 } }));
 beforeEach(() => { adminQueries.resume(); mocks.request.mockReset().mockResolvedValue({ saved: true }); mocks.call.mockReset().mockResolvedValue({ saved: true }); });
 afterEach(()=>vi.unstubAllGlobals());
-it('leaves unrelated state, media and analytics caches intact while saving an existing article',async()=>{
+it('refreshes taxonomy projections after an article write while retaining unrelated media and analytics',async()=>{
  for(const path of ['state?summary=1&panel=content','media/query','analytics'])await adminQueries.read(path,async()=>path);
  await api.request('entry',{revision:1});
- for(const path of ['state?summary=1&panel=content','media/query','analytics'])expect(await adminQueries.read(path,async()=>'unnecessary reload')).toBe(path);
+ expect(await adminQueries.read('state?summary=1&panel=content',async()=>'updated terms')).toBe('updated terms');
+ for(const path of ['media/query','analytics'])expect(await adminQueries.read(path,async()=>'unnecessary reload')).toBe(path);
 });
 it('resolves a failed logout against the actual session and offers reauthentication if it cannot be confirmed',async()=>{
  const fetch=vi.fn().mockRejectedValueOnce(new Error('lost response')).mockResolvedValueOnce(Response.json({authenticated:true,initialized:true,version:'test'}));vi.stubGlobal('fetch',fetch);

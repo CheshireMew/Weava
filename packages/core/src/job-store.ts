@@ -53,11 +53,13 @@ export class JobStore {
     return job;
   }
   updateJob(id: string, updates: Partial<Job>) {
+    return this.store.raw.transaction(()=>{
     const job = { ...this.job(id), ...updates, updatedAt: now() };
     this.store.raw
       .prepare('UPDATE jobs SET status=?,data=? WHERE id=?')
       .run(job.status, JSON.stringify(job), id);
     return job;
+    }).immediate();
   }
   recoverJobs() {
     for (const job of this.activeJobs()) {
@@ -75,6 +77,12 @@ export class JobStore {
           message: '上次任务中断，当前公开版本保持有效；可重试。',
         });
     }
+  }
+  cancelJob(id:string){
+    return this.store.raw.transaction(()=>{
+      const job=this.job(id);if(!['queued','running'].includes(job.status))return job;
+      return this.updateJob(id,{cancelRequestedAt:Date.now(),...(job.status==='queued'?{status:'cancelled' as const,message:'已取消。'}:{message:'正在取消，等待任务停止。'})});
+    }).immediate();
   }
   activeJobs(): Job[] {
     return (

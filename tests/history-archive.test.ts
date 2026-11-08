@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Site, planHistoryArchive, archiveHistory, restoreHistoryArchive, verifyHistoryArchive, historyArchiveContents, historyArchives, compactDatabase, schedulePublication } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
-const base = 'D:/Tools/cache/weava/tests/history-archive-' + Date.now(), sites: Site[] = []; let sequence = 0;
+import {searchRelease} from '../packages/core/src/publication-store.ts';
+const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/history-archive-' + Date.now(), sites: Site[] = []; let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); return site; };
 const options = { before:'2099-01-01T00:00:00Z',keepReleases:1,keepRevisions:1 };
 const seed = (site: Site) => {
@@ -15,6 +16,14 @@ const seed = (site: Site) => {
 };
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 describe('reversible history maintenance',()=>{
+  it('serves the exact lazy body to an existing reader after the old release is archived',async()=>{
+    const site=create();const first=site.saveEntry(entrySchema.parse({id:'old',kind:'page',title:'Old',path:'/old/',document:{version:1,format:'markdown',source:'First body'}}),null);
+    site.publish({ids:[first.id]});const reader=new Site(site.root);sites.push(reader);const pinned=reader.release()!;
+    site.saveEntry({...first.value,document:{version:1,format:'markdown',source:'Second body'}},first.revision);site.publish({ids:[first.id]});
+    const plan=planHistoryArchive(site,options);await archiveHistory(site,options,plan.review);
+    expect(site.releases()).toHaveLength(1);expect(pinned.entries.find(entry=>entry.id===first.id)!.document.source).toBe('First body');
+    expect(searchRelease(reader.store.raw,pinned,'First body').map(entry=>entry.id)).toEqual([first.id]);
+  });
   it('protects current content, the active release, retained history and scheduled revisions before archival',async()=>{
     const site=create(),{releases,revisions,row}=seed(site);
     const scheduled=schedulePublication(site,row.id,row.revision,new Date(Date.now()+60000).toISOString());

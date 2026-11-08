@@ -5,6 +5,7 @@ import { useAdminQuery } from './useAdminQuery.ts';
 import { CommentSettings, type SiteSettingProps } from './SiteSettingControls.tsx';
 import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
 import { watchVisible } from './analytics/polling.ts';
+import { LoadingState } from './LoadingState.tsx';
 
 type Row = ArticleComment & { title: string; path: string };
 export default function Comments(props: SiteSettingProps) {
@@ -37,10 +38,10 @@ export default function Comments(props: SiteSettingProps) {
     } catch (error: any) { onError(error.message); }
     finally { setBusy(false); }
   }
-  const composer=(author:string)=>reply&&<form onSubmit={async event=>{event.preventDefault();if(busy)return;setBusy(true);try{await api('comment/reply',reply);replyEditor.session.discard();setReply(null);await refresh();}catch(error:any){onError(error.message);}finally{setBusy(false);}}}><label>回复 {author}<textarea required disabled={busy} maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><button disabled={busy}>发布回复</button><button type="button" disabled={busy} onClick={()=>{replyEditor.session.discard();setReply(null);}}>取消</button></form>;
+  const composer=(author:string)=>reply&&<form onSubmit={async event=>{event.preventDefault();if(busy)return;setBusy(true);try{await api('comment/reply',reply);replyEditor.session.discard();setReply(null);await refresh();}catch(error:any){onError(error.message);}finally{setBusy(false);}}}><label>回复 {author}<textarea required disabled={busy} maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><div className="inline"><button disabled={busy}>发布回复</button><button type="button" disabled={busy} onClick={()=>{replyEditor.session.discard();setReply(null);}}>取消</button></div></form>;
   return <div className="panel comments-panel">
     <div className="panel-title"><h1>评论{data ? ` · ${data.total}` : ''}</h1>
-      <button disabled={busy || query.loading} onClick={() => refresh().catch(() => {})}>刷新评论</button>
+      <button disabled={busy || query.pending} onClick={() => refresh().catch(() => {})}>刷新评论</button>
       <select aria-label="评论状态" value={status} disabled={busy} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option><option value="pending">待审核</option>
       </select>
@@ -61,6 +62,6 @@ export default function Comments(props: SiteSettingProps) {
       <nav className="comment-pagination" aria-label="评论分页">
         <button disabled={page === 1 || busy} onClick={() => setPage(page - 1)}>上一页</button><span>第 {page} 页</span><button disabled={!data.hasMore || busy} onClick={() => setPage(page + 1)}>下一页</button>
       </nav>
-    </> : loadError ? <div className="panel-state" role="alert"><p>评论未能载入。</p><button onClick={() => refresh().catch(error => onError(error.message))}>重新读取评论</button></div> : <p role="status">正在读取评论…</p>}
+    </> : loadError ? <div className="panel-state" role="alert"><p>评论未能载入。</p><button onClick={() => refresh().catch(error => onError(error.message))}>重新读取评论</button></div> : <LoadingState label="读取评论" />}
   </div>;
 }

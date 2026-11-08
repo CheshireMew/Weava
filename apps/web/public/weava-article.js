@@ -61,8 +61,46 @@
     }
     notify('链接已复制'); track('article:copy');
   };
+  const moreButtons = [...document.querySelectorAll('[data-article-action="more"]')];
+  const menuFor = button => document.getElementById(button.getAttribute('aria-controls'));
+  const closeMenu = (button, restoreFocus = false) => {
+    menuFor(button).hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) button.focus();
+  };
+  const openMenu = (button, last = false) => {
+    moreButtons.forEach(other => { if (other !== button) closeMenu(other); });
+    const menu = menuFor(button);
+    menu.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    const items = [...menu.querySelectorAll('[role="menuitem"]')];
+    (last ? items.at(-1) : items[0])?.focus();
+  };
+  moreButtons.forEach(button => {
+    const wrap = button.closest('.nl-more-wrap');
+    wrap.addEventListener('focusout', event => {
+      if (!wrap.contains(event.relatedTarget)) closeMenu(button);
+    });
+    wrap.addEventListener('keydown', event => {
+      const menu = menuFor(button);
+      if (event.key === 'Escape' && !menu.hidden) {
+        event.preventDefault(); event.stopPropagation(); closeMenu(button, true);
+      } else if (event.key === 'Tab' && !menu.hidden) {
+        closeMenu(button, true);
+      } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        if (menu.hidden || event.target === button) { openMenu(button, event.key === 'ArrowUp' || event.key === 'End'); return; }
+        const items = [...menu.querySelectorAll('[role="menuitem"]')];
+        const index = items.indexOf(document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    });
+  });
   document.querySelectorAll('[data-article-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.articleAction;
+    const parentMenu = button.closest('.nl-more-menu');
+    if (parentMenu) closeMenu(moreButtons.find(trigger => menuFor(trigger) === parentMenu), true);
     try {
       if (action === 'copy') await copyLink();
       if (action === 'share') {
@@ -72,11 +110,11 @@
         } else await copyLink();
       }
       if (action === 'print') window.print();
-      if (action === 'more') { const menu = document.getElementById(button.getAttribute('aria-controls')); menu.hidden = !menu.hidden; button.setAttribute('aria-expanded', String(!menu.hidden)); }
+      if (action === 'more') { if (menuFor(button).hidden) openMenu(button); else closeMenu(button, true); }
     } catch (error) { notify(error.message); }
   }));
   document.addEventListener('click', (event) => {
-    if (!event.target.closest('.nl-more-wrap')) document.querySelectorAll('.nl-more-menu').forEach((menu) => { menu.hidden = true; menu.previousElementSibling.setAttribute('aria-expanded', 'false'); });
+    if (!event.target.closest('.nl-more-wrap')) moreButtons.forEach(button => closeMenu(button));
   });
   const entryId = document.body.dataset.articleId;
   if (!entryId) return;
@@ -91,6 +129,7 @@
   const more = document.querySelector('[data-load-comments]');
   const likeButtons = [...document.querySelectorAll('[data-article-action="like"]')];
   let liked = false, page = 1, summaryVersion = 0, likeBusy = false;
+  let readerInitialized = false, readerPending;
   const commentLikePending = new Set();
   async function api(action, data) {
     const response = await fetch('/api/v1/' + action, { method: data === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify({ ...data, id: entryId }) });
@@ -133,10 +172,15 @@
   async function loadComments(append = false) {
     const version = ++summaryVersion, next = append ? page + 1 : 1;
     const data = await api('engagement?id=' + encodeURIComponent(entryId) + '&page=' + next + '&sort=' + sort.value);
+    readerInitialized = true;
     if (version === summaryVersion) { page = next; render(data, append); }
   }
-  const readerReady = loadComments().catch((error) => { notify(error.message); throw error; });
-  readerReady.catch(() => {});
+  function ensureReader() {
+    if (readerInitialized) return Promise.resolve();
+    if (!readerPending) readerPending = loadComments().finally(() => { readerPending = null; });
+    return readerPending;
+  }
+  ensureReader().catch((error) => notify(error.message));
   list.addEventListener('click', async event => {
     const button = event.target.closest('[data-comment-like]');
     if (!button || !list.contains(button)) return;
@@ -144,7 +188,7 @@
     if (commentLikePending.has(id)) return;
     commentLikePending.add(id); button.disabled = true;
     try {
-      await readerReady;
+      await ensureReader();
       const current = [...list.querySelectorAll('[data-comment-like]')].find(item => item.dataset.commentLike === id) || button;
       const result = await api('comment-like', { commentId: id, liked: current.getAttribute('aria-pressed') !== 'true' });
       list.querySelectorAll('[data-comment-like]').forEach(item => {
@@ -158,8 +202,8 @@
   });
   likeButtons.forEach((button) => button.addEventListener('click', async () => {
     if (likeBusy) return;
-    likeBusy = true; likeButtons.forEach((item) => { item.disabled = true; }); ++summaryVersion;
-    try { await readerReady; const data = await api('like', { liked: !liked }); updateCounts(data); track(data.liked ? 'article:like' : 'article:unlike'); }
+    likeBusy = true; likeButtons.forEach((item) => { item.disabled = true; });
+    try { await ensureReader(); ++summaryVersion; const data = await api('like', { liked: !liked }); updateCounts(data); track(data.liked ? 'article:like' : 'article:unlike'); }
     catch (error) { notify(error.message); }
     finally { likeBusy = false; likeButtons.forEach((item) => { item.disabled = false; }); }
   }));
@@ -177,7 +221,7 @@
   const loadCaptcha = () => {
     if (captchaPending) return captchaPending;
     refresh.disabled = true; captchaRow.hidden = false; captchaInput.disabled = true; submit.disabled = true;
-    captchaPending = readerReady.then(() => api('comment-captcha', {})).then((data) => {
+    captchaPending = ensureReader().then(() => api('comment-captcha', {})).then((data) => {
       captchaId = data.id; captchaImage.src = data.image; captchaInput.value = ''; captchaInput.disabled = false;
     }).catch((error) => { captchaId = ''; showMessage(error.message); }).finally(() => { captchaPending = null; refresh.disabled = false; submit.disabled = posting || !captchaId; });
     return captchaPending;
@@ -188,17 +232,20 @@
     event.preventDefault(); if (posting) return;
     if (!captchaId) { await loadCaptcha(); captchaInput.focus(); return; }
     if (!form.reportValidity()) return;
-    const current = JSON.stringify([authorInput.value.trim(), bodyInput.value.trim(),parentInput.value]);
+    const submitted = { author: authorInput.value, body: bodyInput.value, parentId: parentInput.value };
+    const current = JSON.stringify([submitted.author.trim(), submitted.body.trim(), submitted.parentId]);
     if (!clientId || signature !== current) { signature = current; clientId = crypto.randomUUID(); }
     posting = true; submit.disabled = true; submit.textContent = '发布中…'; showMessage('');
     try {
-      const data = await api('comment', { author: authorInput.value, body: bodyInput.value, parentId:parentInput.value||null,captchaId, captcha: captchaInput.value, clientId });
+      const data = await api('comment', { ...submitted, parentId: submitted.parentId || null, captchaId, captcha: captchaInput.value, clientId });
       track('article:comment');
       ++summaryVersion; page = 1; sort.value = 'latest'; render(data, false);
       try { localStorage.setItem('weava-comment-author', authorInput.value.trim()); } catch {}
-      bodyInput.value = ''; captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; showMessage(data.comment?.status === 'pending' ? noun+'已提交，等待审核' : noun+'已发布');
-      cancelReply();
+      const unchanged = authorInput.value === submitted.author && bodyInput.value === submitted.body && parentInput.value === submitted.parentId;
+      if (unchanged) { bodyInput.value = ''; cancelReply(); }
+      captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; showMessage(data.comment?.status === 'pending' ? noun+'已提交，等待审核' : noun+'已发布');
+      if (!unchanged) await loadCaptcha();
     } catch (error) { showMessage(error.message); captchaId = ''; await loadCaptcha(); }
-    finally { posting = false; submit.disabled = false; submit.textContent = parentInput.value ? '发布回复' : '发布'+noun; }
+    finally { posting = false; submit.disabled = !captchaId; submit.textContent = parentInput.value ? '发布回复' : '发布'+noun; }
   });
 })();

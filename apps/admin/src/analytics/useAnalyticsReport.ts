@@ -135,6 +135,7 @@ export function useAnalyticsReport(initialQuery = '', realtime = true,section:An
     applied,
     loadedQuery,
     loading,
+    refreshing: report.refreshing,
     error,
     geoBusy,
     exportType,

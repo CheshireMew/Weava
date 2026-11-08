@@ -1,4 +1,5 @@
-import type { ApiServices, AdminHandlers } from './types.ts';
+import { entryLabel } from '../../../../packages/core/src/admin-content.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 export function commentsHandlers(services: Pick<ApiServices, 'site' | 'engagement'>) {
   const { site, engagement } = services;
 
@@ -13,14 +14,19 @@ export function commentsHandlers(services: Pick<ApiServices, 'site' | 'engagemen
       return {
         ...result,
         items: result.items.map((comment) => {
-          const entry = site.store.get('entry', comment.entryId)?.value;
-          return { ...comment, title: entry?.title ?? comment.entryId, path: entry?.path ?? '' };
+          return { ...comment, ...entryLabel(site, comment.entryId) };
         }),
       };
     },
     moderateComment: async ({ body: data }) => {
       return engagement.moderate(data.id, data.status);
     },
-    replyComment:async ({body},context)=>engagement.replyAsOwner(body.parentId,body.body,site.auth.account(context.cookies.get('weava-session')?.value??'').displayName,body.clientId),
+    replyComment: async ({ body }, context) =>
+      engagement.replyAsOwner(
+        body.parentId,
+        body.body,
+        site.auth.account(context.cookies.get('weava-session')?.value ?? '').displayName,
+        body.clientId,
+      ),
   } satisfies Pick<AdminHandlers, 'comments' | 'moderateComment' | 'replyComment'>;
 }

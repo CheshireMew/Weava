@@ -57,6 +57,11 @@ await build({
 await build({...shared,entryPoints:[join(root,'packages/core/src/program-check.ts')],outfile:join(runtimeOutput,'check.mjs')});
 await build({...shared,entryPoints:[join(root,'packages/core/src/site-maintenance.ts')],outfile:join(runtimeOutput,'site-maintenance.mjs')});
 await build({...shared,entryPoints:[join(root,'packages/core/src/site-public.ts')],outfile:join(runtimeOutput,'site-public.mjs')});
+await build({...shared,packages:undefined,banner:{js:'import {createRequire as _cryptoRequire} from "node:module";const require=_cryptoRequire(import.meta.url);'},entryPoints:[join(root,'packages/crypto-extension/src/index.ts')],outfile:join(runtimeOutput,'crypto-extension.mjs')});
+mkdirSync(join(runtimeOutput,'crypto-assets'),{recursive:true});
+for(const file of ['browser.js','announcements.js'])copyFileSync(join(root,'packages/crypto-extension/src',file),join(runtimeOutput,'crypto-assets',file));
+copyFileSync(join(root,'packages/crypto-extension/src/index.ts'),join(runtimeOutput,'crypto-assets/index.ts'));
+copyFileSync(join(root,'scripts/crypto-extension.ts'),join(runtimeOutput,'crypto-assets/legacy.ts'));
 await build({...shared,entryPoints:[join(root,'packages/site-runtime/src/build.ts')],outfile:join(runtimeOutput,'site-build.mjs')});
 await build({...shared,entryPoints:[join(root,'packages/site-runtime/src/entry.ts')],outfile:join(runtimeOutput,'site-entry.mjs')});
 await build({...shared,packages:undefined,banner:{js:'import {createRequire as _managerRequire} from "node:module";const require=_managerRequire(import.meta.url);'},entryPoints:[join(root,'packages/manager/src/index.ts')],outfile:join(runtimeOutput,'manager.mjs')});

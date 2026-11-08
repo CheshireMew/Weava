@@ -1,3 +1,4 @@
+import {contentWorkspaceFixture} from './content-workspace-fixture.ts';
 // @vitest-environment happy-dom
 import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -33,6 +34,7 @@ beforeEach(() => {
   vi.mocked(uploadFile).mockReset().mockImplementation(async upload => { const media = row(upload); library.push(media); return media; });
   vi.mocked(api).mockReset().mockImplementation(async (path: any, body?: any): Promise<any> => {
     if (String(path).startsWith('media/query?')) return { items: [...library], pages: 1, total: library.length };
+    if (path === 'media/move') return body.items.map((item: {id:string}) => { const media=library.find(row=>row.id===item.id); media.value.groupId=body.groupId; return media; });
     if (path === 'media/groups') return [{ id: 'pictures', value: { label: '图片', archived: false } }];
     if (String(path).startsWith('entries/query?')) return { items: [], pages: 0, total: 0 };
     if (path === 'entry') return { id: body.value.id, revision: 2, value: body.value };
@@ -87,7 +89,7 @@ it('uploads files dropped in the media panel, preserving the selected group and 
   const group = host.querySelector<HTMLSelectElement>('[aria-label="媒体分组筛选"]')!;
   await act(async () => { group.value = 'pictures'; group.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => drag(host.querySelector('.media-panel')!, [file('one.png'), file('two.png')]));
-  expect(uploadFile).toHaveBeenCalledTimes(2); expect(api).toHaveBeenCalledWith('media/info', expect.objectContaining({ value: { name: 'one.png', groupId: 'pictures' } }));
+  expect(uploadFile).toHaveBeenCalledTimes(2); expect(api).toHaveBeenCalledWith('media/move', {items:[{id:'one.png',revision:1}],groupId:'pictures'});
   expect(host.querySelector('.media-grid')!.textContent).toContain('one.png'); expect(host.querySelector('.media-grid')!.textContent).toContain('two.png');
 });
 it('keeps failed files available for retry and blocks unsupported files from opening in the browser', async () => {
@@ -137,7 +139,7 @@ it('waits for an in-flight image before capturing the document for save/publish'
   const upload = pending<any>(); vi.mocked(uploadFile).mockReturnValue(upload.promise); let workspace: any;
   const state = { settings: { value: { name: '站点' } }, types: [{ id: 'post', value: { id: 'post' } }] };
   function Workspace() {
-    workspace = useContentWorkspace({ state, setState: vi.fn(), tab: 'content', compact: false, busy: false, setError: vi.fn(), notify: vi.fn(), refresh: vi.fn(),  task: vi.fn() });
+    workspace = useContentWorkspace({ state:contentWorkspaceFixture(state), receiveSchedules: vi.fn(), tab: 'content', compact: false, busy: false, setError: vi.fn(), notify: vi.fn(), refresh: vi.fn(),  task: vi.fn() });
     return workspace.editor.record ? <Editor value={workspace.editor.record.value.document} onChange={document => workspace.editor.update({ document })} onMedia={async () => null} onError={vi.fn()} /> : null;
   }
   await act(async () => root.render(<EditSessionsProvider><Workspace /></EditSessionsProvider>));

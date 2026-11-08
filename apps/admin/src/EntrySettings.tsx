@@ -10,15 +10,22 @@ import {EntryMoreActions} from './EntryMoreActions.tsx';
 import {EditorialFields} from './EditorialFields.tsx';
 import {SeoFields} from './SeoFields.tsx';
 import type {EntrySettingsModel} from './content-models.ts';
+import {entryFieldSection} from './entry-field-focus.ts';
 
 export function EntrySettings({
   model,
   onClose,
   mode = 'panel',
+  onFocusField,
+  selectedSection,
+  onSelectSection,
 }: {
   onClose?: () => void;
   mode?: 'panel' | 'more';
   model:EntrySettingsModel;
+  onFocusField?: (path: string) => void;
+  selectedSection?: string;
+  onSelectSection?: (id: string) => void;
 }) {
   const {
     record,
@@ -31,12 +38,12 @@ export function EntrySettings({
   const selectors = useSelectors();
   if (!record) return null;
   const information = <>
-        <label>
-          网址
+        <label data-field-path="path">
+          内容网址
           <input value={record.value.path} onChange={(e) => update({ path: e.target.value })} />
         </label>
     {record.value.kind === 'content' && <>
-            <label>
+            <label data-field-path="author">
               作者
               <input
                 value={record.value.author}
@@ -47,7 +54,7 @@ export function EntrySettings({
   </>;
   const review = <>
         {record.value.compatibility?.wordpress?.unresolved?.length > 0 && (
-          <section className="import-review">
+          <section className="import-review" data-field-path="compatibility">
             <h3>来源功能检查</h3>
             <ul>
               {record.value.compatibility!.wordpress.unresolved.map((reason: string) => (
@@ -85,20 +92,12 @@ export function EntrySettings({
               <ul>
                 {contentCheck.errors.map((error: any, index: number) => (
                   <li key={index} data-error-path={error.path}>
-                    <button
+                    {onFocusField && entryFieldSection(error.path) ? <button
                       type="button"
-                      onClick={() => {
-                        const field = document.querySelector(
-                          '[data-field-path="' + CSS.escape(error.path) + '"]',
-                        );
-                        field?.scrollIntoView({ block: 'center' });
-                        (
-                          field?.querySelector('input,select,textarea,button') as HTMLElement
-                        )?.focus();
-                      }}
+                      onClick={() => onFocusField(error.path)}
                     >
                       {error.message}
-                    </button>
+                    </button> : error.message}
                   </li>
                 ))}
               </ul>
@@ -106,7 +105,7 @@ export function EntrySettings({
           </div>
         )}
 
-    {mode === 'more' ? <PanelSections label="文章设置分类" sections={[
+    {mode === 'more' ? <PanelSections label="文章设置分类" selectedSection={selectedSection} onSelectSection={onSelectSection} sections={[
       { id: 'information', label: '文章信息', content: information },
       { id: 'presentation', label: '摘要与展示', content: <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} section="display" /> },
       { id: 'sharing', label: '搜索与分享', content: <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} section="sharing" expanded /> },

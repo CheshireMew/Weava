@@ -5,7 +5,7 @@ export function useTransientMessage(value: string, clear: () => void, context: s
   const action = useRef(clear); action.current = clear;
   const previousContext = useRef(context);
   useEffect(() => {
-    if (!value) return;
+    if (!value || duration <= 0) return;
     const timer = setTimeout(() => action.current(), duration);
     return () => clearTimeout(timer);
   }, [value, duration]);

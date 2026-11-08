@@ -5,6 +5,7 @@ import { reports, filterKeys, type ReportName } from './report-navigation.ts';
 import type { AnalyticsController } from './useAnalyticsReport.ts';
 import type {AnalyticsReport} from '@weava/contracts';
 import {useAdminQuery} from '../useAdminQuery.ts';
+import {LoadingState} from '../LoadingState.tsx';
 
 const dimensionNames: Record<string, string> = { country: '国家 / 地区', browser: '浏览器', os: '操作系统', device: '设备类型', model: '设备型号', path: '页面', channel: '来源' };
 const filterEntries = (query: string) => [...new URLSearchParams(query)].filter(([key]) => [...filterKeys, 'path'].includes(key));
@@ -32,7 +33,7 @@ function DimensionFilters({data,query,loading,apply}:{data:AnalyticsReport|null;
   const dimensions=values?[['country',values.countries],['browser',values.browsers],['os',values.operatingSystems],['device',values.devices],['model',values.models]] as const:[];
   const label=(key:string,value:string)=>key==='country'?country(value):key==='device'?devices[value]||value:value;
   return <>
-    {facets.loading&&<p role="status">正在读取筛选项…</p>}
+    {facets.loading&&<LoadingState label="读取筛选项" />}
     {facets.error&&<div role="alert"><p>{facets.error}</p><button onClick={()=>facets.refresh().catch(()=>{})}>重新读取筛选项</button></div>}
     {dimensions.map(([key,rows])=><label key={key}>{dimensionNames[key]}<select aria-label={dimensionNames[key]+'筛选'} disabled={loading||facets.loading||!!facets.error} value={params.get(key)||''} onChange={event=>apply(key,event.target.value)}><option value="">全部</option>{params.get(key)&&!rows.some(row=>row.name===params.get(key))&&<option value={params.get(key)!}>{label(key,params.get(key)!)}</option>}{rows.map(row=><option key={row.name} value={row.name}>{label(key,row.name)}</option>)}</select></label>)}
   </>;

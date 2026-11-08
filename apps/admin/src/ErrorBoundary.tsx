@@ -29,6 +29,6 @@ export class ErrorBoundary extends Component<Props,{error:Error|null;pending:boo
   };
   render(){
     if(!this.state.error)return this.props.children;
-    return <div className="panel-state" role="alert"><p>这个页面暂时无法打开。</p>{this.state.message&&<p>{this.state.message}</p>}<button disabled={this.state.pending} onClick={()=>void this.retry()}>重试</button><button disabled={this.state.pending} onClick={()=>void this.reload()}>重新载入后台</button></div>;
+    return <div className="panel-state" role="alert"><p>这个页面暂时无法打开。</p>{this.state.message&&<p>{this.state.message}</p>}<div className="inline"><button disabled={this.state.pending} onClick={()=>void this.retry()}>重试</button><button disabled={this.state.pending} onClick={()=>void this.reload()}>重新载入后台</button></div></div>;
   }
 }

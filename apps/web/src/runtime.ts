@@ -28,7 +28,7 @@ let actualBusiness:BusinessStore|undefined;
 export const business=new Proxy({} as BusinessStore,{get(_target,key){actualBusiness??=new BusinessStore(root);const value=(actualBusiness as any)[key];return typeof value==='function'?value.bind(actualBusiness):value;}});
 export let maintenance=process.env.WEAVA_VALIDATION==='1';
 export let validating=process.env.WEAVA_VALIDATION==='1';
-export const siteExtension=extension(site,features.includes('analytics')?{analytics}:{});
+export const siteExtension=extension(site,features.includes('analytics')?{analytics}:{},{startPaused:true});
 export const siteRenderer=loadSiteRenderer(root).then(async renderer=>{const file=join(root,'program.json');if(existsSync(file))await migrateWebsite(root,JSON.parse(readFileSync(file,'utf8')).siteBuildId,'open');return renderer;});
 export const contextFor=(request:Request,preview=false,entry?:any)=>websiteContext(site,business,{enqueue:jobs.enqueue.bind(jobs),get:site.job.bind(site),log:(id,offset)=>{site.job(id);return readJobLog(join(site.root,'logs',id+'.log'),offset);}},request,preview,entry,validating&&!!process.env.WEAVA_UPGRADE_PROBE&&request.headers.get('x-weava-upgrade-probe')===process.env.WEAVA_UPGRADE_PROBE);
 const state={pid:process.pid,status:'starting',startedAt:now(),port:Number(process.env.PORT??4322),nonce:process.env.WEAVA_RUN_NONCE??'',programId:process.env.WEAVA_PROGRAM_ID??''};

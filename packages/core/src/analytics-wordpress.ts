@@ -9,6 +9,7 @@ import { referral } from './analytics-dimensions.ts';
 type Rows = WordpressStatisticsSnapshot['tables'];
 type Source = { id: string; timezone: string; tables: { [K in keyof Rows]: Rows[K]['rows'] }; paths: Map<number, string>; entries: Map<number, string> };
 const cached = new WeakMap<Database.Database, { key: string; sources: Source[] }>();
+const lifetimes = new WeakMap<Source[], { views: number; visitors: number; pages: Map<string, number>; entries: Map<string, number> }>();
 const localDays = new Map<string, number>();
 const contexts = new WeakMap<object, ReturnType<typeof visitorContext>>();
 const pathOf = (uri: string) => {
@@ -20,7 +21,7 @@ function sources(db: Database.Database): Source[] {
   if (!active.length) return [];
   const content = new Database(join(dirname(db.name), 'weava.sqlite'), { readonly: true });
   let entries: { id: string; path: string }[];
-  try { entries = content.prepare("SELECT id,json_extract(data,'$.path') path FROM records WHERE scope='entry' ORDER BY id").all() as typeof entries; }
+  try { entries = content.prepare("SELECT id,json_extract(summary,'$.path') path FROM entry_list ORDER BY id").all() as typeof entries; }
   finally { content.close(); }
   const key = JSON.stringify([active.map(r => r.fingerprint), entries]);
   const old = cached.get(db); if (old?.key === key) return old.sources;
@@ -93,18 +94,20 @@ function addTotals(target: any, value: { views: number; visitors: number }) {
 }
 const byViews = (a: any, b: any) => b.views - a.views || String(a.path || a.name).localeCompare(String(b.path || b.name));
 
-export function wordpressLifetime(db: Database.Database, path?: string) {
-  const active = sources(db); if (!active.length) return null;
+function lifetimeTotals(active: Source[]) {
   const pages = new Map<string, number>(), entries = new Map<string, number>();
   let views = 0, visitors = 0;
   for (const source of active) {
+    const byUri = new Map<string, Rows['pages']['rows'][number]>();
     for (const page of source.tables.pages) {
-      const target = source.paths.get(page.id) ?? pathOf(page.uri), entry = source.entries.get(page.id);
+      const uri = pathOf(page.uri);
+      if (!byUri.has(uri)) byUri.set(uri, page);
+      const target = source.paths.get(page.id) ?? uri, entry = source.entries.get(page.id);
       pages.set(target, (pages.get(target) ?? 0) + page.views);
       if (entry) entries.set(entry, (entries.get(entry) ?? 0) + page.views);
     }
     for (const row of source.tables.historical.filter(r => r.category === 'uri' && r.uri)) {
-      const original = pathOf(row.uri!), page = source.tables.pages.find(p => pathOf(p.uri) === original);
+      const original = pathOf(row.uri!), page = byUri.get(original);
       const target = page ? source.paths.get(page.id)! : original, entry = page ? source.entries.get(page.id) : undefined;
       pages.set(target, (pages.get(target) ?? 0) + row.value);
       if (entry) entries.set(entry, (entries.get(entry) ?? 0) + row.value);
@@ -112,8 +115,16 @@ export function wordpressLifetime(db: Database.Database, path?: string) {
     views += source.tables.visitors.reduce((n, v) => n + (v.hits ?? 0), 0) + source.tables.historical.filter(r => r.category === 'visits').reduce((n, r) => n + r.value, 0);
     visitors += source.tables.visitors.length + source.tables.historical.filter(r => r.category === 'visitors').reduce((n, r) => n + r.value, 0);
   }
-  if (path) { views = pages.get(path) ?? 0; visitors = active.reduce((n, source) => n + new Set(source.tables.relationships.filter(r => source.paths.get(r.pageId) === path).map(r => r.visitorId)).size, 0); }
   return { views, visitors, pages, entries };
+}
+export function wordpressLifetime(db: Database.Database, path?: string) {
+  const active = sources(db); if (!active.length) return null;
+  const lifetime = lifetimes.get(active) ?? lifetimeTotals(active);
+  lifetimes.set(active, lifetime);
+  return { ...lifetime,
+    ...(path ? { views: lifetime.pages.get(path) ?? 0, visitors: active.reduce((n, source) => n + new Set(source.tables.relationships.filter(r => source.paths.get(r.pageId) === path).map(r => r.visitorId)).size, 0) } : {}),
+    pages: new Map(lifetime.pages), entries: new Map(lifetime.entries),
+  };
 }
 
 /** Imported counts participate in the ordinary report. Raw visits stay out of

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryCache, adminQueries } from '../apps/admin/src/query-cache.ts';
 import { useAdminQuery } from '../apps/admin/src/useAdminQuery.ts';
 import { api } from '../apps/admin/src/api.ts';
-vi.mock('../apps/admin/src/api.ts', () => ({ api: vi.fn() }));
+import { useAdminState } from '../apps/admin/src/useAdminState.ts';
+vi.mock('../apps/admin/src/api.ts', () => { const request = vi.fn(); return { api: Object.assign(request, { request }) }; });
 const pending = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
 beforeEach(() => { adminQueries.invalidate(true); vi.mocked(api).mockReset(); (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
@@ -60,8 +61,28 @@ it('renders the matching cached query immediately, refreshes after writes and ne
   await act(async () => root.render(<View path="articles" />)); expect(host.textContent).toBe('articles'); expect(api).toHaveBeenCalledTimes(2);
   const update = pending<string>(); vi.mocked(api).mockReturnValue(update.promise as any);
   await act(async () => adminQueries.invalidate()); expect(host.textContent).toBe('articles'); expect(model!.pending).toBe(true);
+  expect(model!.loading).toBe(false); expect(model!.refreshing).toBe(true);
   await act(async () => update.resolve('saved articles')); expect(host.textContent).toBe('saved articles');
   const filtered = pending<string>(); vi.mocked(api).mockReturnValue(filtered.promise as any);
   await act(async () => root.render(<View path="articles?q=other" />)); expect(host.textContent).toBe('loading');
+  expect(model!.loading).toBe(true); expect(model!.refreshing).toBe(false);
   await act(async () => filtered.resolve('filtered')); expect(host.textContent).toBe('filtered');
+});
+it('coalesces mutation refreshes with the active query, preserves editor schedules and still honors manual refresh', async () => {
+  let model!: ReturnType<typeof useAdminState>, selected: any = null;
+  const activeTab = { current: 'content' }, initial: any = { settings: { value: { name: 'first' } }, schedules: [] };
+  function View() { model = useAdminState({ authenticated: true, tab: 'content', activeTab, setTab: vi.fn(), setError: vi.fn(), currentEntry: () => selected }); return <p>{model.state?.settings.value.name}</p>; }
+  vi.mocked(api).mockResolvedValue(initial);
+  await act(async () => root.render(<View />));expect(api).toHaveBeenCalledTimes(1);
+  selected = { id: 'article' };const schedules = [{ id: 'scheduled-publication' }] as any;
+  await act(async () => model.receiveSchedules(schedules));
+  const update = pending<any>();vi.mocked(api).mockReturnValue(update.promise);
+  let sync!: Promise<any>;
+  await act(async () => { adminQueries.invalidate(); sync = model.sync(); });
+  expect(api).toHaveBeenCalledTimes(2);
+  await act(async () => { update.resolve({ ...initial, settings: { value: { name: 'saved' } } }); await sync; });
+  expect(host.textContent).toBe('saved');expect(model.state?.schedules).toEqual(schedules);
+  await act(async () => model.sync());expect(api).toHaveBeenCalledTimes(2);
+  vi.mocked(api).mockResolvedValue(initial);await act(async () => model.refresh());expect(api).toHaveBeenCalledTimes(3);
+  expect([...new Set(vi.mocked(api).mock.calls.map(([path]) => path))]).toEqual(['state?summary=1&panel=content']);
 });

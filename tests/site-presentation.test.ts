@@ -6,8 +6,21 @@ import { newsletterCatalog } from '../packages/core/src/newsletter.ts';
 import { pageMetadata } from '../packages/core/src/seo.ts';
 import { mediaReferencesIn } from '../packages/core/src/media-references.ts';
 import { imageAttributes, responsiveImages } from '../packages/core/src/media.ts';
+import {checkEntry} from '../packages/core/src/content-validation.ts';
+import {renderEntryTemplate} from '../packages/core/src/render.ts';
 
 const post = (id: string, extra = {}): PublishedEntry => ({ ...entrySchema.parse({ id, title: id, path: '/' + id + '/', kind: 'content', status: 'published', document: { version: 1, format: 'markdown', source: '正文第一段。' }, ...extra }), html: '<p>正文第一段。</p>', publishedAt: '2026-11-01T00:00:00Z', modifiedAt: '2026-11-01T00:00:00Z', revisionId: 1 });
+it('allows an untitled working draft while requiring a title for publication',()=>{
+ const value=entrySchema.parse({id:'draft',kind:'page',path:'/draft/',title:'',document:{version:1,format:'markdown',source:'正文草稿'}});
+ const site={store:{get:()=>null},settings:()=>({value:defaultSettings}),validateBlocks:()=>{},fieldWidgets:{}} as any;
+ expect(checkEntry(site,value,{required:false}).valid).toBe(true);
+ expect(checkEntry(site,value).errors).toContainEqual({path:'title',message:'请填写标题。',code:'required'});
+});
+it('renders an article author in its visible byline',()=>{
+ const entry=post('author',{author:'柴郡',template:'article'});
+ const release={id:'release',createdAt:'',label:'',entries:[entry],types:[],settings:defaultSettings,terms:[]} as Release;
+ expect(renderEntryTemplate(entry,release)).toContain('柴郡');
+});
 it('derives empty summaries including older manual-mode records while keeping explicit descriptions', () => {
   expect(entrySchema.parse({ id: 'a', title: 'a', path: '/a/', kind: 'content' }).summaryMode).toBe('auto');
   expect(entrySummary(post('a', { summaryMode: 'manual' }))).toBe('正文第一段。');

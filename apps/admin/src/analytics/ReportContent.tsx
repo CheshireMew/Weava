@@ -43,7 +43,7 @@ export function ReportContent({ report, data, query, detail = false, tableOnly =
   }
   if (report === 'sources') return <>
     {detail && !tableOnly && <SourcesChart data={data} detail />}
-    <DataTable preview={!detail} size={detail ? 25 : 6} rows={data.sources} columns={[
+    <DataTable preview={!detail} size={detail ? 10 : 6} resetKey={query} rows={data.sources} columns={[
       { key: 'name', label: '来源', render: v => <span className="analytics-source" title={v.host || v.name}>{v.name}<small>{channels[v.channel] || v.channel}</small></span> },
       ...(detail ? [{ key: 'sessions', label: '会话', numeric: true }, { key: 'visitors', label: '访客', numeric: true }] : []),
       { key: 'views', label: '浏览', numeric: true },

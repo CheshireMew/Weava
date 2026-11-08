@@ -15,16 +15,18 @@ export function DataTable({
   empty = '所选范围内暂无数据。',
   size = 10,
   preview = false,
+  resetKey,
 }: {
   rows: any[];
   columns: Column[];
   empty?: string;
   size?: number;
   preview?: boolean;
+  resetKey?: string;
 }) {
   const [page, setPage] = useState(1),
     [sort, setSort] = useState<{ key: string; desc: boolean } | null>(null);
-  useEffect(() => setPage(1), [rows]);
+  useEffect(() => setPage(1), [resetKey ?? rows]);
   const sorted = sort
     ? [...rows].sort((a, b) => {
         const av = a[sort.key],
@@ -54,12 +56,13 @@ export function DataTable({
                   }
                 >
                   <button
-                    onClick={() =>
+                    onClick={() => {
+                      setPage(1);
                       setSort({
                         key: col.key,
                         desc: sort?.key === col.key ? !sort.desc : !!col.numeric,
-                      })
-                    }
+                      });
+                    }}
                   >
                     {col.label}
                     {sort?.key === col.key ? (sort.desc ? ' ↓' : ' ↑') : ''}

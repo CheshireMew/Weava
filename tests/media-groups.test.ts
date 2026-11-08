@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Site, mediaGroups, saveMediaGroup, moveMedia, queryMedia, saveMediaMetadata } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
-const sites: Site[] = [], root = 'D:/Tools/cache/weava/tests/media-groups-' + Date.now(); let sequence = 0;
+const sites: Site[] = [], root = (process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests') + '/media-groups-' + Date.now(); let sequence = 0;
 const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); return site; };
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 const media = (site: Site, id: string) => site.store.put('media', id, { id, name: id + '.txt', url: '/media/' + id + '.txt', derivatives: [], createdAt: '2026-10-30', archived: false }, null);

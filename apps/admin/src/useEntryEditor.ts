@@ -1,36 +1,64 @@
+import { hasNoteContent, type Entry, type Revision } from '@weava/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Entry, Revision } from '@weava/contracts';
+import { recordEntryLocation } from './admin-location.ts';
 import { api } from './api.ts';
-import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
+import type { ContentState } from './content-models.ts';
 import { drafts } from './draft-repository.ts';
-import {recordEntryLocation} from './admin-location.ts';
-import {
-  matchesDraft,
-  saveLocalDraft,
-  type LocalDraft,
-} from './local-drafts.ts';
+import { useEditSessions, useManagedRecord } from './EditSessions.tsx';
+import { matchesDraft, saveLocalDraft, type LocalDraft } from './local-drafts.ts';
+import { rememberAuthor } from './author-preference.ts';
+
+function hasDraftContent(row: Revision<Entry>) {
+  const value = row.value;
+  return !!row.revision || !!value.title.trim() || hasNoteContent(value.document) ||
+    value.blocks.length > 0 || !!value.description.trim() || !!value.cover ||
+    Object.values(value.fields).some(value => value !== undefined && value !== null && value !== '');
+}
 
 export interface EntryEditorOptions {
   setError: (message: string) => void;
-  setLibrary: React.Dispatch<React.SetStateAction<any>>;
-  setState: React.Dispatch<React.SetStateAction<any>>;
+  onSaved: (row: Revision<Entry>) => void;
+  receiveSchedules: (schedules: ContentState['schedules']) => void;
   compact: boolean;
 }
 
-export function useEntryEditor({ setError, setLibrary, setState, compact }: EntryEditorOptions) {
+export function useEntryEditor({
+  setError,
+  onSaved,
+  receiveSchedules,
+  compact,
+}: EntryEditorOptions) {
   const editors = useEditSessions();
   const selection = useRef(0),
+    conflictRequest = useRef(0),
     paused = useRef(false);
-  const localDraftSince=useRef(0);
-  const lastLocalDraft=useRef<Revision<Entry> | null>(null);
-  const recoveryOrigin=useRef<LocalDraft|null>(null);
-  const [pendingDrafts,setPendingDrafts]=useState<LocalDraft[]>([]);
-  useEffect(()=>{
-    let active=true;
-    const load=()=>{void drafts().list().then(copies=>{if(active)setPendingDrafts(copies);},()=>{});};
-    load();window.addEventListener('weava-drafts-change',load);window.addEventListener('storage',load);window.addEventListener('focus',load);
-    return()=>{active=false;window.removeEventListener('weava-drafts-change',load);window.removeEventListener('storage',load);window.removeEventListener('focus',load);};
-  },[]);
+  const localDraftSince = useRef(0);
+  const lastLocalDraft = useRef<Revision<Entry> | null>(null);
+  const recoveryOrigin = useRef<LocalDraft | null>(null);
+  const [pendingDrafts, setPendingDrafts] = useState<LocalDraft[]>([]);
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      void drafts()
+        .list()
+        .then(
+          (copies) => {
+            if (active) setPendingDrafts(copies);
+          },
+          () => {},
+        );
+    };
+    load();
+    window.addEventListener('weava-drafts-change', load);
+    window.addEventListener('storage', load);
+    window.addEventListener('focus', load);
+    return () => {
+      active = false;
+      window.removeEventListener('weava-drafts-change', load);
+      window.removeEventListener('storage', load);
+      window.removeEventListener('focus', load);
+    };
+  }, []);
   const [saving, setSaving] = useState(false),
     [editorEpoch, setEditorEpoch] = useState(0);
   const [conflict, setConflict] = useState<any>(null),
@@ -46,6 +74,7 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
   const managed = useManagedRecord<Revision<Entry>>(
     null,
     async (snapshot) => {
+      if (!hasDraftContent(snapshot)) return snapshot;
       if (paused.current) {
         await showConflict(snapshot);
         throw new Error('请先处理保存冲突。');
@@ -56,25 +85,8 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
           value: snapshot.value,
           revision: snapshot.revision || null,
         });
-        setLibrary((old: any) => ({
-          ...old,
-          items: old.items.map((item: any) =>
-            item.id === result.id
-              ? {
-                  ...item,
-                  revision: result.revision,
-                  updatedAt: result.updatedAt,
-                  hasChanges: true,
-                  value: {
-                    ...item.value,
-                    title: result.value.title,
-                    description: result.value.description,
-                    fields: result.value.fields,
-                  },
-                }
-              : item,
-          ),
-        }));
+        onSaved(result);
+        if (session.record?.id === result.id) recordEntryLocation(result.id);
         return result;
       } catch (error: any) {
         setError(error.message);
@@ -88,7 +100,11 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     '内容编辑',
     {
       recovery: false,
-      preserve:async row=>{saveLocalDraft(row,localStorage,Date.now(),drafts().sessionId);await drafts().save(row);},
+      preserve: async (row) => {
+        if (!hasDraftContent(row)) return;
+        saveLocalDraft(row, localStorage, Date.now(), drafts().sessionId);
+        await drafts().save(row);
+      },
       closeMessage: '文章没有保存，是否确认关闭',
       discard: () => {
         if (session.record) forgetDraft(session.record.id);
@@ -96,11 +112,25 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
         setEditorEpoch((value) => value + 1);
       },
       saved: (_row, snapshot, unchanged) => {
-        const origin=recoveryOrigin.current;
-        if(origin?.record.id===snapshot.id){recoveryOrigin.current=null;void drafts().discard(origin).catch(error=>setDraftNotice(error.message));}
+        const origin = recoveryOrigin.current;
+        if (origin?.record.id === snapshot.id) {
+          recoveryOrigin.current = null;
+          void drafts()
+            .discard(origin)
+            .catch((error) => setDraftNotice(error.message));
+        }
         if (unchanged) {
-          void drafts().acknowledge(snapshot).then(()=>setDraftNotice(''),error=>setDraftNotice(error.message));
-          setRecoveryCopies(copies=>copies.filter(copy=>copy!==origin&&(copy.sessionId??'legacy')!==drafts().sessionId));
+          void drafts()
+            .acknowledge(snapshot)
+            .then(
+              () => setDraftNotice(''),
+              (error) => setDraftNotice(error.message),
+            );
+          setRecoveryCopies((copies) =>
+            copies.filter(
+              (copy) => copy !== origin && (copy.sessionId ?? 'legacy') !== drafts().sessionId,
+            ),
+          );
           setRestoreLocal(null);
         }
       },
@@ -109,57 +139,109 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
   const session = managed.session,
     record = managed.record,
     dirty = session.dirty;
-  const persist = useCallback(async () => { await editors.prepare(); return session.save(); }, [editors, session]);
+  const persist = useCallback(async () => {
+    await editors.prepare();
+    return session.save();
+  }, [editors, session]);
   const setRecord = session.change;
   function forgetDraft(id: string) {
-    void drafts().forget(id).catch(error=>setDraftNotice(error.message));
+    void drafts()
+      .forget(id)
+      .catch((error) => setDraftNotice(error.message));
   }
   function resetConflict() {
+    conflictRequest.current++;
     paused.current = false;
     setConflictPaused(false);
     setConflict(null);
     setRestoreLocal(null);
   }
   async function showConflict(row: Revision<Entry>) {
+    const request = ++conflictRequest.current;
     paused.current = true;
     setConflictPaused(true);
-    setConflict(
-      await api('entry/merge', { id: row.id, baseRevision: row.revision, value: row.value }),
-    );
+    for (;;) {
+      const checkpoint = session.checkpoint();
+      const result = await api('entry/merge', {
+        id: row.id,
+        baseRevision: row.revision,
+        value: row.value,
+      });
+      if (
+        request !== conflictRequest.current ||
+        session.record?.id !== row.id ||
+        session.checkpoint().generation !== checkpoint.generation
+      )
+        return;
+      if (session.unchanged(checkpoint)) {
+        setConflict({ ...result, checkpoint });
+        return;
+      }
+      row = session.record;
+    }
   }
-  function adopt(row: Revision<Entry>) {
-    const origin=recoveryOrigin.current;
-    if(origin?.record.id===row.id){recoveryOrigin.current=null;void drafts().discard(origin).catch(error=>setDraftNotice(error.message));}
+  function adopt(row: Revision<Entry>, checkpoint?: ReturnType<typeof session.checkpoint>) {
+    if (checkpoint && !session.unchanged(checkpoint)) return false;
+    const origin = recoveryOrigin.current;
+    if (origin?.record.id === row.id) {
+      recoveryOrigin.current = null;
+      void drafts()
+        .discard(origin)
+        .catch((error) => setDraftNotice(error.message));
+    }
     session.adopt(row);
-    recordEntryLocation(row.id);
+    recordEntryLocation(row.revision ? row.id : null);
     resetConflict();
     setEditorEpoch((value) => value + 1);
     forgetDraft(row.id);
     setError('');
+    return true;
   }
-  function clear(recordHistory=true) {
+  function clear(recordHistory = true) {
     ++selection.current;
     session.adopt(null);
-    if(recordHistory)recordEntryLocation(null);
+    if (recordHistory) recordEntryLocation(null);
     setPreview('');
     setHistory(null);
     resetConflict();
-    recoveryOrigin.current=null;
+    recoveryOrigin.current = null;
   }
   function update(patch: Partial<Entry>) {
     setContentCheck(null);
-    session.change((old) => (old ? { ...old, value: { ...old.value, ...patch } } : old));
+    if (patch.author !== undefined) rememberAuthor(patch.author);
+    const old = session.record;
+    if (!old) return;
+    const next = { ...old, value: { ...old.value, ...patch } };
+    if (!hasDraftContent(next) && !session.saving) {
+      session.adopt(next);
+      forgetDraft(next.id);
+    } else session.change(next);
   }
-  async function recoverDraft(copy:LocalDraft){
-    const local=structuredClone(copy.record),server=session.record;
-    recoveryOrigin.current=copy;
-    try{await drafts().save(local);}catch(error:any){setDraftNotice(error.message);}
-    if(!local.revision&&!server){session.adopt(null);session.change(local);resetConflict();}
-    else if(local.revision===server?.revision&&local.id===server?.id)update(local.value);
-    else {session.change(local);await showConflict(local);}
-    setEditorEpoch(value=>value+1);setRestoreLocal(null);
+  async function recoverDraft(copy: LocalDraft) {
+    const local = structuredClone(copy.record),
+      server = session.record;
+    const checkpoint = session.checkpoint(),
+      request = selection.current;
+    try {
+      await drafts().save(local);
+    } catch (error: any) {
+      setDraftNotice(error.message);
+    }
+    if (request !== selection.current || !session.unchanged(checkpoint)) return;
+    recoveryOrigin.current = copy;
+    if (!local.revision && !server) {
+      session.adopt(null);
+      session.change(local);
+      resetConflict();
+    } else if (local.revision === server?.revision && local.id === server?.id) update(local.value);
+    else {
+      session.change(local);
+      await showConflict(local);
+    }
+    setEditorEpoch((value) => value + 1);
+    setRestoreLocal(null);
   }
-  async function select(id: string,recordHistory=true) {
+  async function select(id: string, recordHistory = true) {
     const request = ++selection.current;
     try {
       let row: Revision<Entry>;
@@ -167,12 +249,21 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
         await persist();
         if (request !== selection.current) return;
         const before = session.record;
-        try{row = await api(`entry/${encodeURIComponent(id)}`);}
-        catch(error:any){
-          if(error.status===404){
-            const copies=await drafts().read(id),local=copies.find(copy=>copy.record.revision===0);
-            if(request!==selection.current)return;
-            if(local){session.adopt(null);await recoverDraft(local);if(recordHistory)recordEntryLocation(id);setRecoveryCopies(copies.filter(copy=>copy!==local));return;}
+        try {
+          row = await api(`entry/${encodeURIComponent(id)}`);
+        } catch (error: any) {
+          if (error.status === 404) {
+            const copies = await drafts().read(id),
+              local = copies.find((copy) => copy.record.revision === 0);
+            if (request !== selection.current) return;
+            if (before !== session.record) continue;
+            if (local) {
+              session.adopt(null);
+              await recoverDraft(local);
+              if (recordHistory) recordEntryLocation(id);
+              setRecoveryCopies(copies.filter((copy) => copy !== local));
+              return;
+            }
           }
           throw error;
         }
@@ -180,24 +271,26 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
         if (before === session.record) break;
       }
       session.adopt(row);
-      if(recordHistory)recordEntryLocation(id);
+      if (recordHistory) recordEntryLocation(id);
       resetConflict();
       setEditorEpoch((value) => value + 1);
       setPreview('');
       setHistory(null);
       api(`schedules?entryId=${encodeURIComponent(id)}`)
         .then((schedules) => {
-          if (request === selection.current) setState((old: any) => ({ ...old, schedules }));
+          if (request === selection.current) receiveSchedules(schedules);
         })
         .catch((error) => {
           if (request === selection.current) setError(error.message);
         });
       try {
         const stored = await drafts().read(id);
-        const copies = stored.filter(copy => !matchesDraft(copy,row));
-        if(request!==selection.current)return;
-        for (const copy of stored) if (!copies.includes(copy)) await drafts().acknowledge(copy.record,copy.sessionId??'legacy');
-        if(request!==selection.current)return;
+        const copies = stored.filter((copy) => !matchesDraft(copy, row));
+        if (request !== selection.current) return;
+        for (const copy of stored)
+          if (!copies.includes(copy))
+            await drafts().acknowledge(copy.record, copy.sessionId ?? 'legacy');
+        if (request !== selection.current) return;
         setRecoveryCopies(copies);
         setRestoreLocal(copies[0]?.record ?? null);
       } catch (error: any) {
@@ -211,30 +304,44 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
     setContentCheck(null);
   }, [record?.id]);
   useEffect(() => {
-    if (!dirty || !record){
-      localDraftSince.current=0;
-      const local=lastLocalDraft.current;
-      lastLocalDraft.current=null;
-      if(local&&record?.id===local.id)void drafts().acknowledge(local).catch(error=>setDraftNotice(error.message));
+    if (!dirty || !record || !hasDraftContent(record)) {
+      localDraftSince.current = 0;
+      const local = lastLocalDraft.current;
+      lastLocalDraft.current = null;
+      if (local && record?.id === local.id)
+        void drafts()
+          .acknowledge(local)
+          .catch((error) => setDraftNotice(error.message));
       return;
     }
-    localDraftSince.current||=Date.now();
-    const local=setTimeout(()=>{
-      localDraftSince.current=0;
-      if(session.dirty&&session.record){
-        lastLocalDraft.current=session.record;
-        void drafts().save(session.record).then(()=>setDraftNotice(''),error=>setDraftNotice(error.message));
-      }
-    },Math.max(0,Math.min(250,1000-(Date.now()-localDraftSince.current))));
-    const timer = conflictPaused?undefined:setTimeout(() => persist().catch(() => {}), 1200);
-    return () => {clearTimeout(local);clearTimeout(timer);};
+    localDraftSince.current ||= Date.now();
+    const local = setTimeout(
+      () => {
+        localDraftSince.current = 0;
+        if (session.dirty && session.record && hasDraftContent(session.record)) {
+          lastLocalDraft.current = session.record;
+          void drafts()
+            .save(session.record)
+            .then(
+              () => setDraftNotice(''),
+              (error) => setDraftNotice(error.message),
+            );
+        }
+      },
+      Math.max(0, Math.min(250, 1000 - (Date.now() - localDraftSince.current))),
+    );
+    const timer = conflictPaused ? undefined : setTimeout(() => persist().catch(() => {}), 1200);
+    return () => {
+      clearTimeout(local);
+      clearTimeout(timer);
+    };
   }, [record, dirty, conflictPaused]);
   useEffect(() => {
     const leave = () => {
       try {
-        if (session.dirty && session.record) {
-          lastLocalDraft.current=session.record;
-          saveLocalDraft(session.record,localStorage,Date.now(),drafts().sessionId);
+        if (session.dirty && session.record && hasDraftContent(session.record)) {
+          lastLocalDraft.current = session.record;
+          saveLocalDraft(session.record, localStorage, Date.now(), drafts().sessionId);
         }
       } catch {}
     };
@@ -245,17 +352,19 @@ export function useEntryEditor({ setError, setLibrary, setState, compact }: Entr
       }
     };
     window.addEventListener('beforeunload', leave);
-    const hidden=()=>{
-      if(document.visibilityState==='hidden'&&session.dirty&&session.record){
-        lastLocalDraft.current=session.record;
-        void drafts().save(session.record).catch(()=>{});
+    const hidden = () => {
+      if (document.visibilityState === 'hidden' && session.dirty && session.record && hasDraftContent(session.record)) {
+        lastLocalDraft.current = session.record;
+        void drafts()
+          .save(session.record)
+          .catch(() => {});
       }
     };
-    document.addEventListener('visibilitychange',hidden);
+    document.addEventListener('visibilitychange', hidden);
     window.addEventListener('keydown', key);
     return () => {
       window.removeEventListener('beforeunload', leave);
-      document.removeEventListener('visibilitychange',hidden);
+      document.removeEventListener('visibilitychange', hidden);
       window.removeEventListener('keydown', key);
     };
   }, [session]);

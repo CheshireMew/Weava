@@ -1,10 +1,12 @@
-import { exportSite, importSite, digest } from '@weava/core';
 import { WeavaError as DomainError } from '@weava/contracts';
+import { digest, exportSite } from '@weava/core';
+import { importRevisions } from '../../../../packages/core/src/exchange.ts';
 
-import { join } from 'node:path';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
+import { queueJsonImport } from '../../../../packages/core/src/json-import.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 export function exchangeHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const { site, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
@@ -13,24 +15,19 @@ export function exchangeHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     export: async () => {
       return exportSite(site);
     },
-    import: async ({ body: data }) => {
-      return importSite(site, data.value, data.options);
+    import: async ({ body: data }, context) => {
+      return queueJsonImport(
+        site,
+        jobs,
+        new Request(context.request.url, {
+          method: 'POST',
+          headers: context.request.headers,
+          body: JSON.stringify(data),
+        }),
+      );
     },
     importRevisions: async () => {
-      return Object.fromEntries(
-        [
-          'entry',
-          'type',
-          'term',
-          'layout',
-          'settings',
-          'redirect',
-          'content-view',
-          'creation-template',
-        ].flatMap((scope) =>
-          site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision]),
-        ),
-      );
+      return importRevisions(site);
     },
     importWxr: async ({ body: data }, context) => {
       const { request } = context;

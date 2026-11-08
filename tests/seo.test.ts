@@ -4,8 +4,9 @@ import { Site, Analytics, pageMetadata, metadataHead, composeMetadata, renderEnt
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { load } from 'cheerio';
 import { entrySchema, defaultSettings, type Release } from '@weava/contracts';
+import {compactAudit,seoAudits} from '../packages/core/src/seo-audit.ts';
 
-const root = 'D:/Tools/cache/weava/tests/seo-' + Date.now();
+const root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/seo-' + Date.now();
 const sites: Site[] = [];
 let nextSite = 0;
 const create = () => { const site = new Site(join(root, String(nextSite++))); sites.push(site);
@@ -66,6 +67,26 @@ describe('search metadata and evidence publication', () => {
 });
 
 describe('actionable audits and revision binding', () => {
+  it('stores each duplicate group once, with linear report size and all affected paths',async()=>{
+    const site=create();site.saveEntry(entry('source',{title:'重复标题'}),null);const release=site.publish();
+    const audit=(count:number)=>auditRelease({...release,entries:Array.from({length:count},(_,i)=>({...release.entries[0],id:'item-'+i,path:'/item-'+i+'/'}))});
+    const small=await audit(100),large=await audit(1000);
+    expect(large.duplicateGroups!.find(group=>group.rule==='duplicate-title')!.paths).toHaveLength(1000);
+    expect(large.findings.filter(finding=>finding.rule==='duplicate-title')).toHaveLength(1000);
+    expect(Buffer.byteLength(JSON.stringify(large))).toBeLessThan(Buffer.byteLength(JSON.stringify(small))*12);
+    expect(Buffer.byteLength(JSON.stringify(large))).toBeLessThan(2_000_000);
+    for(const finding of large.findings.filter(finding=>finding.groupId))expect(large.duplicateGroups!.some(group=>group.id===finding.groupId&&group.paths.includes(finding.path))).toBe(true);
+  });
+  it('compacts legacy duplicate evidence for reading without changing the saved report',async()=>{
+    const site=create();site.saveEntry(entry('a',{title:'重复'}),null);site.saveEntry(entry('b',{title:'重复'}),null);
+    const current=await auditRelease(site.publish());
+    const old={...current,rulesVersion:1 as const,duplicateGroups:undefined,findings:current.findings.map(({groupId,...finding})=>({...finding,evidence:groupId?current.duplicateGroups!.find(group=>group.id===groupId)!.paths.join(', '):finding.evidence}))};
+    storeAudit(site,old);const compact=compactAudit(old);
+    expect(compact.duplicateGroups?.find(group=>group.rule==='duplicate-title')?.paths).toEqual(['/a/','/b/']);
+    expect(compact.findings.filter(finding=>finding.groupId).every(finding=>finding.evidence==='')).toBe(true);
+    expect(seoAudits(site)[0]).toMatchObject({rulesVersion:1,stale:true,duplicateGroups:compact.duplicateGroups});
+    expect(site.store.get('seo-audit',old.id)!.value).toEqual(JSON.parse(JSON.stringify(old)));
+  });
   it('reports real duplicate pages and does not turn missing responses into failed content checks', async () => {
     const site = create(); site.saveEntry(entry('one', { title: '重复' }), null); site.saveEntry(entry('two', { title: '重复' }), null); site.saveEntry(entry('private', { visibility: 'private' }), null);
     const release = site.publish(), report = await auditRelease(release);

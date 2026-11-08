@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { Site, convertWordPressWxr, importWordPressWxr, renderEntryTemplate, resolveContentLinks } from '@weava/core';
 import { wordpressFixture } from './fixtures/wordpress-wxr.ts';
-const sites: Site[] = [], base = 'D:/Tools/cache/weava/tests/wxr-' + Date.now(); let sequence = 0;
+const sites: Site[] = [], base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wxr-' + Date.now(); let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null); return site; };
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 describe('standard WordPress WXR import', () => {

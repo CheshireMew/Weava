@@ -109,6 +109,11 @@ const serve = defineMiddleware(async (context, next) => {
     else if(!/^(image|audio|video)\//.test(type) && type!=='text/vtt') headers['Content-Disposition']='attachment';
     return mediaResponse(file, context.request, headers);
   }
+  if (path.startsWith('/site-assets/')) {
+    const file = inside(join(site.root,'public'), decodeURIComponent(path.slice(13)));
+    if (!existsSync(file)) return new Response('Not found',{status:404});
+    return assetResponse(file, context.request, mime[extname(file)] ?? 'application/octet-stream');
+  }
   if (!/^\/(?:api\/admin|api\/v1|media|__preview|_admin|__health)(?:\/|$)/.test(path)) {
     const renderer = await siteRenderer;
     if (renderer) { const response = await renderer.render(context.request, contextFor(context.request)); if (response !== null) return response; }
@@ -147,6 +152,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
   else if(!context.url.pathname.startsWith('/media/'))response.headers.set('Content-Security-Policy',(response.headers.get('Content-Security-Policy')??'')+"; frame-ancestors 'self'; base-uri 'self'");
   const programAsset=context.url.pathname.startsWith('/_admin/assets/')||context.url.pathname.startsWith('/_astro/');
+  if (!admin && !programAsset && !context.url.pathname.startsWith('/media/') &&
+      !context.url.pathname.startsWith('/api/') && response.status === 200 &&
+      response.headers.get('content-type')?.includes('text/html')) {
+    const release = site.visibleRelease();
+    if (release) {
+      const html = await (await siteExtension).transformHtml(await response.text(), release, context.url);
+      const headers = new Headers(response.headers); headers.delete('Content-Length');
+      response = new Response(html, { status: response.status, headers });
+    }
+  }
   const published=!admin&&!programAsset&&context.request.method==='GET'&&response.headers.get('content-type')?.includes('text/html')?site.visibleRelease():null;
   if (published && releaseIndex(published).byPath.has(context.url.pathname)) {
     let peer='';try{peer=context.clientAddress;}catch{}

@@ -1,8 +1,66 @@
 import { expect, it } from 'vitest';
 import { join, resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
+import {spawn} from 'node:child_process';
+import {entrySchema} from '@weava/contracts';
 import { JobRunner, Site, readJsonBody, Analytics } from '@weava/core';
-const base='D:/Tools/cache/weava/tests/job-runner-'+Date.now();
+import {createAdminDispatcher} from '../apps/web/src/api/dispatch.ts';
+const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/job-runner-'+Date.now();
+it('dispatches plan saves, withdrawals and deletion as inspectable jobs with committed results',async()=>{
+ const site=new Site(join(base,'content-commands')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false});
+ try{
+  const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);site.publish({ids:[row.id]});
+  const dispatch=createAdminDispatcher({site,jobs:runner} as any),context={url:new URL('http://localhost'),request:new Request('http://localhost')} as any;
+  const planResponse=await dispatch('savePlan',{}, {value:{id:'plan',name:'Plan',actions:[{id:row.id,revision:row.revision,action:'publish'}]},revision:null},context);
+  expect(planResponse.status).toBe(202);const planJob=await planResponse.json();const plan=await runner.wait(planJob.id,15000);expect(plan.value.actions[0].id).toBe(row.id);
+  await dispatch('cancelPlan',{}, {id:plan.id,revision:plan.revision},context);
+  const response=await dispatch('withdraw',{}, {id:row.id,revision:row.revision},context);expect(response.status).toBe(202);
+  const job=await response.json(),withdrawn=await runner.wait(job.id,15000);expect(withdrawn.value.status).toBe('draft');expect(site.release()!.entries).toHaveLength(0);
+  const deleted=await dispatch('deleteEntry',{}, {id:row.id,revision:withdrawn.revision},context);expect(deleted.status).toBe(202);const deletion=await deleted.json();
+  expect(await runner.wait(deletion.id,15000)).toEqual({id:row.id});expect(site.store.get('entry',row.id)).toBeNull();
+  const retried=await dispatch('deleteEntry',{}, {id:row.id,revision:withdrawn.revision},context);expect((await retried.json()).id).toBe(deletion.id);
+ }finally{runner.stop();site.close();}
+},50000);
+it('reuses active and committed commands but allows retrying a terminal failed or cancelled command',()=>{
+  const site=new Site(join(base,'command-retry')),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+  try{
+    const payload={id:'entry',revision:1,dueAt:'2099-01-01T00:00:00Z'},first=runner.command('schedule-create',payload);
+    expect(runner.command('schedule-create',payload).id).toBe(first.id);
+    runner.cancel(first.id);const retry=runner.command('schedule-create',payload);expect(retry.id).not.toBe(first.id);
+    site.updateJob(retry.id,{status:'failed'});const next=runner.command('schedule-create',payload);expect(next.id).not.toBe(retry.id);
+    site.updateJob(next.id,{status:'complete',result:{saved:true}});expect(runner.command('schedule-create',payload).id).toBe(next.id);
+  }finally{runner.stop();site.close();}
+});
+it.each(['cancel','timeout'] as const)('stops a blocked rendering thread on %s without publishing a late result',async action=>{
+  const site=new Site(join(base,action)),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false,timeoutMs:action==='timeout'?8000:20000});
+  try{
+    const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);
+    writeFileSync(join(site.root,'extensions/index.mjs'),`export default({site})=>({id:'blocked',apiVersion:1,render(){site.store.setState('entered-render','1');while(true){}}});`);
+    const job=runner.enqueue('publish',{ids:[row.id]});
+    for(let n=0;n<100&&!site.store.state('entered-render');n++)await new Promise(resolve=>setTimeout(resolve,100));
+    expect(site.store.state('entered-render')).toBe('1');expect(site.job(job.id).heartbeatAt).toBeGreaterThan(0);
+    if(action==='cancel')runner.cancel(job.id);
+    await expect(runner.wait(job.id,12000)).rejects.toThrow(action==='cancel'?/取消/:/期限/);
+    expect(site.job(job.id).status).toBe(action==='cancel'?'cancelled':'failed');expect(site.release()).toBeNull();
+    expect(site.activeJobs()).toEqual([]);
+  }finally{runner.stop();site.close();}
+},25000);
+it('retries a writer lock without throwing or losing the queued job',async()=>{
+ const site=new Site(join(base,'writer-lock')),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+ let child:ReturnType<typeof spawn>|undefined;
+ try{
+  const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);
+  const job=runner.command('schedule-create',{id:row.id,revision:row.revision,dueAt:new Date(Date.now()+60000).toISOString()});
+  site.store.raw.pragma('busy_timeout=25');
+  child=spawn(process.execPath,['--input-type=module','-e',`import Database from 'better-sqlite3';const db=new Database(process.argv[1]);db.exec('BEGIN IMMEDIATE');process.send({locked:true});setTimeout(()=>{db.exec('ROLLBACK');db.close();process.disconnect();},500);`,join(site.root,'weava.sqlite')],{cwd:resolve('.'),windowsHide:true,stdio:['ignore','ignore','pipe','ipc']});
+  const done=new Promise<void>(resolve=>child!.once('exit',()=>resolve()));await new Promise<void>(resolve=>child!.once('message',()=>resolve()));
+  runner.pause(false);expect(()=>runner.pump()).not.toThrow();expect(site.job(job.id).status).toBe('queued');await done;
+  site.store.raw.pragma('busy_timeout=5000');const result=await runner.wait(job.id,15000);
+  expect(result.value.entryId).toBe(row.id);expect(site.jobs()).toHaveLength(1);
+  expect(runner.command('schedule-create',job.payload).id).toBe(job.id);
+  await expect(runner.query('schedule-create',job.payload)).rejects.toThrow(/未知计算操作/);
+ }finally{if(child?.exitCode===null)child.kill();runner.stop();site.close();}
+},25000);
 it('ARC-17 bounds all task processes, deduplicates submissions and resumes persisted queued tasks',async()=>{
   const site=new Site(join(base,'site')),worker=join(base,'worker.mjs');
   writeFileSync(worker,`import{createRequire}from'node:module';const require=createRequire(${JSON.stringify(resolve('package.json'))});const Database=require('better-sqlite3');const[root,id]=process.argv.slice(2);const db=new Database(root+'/weava.sqlite');db.pragma('busy_timeout=5000');const job=JSON.parse(db.prepare('SELECT data FROM jobs WHERE id=?').get(id).data);const active=db.prepare("SELECT COUNT(*) n FROM jobs WHERE status='running'").get().n;await new Promise(resolve=>setTimeout(resolve,250));const result={...job,status:'complete',result:{active,pid:process.pid}};db.prepare('UPDATE jobs SET status=?,data=? WHERE id=?').run('complete',JSON.stringify(result),id);db.close();`);

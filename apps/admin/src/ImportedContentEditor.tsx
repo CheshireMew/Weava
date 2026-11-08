@@ -4,6 +4,7 @@ import type { Block } from '@weava/contracts';
 import { BlockProperties, type BlockCatalog } from './Blocks.tsx';
 import { patchBlock } from './block-tree.ts';
 import { useSelectors } from './Selectors.tsx';
+import { LoadingState } from './LoadingState.tsx';
 import { allowFileDrop, dropRange, hasDroppedFiles, UploadStatus, useFileUploads } from './file-drop.tsx';
 
 const Editor = lazy(() => import('./Editor.tsx').then(module => ({ default: module.Editor })));
@@ -127,7 +128,7 @@ export function ImportedContentEditor({ value, onChange, catalog, onError }: {
       const change = (text: string) => update({ ...block, props: { ...block.props, text } });
       return <div className="page-content-section" key={block.id}>{/<\/?[a-z][^>]*>/i.test(text)
         ? <HtmlPageText value={text} onChange={change} />
-        : <Suspense fallback={<p>正在打开正文…</p>}><Editor value={{ version: 1, format: 'markdown', source: text }} outputFormat="markdown" onChange={document => change(String(document.source))} onMedia={() => selectors.media()} onError={onError} /></Suspense>}</div>;
+        : <Suspense fallback={<LoadingState label="打开正文" />}><Editor value={{ version: 1, format: 'markdown', source: text }} outputFormat="markdown" onChange={document => change(String(document.source))} onMedia={() => selectors.media()} onError={onError} /></Suspense>}</div>;
     }
     if (['entry-body', 'entry-fields', 'entry-toc', 'site-brand', 'navigation'].includes(block.type)) return null;
     if (['content-list', 'cards', 'taxonomy', 'shared', 'content-detail', 'compatibility', 'code'].includes(block.type) || !['hero', 'image-text', 'image', 'gallery', 'video', 'attachment', 'button', 'faq', 'callout'].includes(block.type))

@@ -5,9 +5,9 @@ export function SeoFields({ value, onChange, section = 'all', expanded = false }
   const selectors = useSelectors();
   if (section === 'evidence') return null;
   const seo = value.seo ?? {}, set = (patch: Partial<NonNullable<Entry['seo']>>) => onChange({ seo: { ...seo, ...patch } });
-  const fields = <div className="seo-fields">
-    <label>搜索标题<input value={seo.title ?? ''} placeholder={value.title} onChange={event => set({ title: event.target.value || undefined })} /></label>
-    <label>搜索摘要<textarea value={seo.description ?? ''} placeholder={value.description || '使用正文摘要'} onChange={event => set({ description: event.target.value || undefined })} /></label>
+  const fields = <div className="seo-fields" data-field-path="seo">
+    <label data-field-path="seo.title">搜索标题<input value={seo.title ?? ''} placeholder={value.title} onChange={event => set({ title: event.target.value || undefined })} /></label>
+    <label data-field-path="seo.description">搜索摘要<textarea value={seo.description ?? ''} placeholder={value.description || '使用正文摘要'} onChange={event => set({ description: event.target.value || undefined })} /></label>
     <div className="site-logo"><span>分享图片</span>{(seo.image || value.cover) && <img src={seo.image || value.cover} alt={seo.imageAlt ?? ''} />}
       <button type="button" onClick={async () => { const media = await selectors.media('image'); if (media) set({ image: media.url, imageAlt: media.alt || media.name }); }}>选择图片</button>
       {seo.image && <button type="button" onClick={() => set({ image: undefined, imageAlt: undefined })}>使用文章封面</button>}

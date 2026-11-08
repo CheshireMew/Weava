@@ -15,6 +15,8 @@ import {useSelectors} from './Selectors.tsx';
 import {Fields} from './Fields.tsx';
 
 import type {EntryEditorModel} from './content-models.ts';
+import {LoadingState} from './LoadingState.tsx';
+import {entryFieldSection, focusEntryField} from './entry-field-focus.ts';
 
 const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Editor })));
 
@@ -25,6 +27,19 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
   const selectors = useSelectors();
   const article = record?.value.kind === 'content';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState('information');
+  const [focusRequest, setFocusRequest] = useState<{path: string} | null>(null);
+  const editorRoot = useRef<HTMLElement>(null);
+  const navigateToField = (path: string) => {
+    const section = entryFieldSection(path);
+    if (!section) return;
+    setSettingsOpen(section !== 'writing');
+    if (section !== 'writing') setSettingsSection(section);
+    setFocusRequest({path});
+  };
+  useLayoutEffect(() => {
+    if (focusRequest && editorRoot.current) return focusEntryField(editorRoot.current, focusRequest.path);
+  }, [focusRequest]);
   const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!settingsOpen || article) return;
@@ -39,12 +54,19 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
     if (!input) return;
     const resize = () => { input.style.height = 'auto'; input.style.height = input.scrollHeight + 'px'; };
     resize();
-    const observer = new ResizeObserver(resize);
+    let width = input.parentElement!.getBoundingClientRect().width, frame = 0;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry.contentRect.width;
+      if (nextWidth === width) return;
+      width = nextWidth;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(resize);
+    });
     observer.observe(input.parentElement!);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [record?.id, record?.value.title]);
   return (
-    <section className={'editing-area' + (article ? ' article-editor' : ' website-page-editor')} aria-label="内容编辑">
+    <section ref={editorRoot} className={'editing-area' + (article ? ' article-editor' : ' website-page-editor')} aria-label="内容编辑">
       {!record ? (
         <div className="empty-state">
           <div className="empty-mark" aria-hidden="true">
@@ -79,10 +101,10 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
               <ArrowLeft size={16} />
               <span>返回列表</span>
             </button>
-            <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
+            {(record.revision > 0 || dirty || saving) && <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
               {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
               {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
-            </span>
+            </span>}
             {article && <EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} />}
             <div className="editor-actions">
               <div className="editor-tools">
@@ -141,7 +163,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                 disabled={busy || saving}
                 onClick={() => publish().catch((error) => setError(error.message))}
               >
-                发布
+                {busy ? '准备发布…' : '发布'}
               </button>
             </div>
           </div>
@@ -161,17 +183,18 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                   ref={titleInput}
                   rows={1}
                   className="title-input"
+                  data-field-path="title"
                   aria-label="内容标题"
                   value={record.value.title}
-                  placeholder="标题"
+                  placeholder="未命名内容"
                   onChange={(e) => update({ title: e.target.value })}
                 />
                 {!article && publication && <EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} />}
               </div>
-              {record.value.blocks.length > 0 ? (
-                <Suspense fallback={<p>正在打开正文…</p>}><ImportedContentEditor key={record.id + ':' + editorEpoch} value={record.value.blocks} onChange={blocks => update({ blocks })} catalog={state} onError={setError} /></Suspense>
+              <div data-field-path={record.value.blocks.length > 0 ? 'blocks' : 'document'} tabIndex={-1}>{record.value.blocks.length > 0 ? (
+                <Suspense fallback={<LoadingState label="打开正文" />}><ImportedContentEditor key={record.id + ':' + editorEpoch} value={record.value.blocks} onChange={blocks => update({ blocks })} catalog={state} onError={setError} /></Suspense>
               ) : (
-                <Suspense fallback={<p>正在载入编辑器…</p>}>
+                <Suspense fallback={<LoadingState label="载入编辑器" />}>
                   <Editor
                     toolbarTarget={article ? toolbarTarget : undefined}
                     key={record.id + ':' + editorEpoch}
@@ -182,6 +205,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                   />
                 </Suspense>
               )}
+              </div>
               {record.value.kind === 'content' && (
                 <Fields
                   key={record.id}
@@ -197,7 +221,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                 />
               )}
             </div>
-            {settingsOpen && (article ? <Dialog label="文章设置" className="modal article-options-dialog" onClose={() => setSettingsOpen(false)}><div className="article-options-heading"><h2>文章设置</h2><button type="button" aria-label="关闭文章设置" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div><EntrySettings model={model.settings} mode="more" /></Dialog> : <Dialog label="内容设置" className="article-settings-dialog" onClose={() => setSettingsOpen(false)}><EntrySettings model={model.settings} onClose={() => {
+            {settingsOpen && (article ? <Dialog label="文章设置" className="modal article-options-dialog" onClose={() => setSettingsOpen(false)}><div className="article-options-heading"><h2>文章设置</h2><button type="button" aria-label="关闭文章设置" onClick={() => setSettingsOpen(false)}><X size={18} /></button></div><EntrySettings model={model.settings} mode="more" onFocusField={navigateToField} selectedSection={settingsSection} onSelectSection={setSettingsSection} /></Dialog> : <Dialog label="内容设置" className="article-settings-dialog" onClose={() => setSettingsOpen(false)}><EntrySettings model={model.settings} onFocusField={navigateToField} onClose={() => {
               setSettingsOpen(false);
               document.querySelector<HTMLButtonElement>('[aria-controls="entry-settings"]')?.focus();
             }} /></Dialog>)}

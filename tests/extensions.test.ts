@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import cryptoExtension from '../scripts/crypto-extension.ts';
 import { Site, renderDocument, renderBlocks } from '@weava/core';
 it('honors theme switching and updates migrated SEO with the published revision', async () => {
-  const site = new Site('D:/Tools/cache/weava/tests/theme-' + Date.now());
+  const site = new Site((process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/theme-' + Date.now());
   try {
     const ext = await cryptoExtension({ site, apiVersion: 1, renderDocument, renderBlocks });
     const entry: any = {
@@ -48,7 +48,7 @@ it('honors theme switching and updates migrated SEO with the published revision'
   }
 });
 it('preserves feed and stock snapshots when every provider fails', async () => {
-  const root = 'D:/Tools/cache/weava/tests/extensions-' + Date.now();
+  const root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/extensions-' + Date.now();
   mkdirSync(join(root, 'imports'), { recursive: true });
   const stock = {
     sources: {

@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { readFileSync } from 'node:fs';
 import { Site, savePublicationPlan, reviewPublicationPlan, runPublicationPlan, runPublicationPlans, cancelPublicationPlan, uploadMedia, saveMediaMetadata, saveImagePreset, imageVariant } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
-const root = 'D:/Tools/cache/weava/tests/image-plans-' + Date.now(), sites: Site[] = []; let sequence = 0;
+const root = (process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests') + '/image-plans-' + Date.now(), sites: Site[] = []; let sequence = 0;
 const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); return site; };
 const entry = (id: string, extra = {}) => entrySchema.parse({ id, kind: 'page', title: id, path: '/' + id + '/', ...extra });
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
@@ -35,9 +35,10 @@ it('refuses stale plan review, duplicate actions and cancellation without changi
   expect(() => savePublicationPlan(site, { id: 'bad', name: '重复', actions: [{ id: 'a', revision: a.revision, action: 'publish' }, { id: 'a', revision: a.revision, action: 'withdraw' }] }, null)).toThrow(/一次/);
   const plan = savePublicationPlan(site, { id: 'a', name: '计划', actions: [{ id: 'a', revision: a.revision, action: 'withdraw' }] }, null), review = reviewPublicationPlan(site, plan.id, plan.revision);
   site.saveEntry(entry('b'), null);
+  const changedRelease=site.publish({ids:['b']});
   await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {}, review.review.options)).rejects.toThrow(/预检/);
   cancelPublicationPlan(site, plan.id, plan.revision);
-  await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {})).rejects.toThrow(/变化/); expect(site.release()!.entries).toHaveLength(1);
+  await expect(runPublicationPlan(site, plan.id, plan.revision, async () => {})).rejects.toThrow(/变化/); expect(site.release()!.id).toBe(changedRelease.id); expect(site.release()!.entries).toHaveLength(2);
 });
 it('reuses parameter-addressed images, respects focal crops and preserves originals and access policy', async () => {
   const site = create(), blue = await sharp({ create: { width: 200, height: 200, channels: 3, background: '#0000ff' } }).png().toBuffer();

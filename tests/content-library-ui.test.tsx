@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ContentEntries } from '../apps/admin/src/ContentEntries.tsx';
@@ -16,7 +16,7 @@ function model() {
     libraryLoading: false, filter: '', searchTerm: '', bulkIds: [], setBulkIds: vi.fn(), select: vi.fn(), status: 'all', setStatus: vi.fn(),
     visibility: 'all', libraryType: '', librarySort: '', fieldFilters: {}, library: { total: 1, pages: 1 }, libraryPage: 1,
     setFilter: vi.fn(), setLibraryPage: vi.fn(), setLibrarySort: vi.fn(), setVisibility: vi.fn(), setLibraryType: vi.fn(), setFieldFilters: vi.fn(),
-    duplicateEntry: vi.fn(), deleteEntry: vi.fn(), setError: vi.fn(),newEntry:vi.fn(async()=>{}),
+    duplicateEntry: vi.fn(), deleteEntry: vi.fn(), setError: vi.fn(),newEntry:vi.fn(async()=>{}),openBulk:vi.fn(async()=>{}),
   } as any;
   current.actions={tab:current.tab,setError:current.setError,select:current.select,duplicateEntry:current.duplicateEntry,deleteEntry:current.deleteEntry};
   return current;
@@ -35,6 +35,29 @@ it('asks for the creation type when viewing all types and names filtered creatio
   await act(async()=>root.render(<ContentLibrary model={current}/>));
   await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="新建文档"]')!.click());
   expect(current.newEntry).toHaveBeenLastCalledWith('doc');
+});
+it('reaches batch editing from the default library and clears selections when leaving selection mode', async () => {
+  const current=model();
+  function Library() { const [ids,setIds]=useState<string[]>([]); return <ContentLibrary model={{...current,bulkIds:ids,setBulkIds:setIds}}/>; }
+  await act(async()=>root.render(<Library/>));
+  const click=async(text:string)=>act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent===text)!.click());
+  expect(host.querySelector('[aria-label="全选本页内容"]')).toBeNull();
+  await click('批量选择');
+  await act(async()=>host.querySelector<HTMLInputElement>('[aria-label="全选本页内容"]')!.click());
+  await click('批量编辑（1）'); expect(current.openBulk).toHaveBeenCalledOnce();
+  await click('取消选择'); await click('批量选择');
+  expect(host.querySelector<HTMLInputElement>('[aria-label="批量选择 已有文章"]')!.checked).toBe(false);
+  expect(host.textContent).not.toContain('批量编辑（');
+});
+it('identifies types in the mixed library and removes redundant type labels after filtering',async()=>{
+  const current=model();current.state.types.push({id:'doc',value:{id:'doc',label:'文档',fields:[]}});
+  current.items.push({...current.items[0],id:'doc',value:{...current.items[0].value,type:'doc',title:'文档条目'}});
+  await act(async()=>root.render(<ContentLibrary model={current}/>));
+  expect(host.querySelector('h1')?.textContent).toBe('内容');
+  expect([...host.querySelectorAll('.publication-type')].map(node=>node.textContent)).toEqual(['文章','文档']);
+  current.libraryType='doc';current.items=current.items.slice(1);
+  await act(async()=>root.render(<ContentLibrary model={current}/>));
+  expect(host.querySelector('h1')?.textContent).toBe('文档');expect(host.querySelector('.publication-type')).toBeNull();
 });
 it('keeps active conditions visible and clearable even when the filtered library has results',async()=>{
   const current=model();current.libraryType='post';current.status='changed';current.visibility='private';current.fieldFilters={rating:'5'};

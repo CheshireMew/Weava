@@ -8,6 +8,7 @@ import type {NoteEditorModel} from './content-models.ts';
 import {useSelectors} from './Selectors.tsx';
 import {HtmlPageText} from './ImportedContentEditor.tsx';
 import {Dialog} from './Dialog.tsx';
+import {LoadingState} from './LoadingState.tsx';
 const Editor=lazy(()=>import('./Editor.tsx').then(module=>({default:module.Editor})));
 export function NoteEditor({model,error=''}:{model:NoteEditorModel;error?:string}){
  const {record,saving,update,persist,publish,setError,clear,editorEpoch}=model;
@@ -27,7 +28,7 @@ export function NoteEditor({model,error=''}:{model:NoteEditorModel;error?:string
   {model.publicationNotice&&<p role="status">{model.publicationNotice}</p>}
   <EntryRecovery model={model.recovery}/>
   <div className="note-writing"><div className="note-author"><span className="note-avatar">{model.author.logo?<img src={model.author.logo} alt=""/>:model.author.name.slice(0,1)}</span><strong>{record.value.author||model.author.name}</strong><Popover label="笔记设置" trigger={<MoreHorizontal size={18}/>}><div className="note-preferences"><label>可见性<select aria-label="笔记可见性" value={record.value.visibility??'public'} onChange={event=>update({visibility:event.target.value as 'public'|'private'})}><option value="public">公开</option><option value="private">私密</option></select></label><label className="checkbox"><input type="checkbox" checked={record.value.allowComments!==false} onChange={event=>update({allowComments:event.target.checked})}/>允许评论</label></div></Popover></div>
-   {record.value.document.format==='html'?<HtmlPageText key={record.id+':'+editorEpoch} cleanFormatting value={String(record.value.document.source)} onChange={source=>changeDocument({version:1,format:'html',source})}/>:<Suspense fallback={<p>正在打开笔记…</p>}><Editor key={record.id+':'+editorEpoch} compact value={record.value.document} placeholder="随手记点什么…" onChange={changeDocument} onMedia={()=>selectors.media()} onError={setError}/></Suspense>}
+   {record.value.document.format==='html'?<HtmlPageText key={record.id+':'+editorEpoch} cleanFormatting value={String(record.value.document.source)} onChange={source=>changeDocument({version:1,format:'html',source})}/>:<Suspense fallback={<LoadingState label="打开笔记" />}><Editor key={record.id+':'+editorEpoch} compact value={record.value.document} placeholder="随手记点什么…" onChange={changeDocument} onMedia={()=>selectors.media()} onError={setError}/></Suspense>}
   </div>
   </div>
   <footer className="note-composer-footer"><button type="button" disabled={saving||model.busy} onClick={()=>void close()}>关闭</button><button type="button" className="primary" disabled={saving||model.busy} onClick={()=>publish().catch(error=>setError(error.message))}>{model.busy?'正在发布…':record.value.status==='published'?'保存修改':'发布'}</button></footer>

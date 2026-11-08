@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { Site, extension, renderEntryTemplate, type ExtensionManager } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
-const base = 'D:/Tools/cache/weava/tests/extensions-' + Date.now(); let sequence = 0;
+const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/extensions-' + Date.now(); let sequence = 0;
 const sites: Site[] = [], managers: ExtensionManager[] = [];
 const create = (sources: Record<string, string>, enabled: Record<string, boolean> = {}) => {
   const site = new Site(join(base, String(sequence++))); sites.push(site);
@@ -18,6 +18,12 @@ const core = `export default ({ events }) => ({id:'base',apiVersion:1,version:'1
 const notice = `export default ({events,z}) => ({id:'notice',apiVersion:1,version:'1.0.0',dependencies:[{id:'base',minVersion:'1.1.0'}],blocks:{'notice:banner':(block)=>'<aside>'+block.props.text+'</aside>'},blockDefinitions:{'notice:banner':{label:'公告',fields:[{key:'text',label:'公告正文',control:'textarea',required:true}],schema:z.object({text:z.string().optional()})}},start(){events.push('start:notice')},stop(){events.push('stop:notice')}});`;
 afterEach(async () => { for (const manager of managers.splice(0)) await manager.stop(); for (const site of sites.splice(0)) site.close(); });
 describe('extension declaration and lifecycle', () => {
+  it('keeps schedules behind the site activation barrier',async()=>{
+    const site=create({base:`export default({events})=>({id:'base',apiVersion:1,start(){events.push('start')},schedules:[{id:'tick',intervalMs:1000,async run(){events.push('tick')}}]});`}),events:string[]=[];
+    const manager=await extension(site,{events},{startPaused:true});managers.push(manager);
+    await new Promise(resolve=>setTimeout(resolve,1100));expect(events).toEqual([]);
+    await manager.pause(false);await new Promise(resolve=>setTimeout(resolve,1100));expect(events).toEqual(['start','tick']);
+  });
   it('defers extension startup until an update validation is activated',async()=>{
     const before=process.env.WEAVA_VALIDATION;process.env.WEAVA_VALIDATION='1';
     try{const site=create({base:core}),events:string[]=[],manager=await open(site,events);expect(events).toEqual([]);await manager.pause(false);expect(events).toEqual(['start:base']);await manager.pause(false);expect(events).toEqual(['start:base']);}

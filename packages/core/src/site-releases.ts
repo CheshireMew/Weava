@@ -195,7 +195,7 @@ export class SiteReleases {
     };
     for (const entry of release.entries) if(publishedHasBlocks(entry))visitBlocks(entry.blocks, check);
     for (const layout of release.layouts ?? []) visitBlocks(layout.blocks, check);
-    if (!['weava', 'newsletter', ...this.site.extensionThemes].includes(release.settings.theme))
+    if (!['weava', 'newsletter', 'library', ...this.site.extensionThemes].includes(release.settings.theme))
       missing.add('主题 ' + release.settings.theme);
     if (missing.size) throw new WeavaError('请先恢复或启用公开版本所需的扩展。', 409, [...missing]);
   }

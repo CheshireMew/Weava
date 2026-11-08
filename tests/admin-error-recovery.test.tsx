@@ -19,7 +19,9 @@ it('retains the edit session across a panel crash and preserves its current data
  const render=()=>root.render(<EditSessionsProvider><View/></EditSessionsProvider>);
  await act(async()=>render());await act(async()=>model.setRecord((row:any)=>({...row,value:{text:'unsaved'}})));const session=model.session;
  fail=true;await act(async()=>render());expect(manager.records.get('Retained editor')).toBe(session);
- await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='重新载入后台')!.click());expect(reloaded).toBe(true);expect(localStorage.getItem('weava-edit:v1:Retained editor:entry')).toContain('unsaved');
+ await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='重新载入后台')!.click());expect(reloaded).toBe(true);
+ const copies=Array.from({length:localStorage.length},(_,index)=>localStorage.key(index)!).filter(key=>key.startsWith('weava-edit:v1:Retained editor:')).map(key=>JSON.parse(localStorage.getItem(key)!));
+ expect(copies.some(copy=>copy.record?.id==='entry'&&copy.record.value.text==='unsaved')).toBe(true);
  fail=false;await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='重试')!.click());expect(model.session).toBe(session);expect(host.querySelector('input')?.value).toBe('unsaved');
 });
 it('does not reload if durable recovery fails',async()=>{

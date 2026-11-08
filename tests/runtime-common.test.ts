@@ -1,3 +1,5 @@
+import {equalJson,stableJson} from '../packages/runtime-common/src/json.ts';
+import {mediaKind,isUploadFormat,mediaUploadMaxBytes} from '@weava/contracts';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { expect, it } from 'vitest';
@@ -14,7 +16,7 @@ import { verifyProgram } from '../packages/core/src/programs.ts';
 import { programEntries } from '../packages/runtime-common/src/program-manifest.ts';
 
 it('shares lexical path containment, accepting dot-prefixed names while rejecting parent and sibling escapes', () => {
-  const root = resolve('D:/Tools/cache/weava/tests/runtime-common-paths');
+  const root = resolve((process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/runtime-common-paths');
   for (const input of ['..notes/file.txt', './file.txt', 'nested/../file.txt', '']) {
     expect(inside(root, input)).toBe(managedInside(root, input));
     expect(inside(root, input)).toBe(resolve(root, input));
@@ -26,7 +28,7 @@ it('shares lexical path containment, accepting dot-prefixed names while rejectin
   }
 });
 it('uses the same manifest, platform, file and dependency checks for legacy and managed programs', () => {
-  const root = join('D:/Tools/cache/weava/tests', 'runtime-common-' + Date.now()),
+  const root = join(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests', 'runtime-common-' + Date.now()),
     dependency = 'node_modules/test-runtime/index.js';
   mkdirSync(join(root, 'node_modules/test-runtime'), { recursive: true });
   writeFileSync(join(root, dependency), 'export const value=1;');
@@ -60,4 +62,16 @@ it('uses the same manifest, platform, file and dependency checks for legacy and 
   writeFileSync(join(root, dependency), 'changed dependency');
   expect(() => verifyProgram(root)).toThrow(/依赖/);
   expect(() => verifyManaged(root)).toThrow(/依赖/);
+});
+
+it('compares JSON objects independently of key order while retaining ordered content',()=>{
+ expect(equalJson({b:{y:2,x:1},a:undefined},{b:{x:1,y:2}})).toBe(true);
+ expect(equalJson({blocks:['first','second']},{blocks:['second','first']})).toBe(false);
+ expect(stableJson([undefined,{z:undefined,a:1}])).toBe('[null,{"a":1}]');
+});
+it('shares media classification without treating every displayed image as an allowed upload',()=>{
+ expect(mediaKind('PHOTO.JPG')).toBe('image');expect(mediaKind('drawing.svg')).toBe('image');
+ expect(isUploadFormat('drawing.svg')).toBe(false);expect(isUploadFormat('clip.mp4')).toBe(true);
+ expect(isUploadFormat('clip.mp4',true)).toBe(false);expect(isUploadFormat('document.pdf')).toBe(true);
+ expect(isUploadFormat('picture.jpg.exe')).toBe(false);expect(mediaUploadMaxBytes).toBe(32*1024*1024);
 });

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Dialog } from './Dialog.tsx';
 import { api, waitJob } from './api.ts';
 import { exchange } from '../../../packages/contracts/src/api-models.ts';
+import {importFileBytes} from '../../../packages/contracts/src/import-limits.ts';
 
 const importFields:Record<string,string>={entries:'内容',types:'内容类型',terms:'分类与标签',layouts:'模板',contentViews:'常用筛选',creationTemplates:'新建模板',redirects:'网址跳转',settings:'网站设置',title:'标题',path:'网址',document:'正文',fields:'自定义字段',name:'名称',version:'版本',value:'导入内容'};
 function importErrorLines(error:any):string[]{
@@ -43,20 +44,20 @@ export default function ImportManager({ refresh }: { refresh: () => Promise<any>
     try {
       const current = merge ? await api('import/revisions') : {}; setRevisions(current);
       const nextOptions = { ...options(), revisions: current, dryRun: true };
-      setReport(source.wxr ? await api('import/wxr', { xml: source.text, options: nextOptions }) : { ...await api('import', { value: jsonSource(), options: nextOptions }), format: 'json' });
+      setReport(source.wxr ? await api('import/wxr', { xml: source.text, options: nextOptions }) : { ...(await waitJob(await api('import', { value: jsonSource(), options: nextOptions }),job=>setProgress(job.message))).result, format: 'json' });
     } catch (error) { setError(error); setReport(null); } finally { setBusy(false); setProgress(''); }
   };
   const commit = async () => {
     if (!source || !report?.dryRun) return; setBusy(true); setError(null);
     try {
       if (source.wxr) { const job = await api('import/wxr', { xml: source.text, options: { ...options(), dryRun: false, review: report.review } }); const complete = await waitJob(job, (job) => setProgress(job.message)); setReport(complete.result); }
-      else setReport({ ...await api('import', { value: jsonSource(), options: { ...options(), dryRun: false } }), format: 'json' });
+      else setReport({ ...(await waitJob(await api('import', { value: jsonSource(), options: { ...options(), dryRun: false } }),job=>setProgress(job.message))).result, format: 'json' });
       await refresh();
     } catch (error) { setError(error); setReport(null); } finally { setBusy(false); setProgress(''); }
   };
   return <section className="form-card import-manager"><div className="panel-title"><h2>导入与导出</h2><button disabled={busy} onClick={() => api('export').then((data) => download(data, 'weava-site.json')).catch(setError)}>导出网站内容</button></div>
     <p>支持从 Weava 或 WordPress 导出的文件。导入完成后保存在工作稿中，需要另外发布；JSON 不包含媒体文件，完整备份可保存媒体。</p>
-    <label className="button">选择导入文件<input type="file" aria-label="选择导入文件" accept=".json,.xml" disabled={busy} onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setError(null); setReport(null); setSource(null); if (file.size > 128 * 1024 * 1024) { setError(new Error('文件超过 128 MB，请分批导出。')); return; } try{const text = await file.text(); setSource({ name: file.name, text, wxr: /^\s*(?:\ufeff)?</.test(text) });}catch{setError(new Error('文件未能读取，请重新选择文件。'));} }} /></label>
+    <label className="button">选择导入文件<input type="file" aria-label="选择导入文件" accept=".json,.xml" disabled={busy} onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; setError(null); setReport(null); setSource(null); if (file.size > importFileBytes) { setError(new Error('文件超过 128 MB，请分批导出。')); return; } try{const text = await file.text(); setSource({ name: file.name, text, wxr: /^\s*(?:\ufeff)?</.test(text) });}catch{setError(new Error('文件未能读取，请重新选择文件。'));} }} /></label>
     {source && <p>{source.name}</p>}
     <div className="import-options">{[['同时导入站点设置', settings, setSettings], ['合并已有内容', merge, setMerge], ...(source?.wxr ? [['下载来源附件', media, setMedia], ['导入来源评论', comments, setComments]] : [])].map(([label, value, change]) => <label className="checkbox" key={String(label)}><input type="checkbox" disabled={busy} checked={Boolean(value)} onChange={(event) => { (change as (value: boolean) => void)(event.target.checked); setReport(null); }} />{label as string}</label>)}</div>
     {source?.wxr&&media&&<div><label>本地附件目录（可选）<input aria-describedby="import-media-directory-help" value={mediaDirectory} disabled={busy} onChange={event=>{setMediaDirectory(event.target.value);setReport(null);}}/></label><p id="import-media-directory-help" className="muted">目录位于运行 Weava 的电脑上，内部保留原网址路径，例如 wp-content/uploads。留空则从公网下载；本机或内网站点请使用本地目录。</p></div>}

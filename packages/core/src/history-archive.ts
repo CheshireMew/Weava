@@ -42,9 +42,9 @@ export function planHistoryArchive(site: Site, input: HistoryRetention): Plan {
   return { options, releaseIds, revisions, privateMedia: [...privateMedia], protectedReleases: releases.length-releaseIds.length, protectedRevisions: protectedRevisions.size, review: digest(state) };
 }
 const readLines = jsonLines;
-function writeRows(path: string, rows: Iterable<unknown>) {
-  const handle = openSync(path,'wx'); let count = 0;
-  try { for (const row of rows) { writeSync(handle,JSON.stringify(row)+'\n'); count++; } } finally { closeSync(handle); }
+function writeRows(path: string, rows: Iterable<unknown>,index?:(row:any,offset:number,bytes:number)=>void) {
+  const handle = openSync(path,'wx'); let count = 0,offset=0;
+  try { for (const row of rows) { const bytes=Buffer.from(JSON.stringify(row)+'\n');let written=0;while(written<bytes.length)written+=writeSync(handle,bytes,written,bytes.length-written);index?.(row,offset,bytes.length);offset+=bytes.length;count++; } } finally { closeSync(handle); }
   return { count, hash: digestFile(path) };
 }
 export function historyArchives(site: Site) { return site.store.list('history-archive').map((row) => ({id:row.id,...row.value,revision:row.revision})); }
@@ -70,12 +70,15 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
   const files = [
     ['releases.jsonl',releases],['revisions.jsonl',revisions],['objects.jsonl',(function*(){for(const key of keys) yield getObject.get(key);})()],
   ] as const;
-  const manifests = files.map(([name,rows]) => ({name,...writeRows(join(folder,name),rows)}));
+  const objectLocations:{key:string;offset:number;bytes:number}[]=[];
+  const manifests = files.map(([name,rows]) => ({name,...writeRows(join(folder,name),rows,name==='objects.jsonl'?(row,offset,bytes)=>objectLocations.push({key:row.key,offset,bytes}):undefined)}));
   const manifest = {version:1,schemaVersion:SCHEMA_VERSION,id,createdAt:now(),options:plan.options,files:manifests,review};
   atomicJson(join(folder,'manifest.json'),manifest);
   for (const file of manifests) if (digestFile(join(folder,file.name)) !== file.hash) throw new WeavaError('归档写入校验失败。');
   site.store.raw.transaction(() => {
     if (planHistoryArchive(site,options).review !== review) throw new WeavaError('历史或工作稿已经变化，已准备的归档继续保留，请重新预检。',409);
+    const locate=site.store.raw.prepare('INSERT OR IGNORE INTO archived_publication_objects VALUES(?,?,?,?)');
+    for(const location of objectLocations)locate.run(location.key,id,location.offset,location.bytes);
     const removeMember = site.store.raw.prepare('DELETE FROM publication_members WHERE release_id=?'), removeRelease = site.store.raw.prepare('DELETE FROM releases WHERE id=?'), removeRevision = site.store.raw.prepare('DELETE FROM revisions WHERE revision=?');
     for (const id of plan.releaseIds) { removeMember.run(id); removeRelease.run(id); site.store.raw.prepare('DELETE FROM published_entry_revisions WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM public_media_paths WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM search_documents WHERE release_id=?').run(id); site.store.raw.prepare('DELETE FROM search_fts WHERE release_id=?').run(id); }
     for (const revision of plan.revisions) removeRevision.run(revision);

@@ -1,3 +1,4 @@
+import {requestApi} from '@weava/contracts/api-transport';
 import { expect,it,vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { adminApi,matchAdminApi,validateApiInput,type ApiOutput } from '@weava/contracts/api';
@@ -12,6 +13,11 @@ import type { ApiServices } from '../apps/web/src/api/types.ts';
 import {Site,Analytics,Engagement} from '@weava/core';
 import {entrySchema} from '@weava/contracts';
 import {contentHandlers} from '../apps/web/src/api/content.ts';
+it('keeps the reviewed cover, summary and author alongside the frozen publication revision',()=>{
+ const review=adminApi.publication.response.parse({scope:'entries',baseReleaseId:null,settingsChanged:false,layoutsChanged:false,routesChanged:false,termsChanged:false,entries:[{id:'article',title:'待发布文章',path:'/article/',cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37,action:'add'}],removed:[],options:{candidateId:'review',ids:['article'],revisions:{article:37}}});
+ expect(review.entries[0]).toMatchObject({cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37});
+ expect(review.options).toMatchObject({candidateId:'review',revisions:{article:37}});
+});
 
 it('declares every built-in admin route and gives each operation request and response documentation',()=>{
   const handlers=createAdminHandlers({} as ApiServices);
@@ -26,7 +32,7 @@ it('declares every built-in admin route and gives each operation request and res
     if(definition.method==='POST')expect(operation.requestBody).toBeDefined();
     for(const param of definition.path.matchAll(/\{(\w+)\}/g))expect(operation.parameters).toContainEqual(expect.objectContaining({name:param[1],in:'path',required:true}));
   }
-  expect(Object.keys(adminApi)).toHaveLength(113);
+  expect(Object.keys(adminApi)).toHaveLength(117);
   expect(readFileSync('docs/api-reference.md','utf8')).toBe(apiReferenceMarkdown());
 });
 it('checks request revisions and query types with the same rules used by server and client',()=>{
@@ -39,7 +45,7 @@ it('checks request revisions and query types with the same rules used by server 
 });
 
 it('returns public dates, URLs and real lifetime interactions without saving or publishing working changes',async()=>{
-  const site=new Site('D:/Tools/cache/weava/tests/content-list-metrics-'+Date.now());
+  const site=new Site((process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/content-list-metrics-'+Date.now());
   const analytics=new Analytics(site.root),engagement=new Engagement(site.store.raw,'test-secret');
   try{
     site.saveType({id:'post',label:'Article',fields:[],pathPrefix:'/',template:'article'},null);
@@ -74,7 +80,7 @@ it('builds encoded paths and query strings through the operation client',async()
   const match=matchAdminApi('GET','entry/a%2Fb');expect(match?.params.id).toBe('a/b');
 });
 it('passes the reviewed local attachment directory through the actual job dispatch boundary',async()=>{
-  const root='D:/Tools/cache/weava/tests/import-dispatch-'+Date.now();mkdirSync(join(root,'imports'),{recursive:true});
+  const root=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/import-dispatch-'+Date.now();mkdirSync(join(root,'imports'),{recursive:true});
   const enqueue=vi.fn(()=>({id:'queued',status:'queued'}));
   const handlers=exchangeHandlers({site:{root},jobs:{enqueue}} as any);
   await handlers.importWxr({body:adminApi.importWxr.body.parse({xml:'<rss/>',options:{mediaDirectory:'D:/imports',downloadMedia:false}})} as any,{request:new Request('http://localhost/api/admin/v1/import/wxr')} as any);
@@ -115,4 +121,13 @@ it('allows queued analytics and WXR reads to finish, while respecting explicit c
     await expect(createAdminClient({fetch:transport,timeoutMs:5000}).request('analytics')).rejects.toMatchObject({status:400});
     expect(budgets).toEqual([140000,140000,140000,140000,140000,30000,5000]);
   }finally{timeout.mockRestore();}
+});
+
+it('shares transport errors and retry metadata while leaving anonymous login failures local',async()=>{
+ const expired=vi.fn(),fetch=vi.fn(async()=>Response.json({error:'登录失败',details:{reason:'test'}},{status:401,headers:{'Retry-After':'12'}}));
+ const options={fetch,onUnauthorized:expired};
+ await expect(requestApi('login',{},adminApi.session.response,options,{anonymous:true})).rejects.toMatchObject({status:401,retryAfter:12,details:{reason:'test'}});
+ expect(expired).not.toHaveBeenCalled();
+ await expect(requestApi('session',undefined,adminApi.session.response,options)).rejects.toMatchObject({status:401});
+ expect(expired).toHaveBeenCalledWith('session');expect(fetch).toHaveBeenCalledTimes(2);
 });

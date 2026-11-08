@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { Site, renderBlocks, renderNavigation, queryEntries, contentQuery, SCHEMA_VERSION, resolveContentLinks } from '@weava/core';
 import { entrySchema, type Entry } from '@weava/contracts';
 
-const base = 'D:/Tools/cache/weava/tests/publication-' + Date.now();
+const base = join(process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests', 'publication-' + Date.now());
 let counter = 0;
 const sites: Site[] = [];
 const create = () => { const site = new Site(join(base, String(counter++))); sites.push(site);
@@ -15,6 +15,16 @@ const entry = (id: string, extra: Partial<Entry> = {}) => entrySchema.parse({ id
 afterEach(() => { sites.splice(0).forEach((site) => site.close()); });
 
 describe('publication boundaries and candidate validation', () => {
+  it('ignores unrelated revisions but rejects changed selected content and catalog dependencies',()=>{
+    const site=create(),one=site.saveEntry(entry('selected'),null);site.publish({ids:[one.id]});
+    const review=site.previewPublication({ids:[one.id]});
+    site.store.put('media-group','unrelated',{id:'unrelated',label:'New group'},null);
+    site.saveEntry(entry('other'),null);expect(()=>site.publish(review.options)).not.toThrow();
+    const stale=site.previewPublication({ids:[one.id]});site.saveEntry({...one.value,title:'Changed'},one.revision);
+    expect(()=>site.publish(stale.options)).toThrow(/变化/);
+    const next=site.previewPublication({ids:[one.id]});const type=site.store.get('type','post')!;site.saveType({...type.value,label:'Changed type'},type.revision);
+    expect(()=>site.publish(next.options)).toThrow(/变化/);
+  });
   it('freezes reviewed rollback against concurrent publication and preserves working drafts',()=>{
     const site=create(),first=site.saveEntry(entry('rollback-post'),null),older=site.publish();
     const changed=site.saveEntry({...first.value,title:'新版文章'},first.revision);site.publish();
@@ -43,7 +53,7 @@ describe('publication boundaries and candidate validation', () => {
     const next = site.previewPublication({ ids: ['one'] });
     const row = site.store.get('entry', 'one')!;
     site.saveEntry({ ...row.value, title: '预览后再次改稿' }, row.revision);
-    expect(() => site.publish(next.options)).toThrow(/工作稿已变化/);
+    expect(() => site.publish(next.options)).toThrow(/待发布内容或依赖已变化/);
     const config = site.settings();
     site.saveSettings({ ...config.value, siteInfo: { friends: { enabled: true, path: '/friendlink/', links: [{ name: '朋友', url: 'https://example.com/', description: '介绍' }] } } }, config.revision);
     const information = site.publish({ scope: 'settings' });

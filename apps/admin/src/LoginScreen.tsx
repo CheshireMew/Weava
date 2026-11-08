@@ -4,6 +4,7 @@ import { api } from './api.ts';
 import type { AdminSession } from './useAdminSession.ts';
 import { PasswordField } from './PasswordField.tsx';
 import { ArrowUpRight } from 'lucide-react';
+import { LoadingState } from './LoadingState.tsx';
 export function LoginScreen({
   model,
   error,
@@ -36,7 +37,7 @@ export function LoginScreen({
             </button>
           </>
         ) : (
-          <p role="status">正在连接网站…</p>
+          <LoadingState label="连接网站" />
         )}
       </main>
     );

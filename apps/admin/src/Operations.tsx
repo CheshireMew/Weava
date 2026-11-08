@@ -5,16 +5,19 @@ import { Dialog } from './Dialog.tsx';
 import { PanelSections } from './PanelSections.tsx';
 import { operationLabels, jobStatusLabels } from './admin-labels.ts';
 import {RollbackDialog} from './RollbackDialog.tsx';
+import {TemporaryMaintenance} from './TemporaryMaintenance.tsx';
+import {LoadingState} from './LoadingState.tsx';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
 const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
 
-export default function Operations({ state, task, refresh, onError, openLogs }: {
+export default function Operations({ state, task, refresh, onError, openLogs, busy = false }: {
   state: any;
   task: (op: 'publish' | 'backup' | 'verify', p?: any) => any;
   openLogs: (id: string) => void;
   refresh: () => any;
   onError: (s: string) => void;
+  busy?: boolean;
 }) {
   const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
@@ -28,14 +31,15 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
       { id: 'backup', label: '备份', content: <section className="form-card settings-form">
         <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
         <div className="backup-location"><span>保存位置：{path}</span><button onClick={() => { setNextPath(path); setDialog('location'); }}>更改位置</button></div>
-        <button className="primary" disabled={!path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
-        <button onClick={() => setDialog('verify')}>检查已有备份</button>
+        <div className="inline"><button className="primary" disabled={busy || !path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
+        <button disabled={busy} onClick={() => setDialog('verify')}>检查已有备份</button>
+        </div>
       </section> },
-      ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<p>正在载入导入工具…</p>}><ImportManager refresh={refresh} /></Suspense> },
+      ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<LoadingState label="载入导入工具" />}><ImportManager refresh={refresh} /></Suspense> },
       { id: 'publication', label: '发布记录', content: <>
         <section className="form-card"><h2>网站更新</h2>
           <p>一次发布已有公开内容和网站设置的修改。新文章请在编辑页发布。</p>
-          <button onClick={() => task('publish', {})}>发布全站工作稿</button>
+          <button disabled={busy} onClick={() => task('publish', {})}>发布全站工作稿</button>
         </section>
         <section className="form-card"><h2>已发布的版本</h2>
           {!state.releases.length && <p className="muted">网站尚未发布。</p>}
@@ -50,6 +54,7 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
         <div className="release-list">{state.jobs.map((job: any) => <div key={job.id}>
           <span>{operationLabels[job.operation] ?? '网站任务'} · {jobStatusLabels[job.status] ?? '状态未知'}<small>{job.message}</small></span>
           <button onClick={() => openLogs(job.id)}>查看详情</button>
+          {['queued','running'].includes(job.status)&&<button disabled={!!job.cancelRequestedAt} onClick={()=>api('jobs/cancel',{id:job.id}).then(refresh).catch(error=>onError(error.message))}>{job.cancelRequestedAt?'正在取消':'取消任务'}</button>}
         </div>)}</div>
       </section> },
       { id: 'maintenance', label: '维护', content: <>
@@ -57,12 +62,13 @@ export default function Operations({ state, task, refresh, onError, openLogs }: 
           <button onClick={() => api('maintenance').then(setUsage).catch(error => onError(error.message))}>检查占用</button>
           {usage && <>
             <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · 媒体 {size(usage.media.bytes)}</p>
+            <TemporaryMaintenance usage={usage} refresh={()=>api('maintenance').then(setUsage)} onError={onError}/>
             <p>{usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本 · {usage.backups.length} 份已记录备份</p>
             <p>未被内容或历史引用的媒体：{usage.unreferenced.count} 个，{size(usage.unreferenced.bytes)}。文件继续保留。</p>
             {!!usage.backups.length && <section className="backup-locations"><h3>备份位置</h3>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</section>}
           </>}
         </section>
-        {contentEnabled && <Suspense fallback={<p>正在载入历史维护…</p>}><HistoryMaintenance refresh={refresh} /></Suspense>}
+        {contentEnabled && <Suspense fallback={<LoadingState label="载入历史维护" />}><HistoryMaintenance refresh={refresh} /></Suspense>}
 
       </> },
     ]} />

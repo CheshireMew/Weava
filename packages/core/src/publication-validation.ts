@@ -8,13 +8,17 @@ import {mediaReferencesIn} from './media-references.ts';
 import {releaseIndex} from './release-index.ts';
 import {normalizePath} from './paths.ts';
 import {publishedObjectKey,publishedDependencies,publishedValidation,type EntryDependencies,type ValidationSnapshot} from './release-reader.ts';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {dirname,join} from 'node:path';
 
 // Derived checks survive process restarts, but never a rendering-code upgrade.
 const moduleFile=fileURLToPath(import.meta.url),moduleRoot=dirname(moduleFile);
-const runtimeFingerprint=digest([...new Set([moduleFile,...readdirSync(moduleRoot).filter(name=>/^(render|documents|layouts|publication)[^/]*\.(ts|mjs|js)$/.test(name)).map(name=>join(moduleRoot,name))])].sort().map(file=>[file,digest(readFileSync(file,'utf8'))]));
+const programManifest=process.env.WEAVA_PROGRAM_ROOT?join(process.env.WEAVA_PROGRAM_ROOT,'program.json'):undefined;
+// Split query bundles and the task executable are different files from one program.
+// Their shared immutable manifest identifies the renderer across process boundaries.
+const runtimeFingerprint=programManifest&&existsSync(programManifest)?digest(readFileSync(programManifest,'utf8')):
+  digest([...new Set([moduleFile,...readdirSync(moduleRoot).filter(name=>/^(render|documents|layouts|publication)[^/]*\.(ts|mjs|js)$/.test(name)).map(name=>join(moduleRoot,name))])].sort().map(file=>[file,digest(readFileSync(file,'utf8'))]));
 export const validationRuntimeIdentity=runtimeFingerprint;
 
 const fingerprints = new WeakMap<object, string>();
@@ -29,7 +33,7 @@ export function entryDependencies(entry:PublishedEntry):EntryDependencies{
   const known=publishedDependencies(entry)??dependencyCache.get(entry);if(known)return known;
   const targets=new Set<string>();let catalog=false;
   const scan=(value:unknown)=>{for(const match of JSON.stringify(value).matchAll(/entry:([^\s"'<>#)\\]+)/g)){try{targets.add(decodeURIComponent(match[1]));}catch{}}};
-  const blocks=(items:Block[])=>{for(const block of items){if(['cards','content-list','taxonomy'].includes(block.type))catalog=true;if(block.type==='content-detail'&&block.props.entryId)targets.add(block.props.entryId);blocks(block.children??[]);}};
+  const blocks=(items:Block[])=>{for(const block of items){if(['cards','content-list','taxonomy','collection','link-list'].includes(block.type))catalog=true;if(block.type==='content-detail'&&block.props.entryId)targets.add(block.props.entryId);blocks(block.children??[]);}};
   scan([entry.document,entry.fields,entry.blocks]);blocks(entry.blocks);
   const result={targets:[...targets],catalog};dependencyCache.set(entry,result);return result;
 }
@@ -46,7 +50,7 @@ export function publicationDependencies(entry: PublishedEntry, release: Release,
     }
   };
   const blocks = (items: Block[]) => { for (const block of items) {
-    if (['cards','content-list','taxonomy'].includes(block.type)) catalog = true;
+    if (['cards','content-list','taxonomy','collection','link-list'].includes(block.type)) catalog = true;
     if (block.type === 'content-detail' && block.props.entryId) targets.add(block.props.entryId);
     blocks(block.children ?? []);
   } };

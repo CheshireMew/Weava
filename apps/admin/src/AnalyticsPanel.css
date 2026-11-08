@@ -9,6 +9,7 @@
 .analytics-panel .panel-title h1 { margin:0; }
 .analytics-panel .panel-title > button { font-size:14px; }
 .analytics-header-actions { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:8px; }
+.analytics-panel .analytics-header-actions button, .analytics-header-actions .analytics-export { min-height:var(--control-height); }
 .analytics-toolbar-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .analytics-toolbar-actions button,.analytics-export { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:36px; padding:6px 10px; font-size:13px; border:1px solid var(--control-line); border-radius:var(--radius-control); background:var(--surface); color:var(--ink-secondary); white-space:nowrap; }
 .analytics-date-menu > button { display:inline-flex; align-items:center; gap:5px; min-height:28px; padding:3px 0; font-size:12px; border:0; background:transparent; color:var(--ink-muted); white-space:nowrap; }
@@ -162,8 +163,8 @@
 .analytics-custom-toggle { width:calc(100% - 12px); margin:0 6px 6px; border-top:1px solid #edf0f3; border-radius:0; }
 .analytics-custom-range { display:grid; gap:10px; padding:8px 16px 16px; }
 .analytics-custom-range label,.analytics-dimension-popover label { display:flex; flex-direction:column; gap:5px; margin:0; color:#747b87; font-size:11px; }
-.analytics-custom-range input { width:100%; font-size:12px; padding:7px 8px; }
-.analytics-custom-range button { font-size:12px; min-height:32px; padding:5px 8px; }
+.analytics-custom-range input { width:100%; font-size:12px; padding:6px 8px; }
+.analytics-custom-range button { font-size:12px; min-height:var(--control-height); padding:5px 8px; }
 .admin-popover.analytics-dimension-popover { min-width:0; width:250px; display:grid; gap:12px; padding:14px; }
 .analytics-dimension-popover select { font-size:12px; }
 @media (max-width:1100px) {

@@ -1,0 +1,46 @@
+---
+import type {Release,PublishedEntry} from '@weava/contracts';
+import type {PageMetadata} from '@weava/core';
+import {load} from 'cheerio';
+interface Props {release:Release;entry?:PublishedEntry;metadata:PageMetadata;preview:boolean;missing:boolean;results?:PublishedEntry[]}
+import SeoHead from '../components/SeoHead.astro';
+import Advertisement from '../components/Advertisement.astro';
+import SiteInfoLinks from '../components/SiteInfoLinks.astro';
+import ArticleActions from './ArticleActions.astro';
+import ArticleComments from './ArticleComments.astro';
+import { site, siteExtension, engagement, features } from '../runtime.ts';
+import { articleOutline, renderDocument, renderSharedRegion, responsiveImages, renderNavigation, recommendedEntries, renderEntryBody, renderEvidence } from '@weava/core';
+import { supportsDiscussion } from '@weava/contracts';
+import { libraryBlocks, libraryCard } from './library-render';
+import '../styles/library.css';
+const {release,entry,metadata,preview,missing,results=[]}=Astro.props;
+const s=release.settings,c=s.extensions.library??{},ext=await siteExtension;
+const article=entry?.kind==='content';
+const privateArticle=entry?.visibility==='private';
+let body=entry?responsiveImages(site,article?renderEntryBody(entry,release,ext.blocks)+renderEvidence(entry):libraryBlocks(entry.blocks,release,entry,Astro.url,ext.blocks)):'';
+const hasHeading=/<h1\b/i.test(body);
+if(entry&&!article&&hasHeading&&!entry.blocks.some(block=>block.type==='hero')) {
+  const document=load(body,null,false);document('h1').first().text(entry.title);body=document.html();
+}
+const outline=articleOutline(body);
+const interactive=features.includes('engagement')&&supportsDiscussion(entry)&&!preview&&!privateArticle;
+const cookie=Astro.cookies.get('weava-reader')?.value;
+const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(cookie??'')?cookie:undefined):null;
+const region=(name: "header"|"footer"|"before"|"after")=>responsiveImages(site,renderSharedRegion(name,release,entry,ext.blocks));
+const header=region('header'),footer=region('footer');
+const related=article?recommendedEntries(entry,release,3):[];
+---
+<html lang={s.language}>
+<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><SeoHead metadata={metadata}/><link rel="alternate" type="application/rss+xml" href="/rss.xml" title={s.name}/>{c.favicon&&<link rel="icon" href={c.favicon}/>}</head>
+<body class="library-theme" data-theme="library" data-release={release.id} data-track={!preview&&!privateArticle&&!missing?'true':'false'} data-article-id={interactive?entry!.id:undefined} data-canonical={metadata.canonical} data-language={s.language} data-timezone={s.timezone} style={`--green:${s.themeConfig.accent};--paper:${s.themeConfig.background};--max:${s.themeConfig.width}px;--radius:${s.themeConfig.radius}px;--library-gap:${s.themeConfig.spacing}px;font-family:${s.themeConfig.font}`}>
+<a class="skip-link" href="#main">跳到正文</a>
+{header?<Fragment set:html={header}/>:<header class="site-header"><div class="header-inner"><a class="brand" href="/" aria-label={s.name+' 首页'}>{s.logo?<img src={s.logo} width="38" height="38" alt=""/>:<span class="brand-mark">✳</span>}<span class="brand-word">{c.brandTitle||s.name}{c.brandSubtitle&&<span class="brand-by">{c.brandSubtitle}</span>}</span></a><nav id="main-nav" aria-label="主导航"><Fragment set:html={renderNavigation(s.navigation,entry?.path,release)}/></nav><div class="header-actions"><button class="search-trigger" data-library-search>⌕ 搜索 <kbd>/</kbd></button><button class="mobile-menu" aria-controls="main-nav" aria-expanded="false" aria-label="打开导航菜单">☰</button></div></div></header>}
+<div class="wrap"><Advertisement settings={s} position="siteTop"/><Fragment set:html={region('before')}/></div>
+<main id="main">
+{entry&&article?<><section class="page-heading wrap"><h1>{entry.title}</h1>{entry.description&&<p>{entry.description}</p>}</section><div class="article-layout wrap"><article class="article-body prose" data-article-body><Advertisement settings={s} position="articleTop"/><Fragment set:html={outline.html}/><Advertisement settings={s} position="articleBottom"/>{interactive&&<ArticleActions position="library" counts={discussion!}/>}</article><aside class="article-toc"><span>本页目录</span>{outline.items.map(item=><a href={'#'+item.id}>{item.title}</a>)}</aside></div>{related.length>0&&<section class="section wrap"><div class="section-heading"><h2>继续学习</h2></div><div class="card-grid"><Fragment set:html={related.map(item=>libraryCard(item,release)).join('')}/></div></section>}{discussion&&<div class="wrap library-discussion"><ArticleComments items={discussion.items} hasMore={discussion.hasMore} language={s.language} timezone={s.timezone} allowComments={entry.allowComments}/></div>}</>:entry?<>{!hasHeading&&<section class="page-heading wrap"><h1>{entry.title}</h1>{entry.description&&entry.fields.libraryDescription!==false&&<p>{entry.description}</p>}</section>}<Fragment set:html={body}/>{!entry.blocks.length&&<div class="sources-layout wrap"><article class="article-body prose" set:html={renderDocument(entry.document)}/></div>}</>:missing?<section class="page-heading wrap"><h1>页面未找到</h1><a href="/">返回首页</a></section>:<section class="section wrap"><h1>搜索</h1><form><input type="search" name="q" value={Astro.url.searchParams.get('q')||''} aria-label="搜索资料"/><button class="button dark">搜索</button></form><div class="card-grid"><Fragment set:html={results.map(item=>libraryCard(item,release)).join('')}/></div></section>}
+</main>
+<div class="wrap"><Fragment set:html={region('after')}/><Advertisement settings={s} position="siteBottom"/></div><SiteInfoLinks release={release}/>
+{footer?<Fragment set:html={footer}/>:<footer class="site-footer"><div class="footer-main"><a class="brand" href="/">{c.brandTitle||s.name}</a><div>{(c.footerLinks||[]).map((link: {url:string;label:string})=><a href={link.url}>{link.label}</a>)}<a href="/rss.xml">RSS</a></div></div><div class="footer-bottom"><span>{s.footer}</span></div></footer>}
+<dialog class="search-dialog" id="library-search"><form method="get" action="/search/" class="search-field"><input name="q" type="search" placeholder="搜索资料" aria-label="搜索资料"/><button class="button dark">搜索</button><button type="button" data-library-close aria-label="关闭搜索">×</button></form></dialog>
+{!preview&&<script src="/weava-library.js" defer is:inline/>}{interactive&&<script src="/weava-article.js" defer is:inline/>}{features.includes('analytics')&&!preview&&!privateArticle&&!missing&&<script src="/weava-analytics.js" defer is:inline/>}<script src="/weava-code.js" defer is:inline/>
+</body></html>

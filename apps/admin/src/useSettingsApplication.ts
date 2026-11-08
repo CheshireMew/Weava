@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, waitJob } from './api.ts';
 import type { AutosaveState } from './useAutosave.ts';
+import { adminQueries } from './query-cache.ts';
 
 /** Keep publication in order while forms remain free to save newer settings. */
 export class SettingsApplication {
@@ -43,7 +44,8 @@ export function useSettingsApplication(refresh: () => Promise<any>, onApplied?: 
   const controller = useRef<SettingsApplication | null>(null);
   if (!controller.current) controller.current = new SettingsApplication(async () => {
     // A quick toggle back to the current public value needs no new release.
-    const state = await api('state?summary=1&panel=appearance');
+    const path = 'state?summary=1&panel=appearance';
+    const state = await adminQueries.read(path, () => api(path));
     if ((!state.features || state.features.includes('content')) && (state.settingsPending || state.termsPending)) {
       let progress: any;
       try { await waitJob(await api('publish', { scope: 'settings' }), job => { progress = job; }); }

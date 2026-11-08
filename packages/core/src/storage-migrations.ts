@@ -183,4 +183,22 @@ export function migrateStorage(db: Database.Database, root: string, previousVers
       migrateListRecords(db);
       db.exec("INSERT INTO schema_migrations VALUES(14,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
     }).immediate();
+  if(version.v < 15)db.transaction(()=>{
+    db.exec('CREATE TABLE IF NOT EXISTS staged_requests(id TEXT PRIMARY KEY,path TEXT UNIQUE NOT NULL,kind TEXT NOT NULL,bytes INTEGER NOT NULL,expires INTEGER NOT NULL,active_until INTEGER NOT NULL,job_id TEXT)');
+    const uploadColumns=db.pragma('table_info(media_uploads)') as {name:string}[];
+    if(!uploadColumns.some(column=>column.name==='sha256'))db.exec('ALTER TABLE media_uploads ADD COLUMN sha256 TEXT');
+    if(!uploadColumns.some(column=>column.name==='verified'))db.exec('ALTER TABLE media_uploads ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
+    db.exec('CREATE TABLE IF NOT EXISTS archived_publication_objects(key TEXT PRIMARY KEY,archive_id TEXT NOT NULL,offset INTEGER NOT NULL,bytes INTEGER NOT NULL)');
+    db.exec(`CREATE TABLE IF NOT EXISTS publication_due(scope TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,due_at INTEGER NOT NULL,PRIMARY KEY(scope,id),FOREIGN KEY(scope,id) REFERENCES records(scope,id) ON DELETE CASCADE);
+      CREATE INDEX IF NOT EXISTS publication_due_time ON publication_due(due_at,scope,id);`);
+    const insert=db.prepare('INSERT OR REPLACE INTO publication_due VALUES(?,?,?,?)');
+    let after=0;
+    for(;;){
+      const rows=db.prepare("SELECT rowid n,scope,id,revision,data FROM records WHERE rowid>? AND scope IN ('publication-plan','publication-schedule') AND json_extract(data,'$.status')='scheduled' ORDER BY rowid LIMIT 500").all(after) as {n:number;scope:string;id:string;revision:number;data:string}[];
+      if(!rows.length)break;
+      for(const row of rows){const due=Date.parse(JSON.parse(row.data).dueAt);if(Number.isFinite(due))insert.run(row.scope,row.id,row.revision,due);}
+      after=rows.at(-1)!.n;
+    }
+    db.exec("INSERT INTO schema_migrations VALUES(15,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+  }).immediate();
 }

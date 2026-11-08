@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import type { Block, Release, PublishedEntry, Entry } from '@weava/contracts';
 import { plain, tokens } from './documents.ts';
@@ -109,8 +109,20 @@ export function searchRelease(db: Database.Database, release: Release, query: st
   const terms = tokens(query).split(' ').filter(Boolean);
   if (!terms.length) return [];
   const match = terms.map((term) => '"' + term.replaceAll('"', '') + '"').join(' AND ');
-  const found = db.prepare(`SELECT m.entry_id id FROM publication_fts f JOIN publication_members m ON m.object_key=f.object_key
+  const found = db.transaction(()=>{
+    if(!db.prepare('SELECT 1 FROM releases WHERE id=?').get(release.id)){
+      // An in-flight reader may still hold a release whose database indexes were archived.
+      const index=new Database(':memory:');
+      try{
+        index.exec("CREATE VIRTUAL TABLE search USING fts5(id UNINDEXED,position UNINDEXED,tokens,tokenize='unicode61')");
+        const insert=index.prepare('INSERT INTO search VALUES(?,?,?)');
+        for(const [position,entry] of release.entries.entries())if(entry.indexable&&entry.visibility!=='private')insert.run(entry.id,position,tokens([entry.title,entry.description,publishedHasBlocks(entry)?blockText(entry.blocks,entry,release):plain(entry.html),entry.categories.join(' '),entry.tags.join(' ')].join(' ')));
+        return index.prepare('SELECT id FROM search WHERE search MATCH ? ORDER BY rank,position').all(match) as {id:string}[];
+      }finally{index.close();}
+    }
+    return db.prepare(`SELECT m.entry_id id FROM publication_fts f JOIN publication_members m ON m.object_key=f.object_key
     WHERE publication_fts MATCH ? AND m.release_id=? ORDER BY rank,m.position`).all(match, release.id) as { id: string }[];
+  })();
   const entries = new Map(release.entries.filter((entry) => entry.visibility !== 'private' && entry.indexable).map((entry) => [entry.id, entry]));
   return found.flatMap(({ id }) => {
     const entry = entries.get(id);

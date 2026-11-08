@@ -1,113 +1,98 @@
-import { useEffect, useId, useRef, useState } from 'react';
-import { useDebouncedValue } from './useDebouncedValue.ts';
-import { api, waitJob } from './api.ts';
-import { useAdminQuery } from './useAdminQuery.ts';
-import { useSelectors } from './Selectors.tsx';
+import { useRef, useState } from 'react';
+import { api } from './api.ts';
 import { allowFileDrop, hasDroppedFiles, UploadStatus, useFileUploads } from './file-drop.tsx';
-import { MediaGroups } from './MediaGroups.tsx';
-import { useManagedRecord } from './EditSessions.tsx';
-import { Dialog } from './Dialog.tsx';
-import { AutosaveStatus } from './AutosaveStatus.tsx';
+import { MediaDetails } from './MediaDetails.tsx';
+import { MediaLibrary } from './MediaLibrary.tsx';
+import { useMediaEditor } from './useMediaEditor.ts';
+import { useMediaLibrary } from './useMediaLibrary.ts';
 
-export default function MediaManager({ onError, onOpen }: { onError: (message: string) => void; onOpen: (id: string) => void }) {
-  const fileInput = useRef<HTMLInputElement>(null);
-  const uploads = useFileUploads(false), [dragging, setDragging] = useState(false);
-  const [saving, setSaving] = useState(false), [feedback, setFeedback] = useState('');
-  const details = useRef<HTMLElement>(null);
-  const [query, setQuery] = useState(''), [kind, setKind] = useState(''), [page, setPage] = useState(1), [archived, setArchived] = useState(false), [epoch, setEpoch] = useState(0);
-  const [checked, setChecked] = useState<string[]>([]);
-  const managed = useManagedRecord<any>(null, async snapshot => {
-    const { name, alt, caption, focalPoint } = snapshot.value;
-    const row = await api('media/info',{id:snapshot.id,revision:snapshot.revision,value:{name,alt,caption,focalPoint,groupId:snapshot.value.groupId??null}});
-    refresh(); return row;
-  }, '媒体信息', { autosave: { ready: record => !!record.value.name.trim() && (!record.value.focalPoint || Object.values(record.value.focalPoint).every(point => typeof point === 'number' && Number.isFinite(point) && point >= 0 && point <= 100)) } });
-  const selected = managed.record, setSelected = managed.setRecord;
-  const [references, setReferences] = useState<any>(null), [progress, setProgress] = useState('');
-  const [crop, setCrop] = useState({ left: 0, top: 0, width: 100, height: 100 }), [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [cropping, setCropping] = useState(false), [cropError, setCropError] = useState('');
-  const cropHelp=useId();
-  const searchTerm = useDebouncedValue(query);
-  const [group, setGroup] = useState(''), [moveTo, setMoveTo] = useState(''), [managingGroups, setManagingGroups] = useState(false);
-  const groupQuery = useAdminQuery<any[]>('media/groups'), groups = groupQuery.data ?? [];
-  const queryResult = useAdminQuery(`media/query?${new URLSearchParams({ q: searchTerm, kind, page: String(page), pageSize: '24', archived: String(archived), group })}`);
-  const result = queryResult.data ?? { items: [], pages: 0, total: 0 }, loading = queryResult.loading;
-  const refresh = () => setEpoch((value) => value + 1);
-  useEffect(() => { setFeedback(''); }, [searchTerm, kind, page, archived]);
-  useEffect(() => {
-    if (epoch) { void queryResult.refresh().catch(() => {}); void groupQuery.refresh().catch(() => {}); }
-  }, [epoch]);
-  useEffect(() => { setChecked([]); }, [queryResult.data]);
-  useEffect(() => { if (queryResult.error || groupQuery.error) onError(queryResult.error || groupQuery.error); }, [queryResult.error, groupQuery.error]);
-  useEffect(() => {
-    setCropping(false); setReferences(null); setCrop({ left: 0, top: 0, width: 100, height: 100 });
-    if (!selected) return;
-    if (window.matchMedia('(max-width: 900px)').matches) details.current?.scrollIntoView({ block: 'start' });
-    let active = true; api(`media/references?id=${encodeURIComponent(selected.id)}`).then((value) => { if (active) setReferences(value); }).catch((error) => onError(error.message));
-    return () => { active = false; };
-  }, [selected?.id]);
-  const isImage = selected && /\.(png|jpe?g|webp|gif|avif|svg)$/i.test(selected.value.url);
-  const save = async () => {
-    if (!selected) throw new Error('请先选择媒体。');
-    return managed.session.save();
-  };
-  const choose = async (row: any) => { try { await managed.session.save(); managed.session.adopt(row); } catch(error:any) { onError(error.message); } };
-  const mark = async () => {
-    try { await managed.session.save(); await api('media/archive', { items: result.items.filter((row: any) => checked.includes(row.id)).map((row: any) => ({ id: row.id, revision: row.id === managed.session.record?.id ? managed.session.record!.revision : row.revision })), archived: !archived }); managed.session.adopt(null); refresh(); }
-    catch (error: any) { onError(error.message); }
-  };
-  const point = (event: React.PointerEvent<HTMLElement>) => { const box = event.currentTarget.getBoundingClientRect(); return { x: Math.max(0, Math.min(100, (event.clientX - box.left) / box.width * 100)), y: Math.max(0, Math.min(100, (event.clientY - box.top) / box.height * 100)) }; };
-  const adjustCrop=(event:React.KeyboardEvent<HTMLElement>)=>{
-    if(progress||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home'].includes(event.key))return;
-    event.preventDefault();event.stopPropagation();
-    setCrop(previous=>{
-      if(event.key==='Home')return {left:0,top:0,width:100,height:100};
-      const horizontal=event.key==='ArrowLeft'||event.key==='ArrowRight';
-      const delta=(event.key==='ArrowLeft'||event.key==='ArrowUp'?-1:1)*(event.altKey?1:5);
-      if(event.shiftKey){const axis=horizontal?'width':'height',offset=horizontal?previous.left:previous.top;return {...previous,[axis]:Math.max(.1,Math.min(100-offset,previous[axis]+delta))};}
-      const axis=horizontal?'left':'top',size=horizontal?previous.width:previous.height;
-      return {...previous,[axis]:Math.max(0,Math.min(100-size,previous[axis]+delta))};
-    });
-  };
+export default function MediaManager({
+  onError,
+  onOpen,
+}: {
+  onError: (message: string) => void;
+  onOpen: (id: string) => void;
+}) {
+  const library = useMediaLibrary(onError),
+    editor = useMediaEditor(library.refresh, onError);
+  const [busy, setBusy] = useState(false),
+    [dragging, setDragging] = useState(false);
+  const uploads = useFileUploads(false),
+    fileInput = useRef<HTMLInputElement>(null);
   function uploadFiles(files: File[]) {
-    if (progress) { onError('请等待当前裁切完成后上传。'); return; }
-    const destination = group;
-    uploads.upload(files, async row => {
-        if (destination && destination !== '__ungrouped__') await api('media/info', { id: row.id, revision: row.revision, value: { name: row.value.name, groupId: destination } });
-        refresh();
-    }, () => managed.session.save());
+    if (busy) {
+      onError('请等待当前裁切完成后上传。');
+      return;
+    }
+    const destination = library.group;
+    uploads.upload(
+      files,
+      async (row) => {
+        if (destination && destination !== '__ungrouped__') {
+          const [moved] = await api('media/move', {
+            items: [{ id: row.id, revision: row.revision }],
+            groupId: destination,
+          });
+          editor.receive(moved);
+        }
+        library.refresh();
+      },
+      editor.flush,
+    );
   }
-  return <div className={'panel media-panel' + (dragging ? ' is-file-dragging' : '')}
-    onDragOver={event => { if (allowFileDrop(event)) setDragging(true); }}
-    onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDragging(false); }}
-    onDrop={event => { if (!hasDroppedFiles(event.dataTransfer)) return; event.preventDefault(); event.stopPropagation(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
-    <div className="panel-title"><h1>媒体</h1><button className="primary" disabled={!!progress || uploads.busy} onClick={() => fileInput.current?.click()}>上传文件</button><input ref={fileInput} type="file" hidden multiple onChange={event => { const files = [...(event.target.files ?? [])]; event.target.value = ''; void uploadFiles(files); }} /></div>
-    <UploadStatus uploads={uploads} omitLabel="取消这些上传"/>
-    <div className="media-filters"><input aria-label="搜索媒体库" placeholder="搜索媒体" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} /><select aria-label="媒体类型" value={kind} onChange={(event) => { setKind(event.target.value); setPage(1); }}><option value="">全部类型</option><option value="image">图片</option><option value="video">视频</option><option value="audio">音频</option><option value="file">附件</option></select><select aria-label="媒体分组筛选" value={group} onChange={(event) => { setGroup(event.target.value); setPage(1); }}><option value="">全部分组</option><option value="__ungrouped__">未分组</option>{groups.map((row) => <option key={row.id} value={row.id}>{row.value.label}{row.value.archived ? '（已归档）' : ''}</option>)}</select><button onClick={() => setManagingGroups(true)}>管理分组</button><label className="checkbox"><input type="checkbox" checked={archived} onChange={(event) => { setArchived(event.target.checked); setPage(1); }} />已归档</label>{checked.length > 0 && <button onClick={() => void mark()}>{archived ? '恢复所选' : '归档所选'}</button>}</div>
-    {checked.length > 0 && <div className="media-filters"><select aria-label="移动所选到分组" value={moveTo} onChange={(event) => setMoveTo(event.target.value)}><option value="">选择目标分组</option><option value="__ungrouped__">未分组</option>{groups.filter((row) => !row.value.archived).map((row) => <option key={row.id} value={row.id}>{row.value.label}</option>)}</select><button disabled={!moveTo || saving} onClick={async () => { setSaving(true); try { await managed.session.save(); await api('media/move', { items: result.items.filter((row: any) => checked.includes(row.id)).map((row: any) => ({ id: row.id, revision: row.id === managed.session.record?.id ? managed.session.record!.revision : row.revision })), groupId: moveTo === '__ungrouped__' ? null : moveTo }); managed.session.adopt(null); refresh(); setFeedback('媒体分组已更新'); } catch (error: any) { onError(error.message); } finally { setSaving(false); } }}>移动所选</button></div>}
-    {managingGroups && <MediaGroups rows={groups} refresh={refresh} close={() => setManagingGroups(false)} onError={onError} />}
-    {feedback && <p role="status">{feedback}</p>}{loading && <p role="status">正在查找媒体…</p>}
-    {!loading && !result.total && <p role="status">{query || kind || archived ? '没有符合筛选条件的媒体。' : '媒体库还是空的，可以上传第一个文件。'}</p>}
-    <div className="media-workspace"><div><div className="media-grid" aria-busy={loading}>{result.items.map((row: any) => <article key={row.id}><label className="checkbox"><input type="checkbox" aria-label={'选择 ' + row.value.name} checked={checked.includes(row.id)} onChange={(event) => setChecked(event.target.checked ? [...checked, row.id] : checked.filter((id) => id !== row.id))} /></label>
-      <button className="media-open" disabled={!!progress} onClick={() => void choose(row)}>{/\.(png|jpe?g|webp|gif|avif|svg)$/i.test(row.value.url) ? <img src={row.value.derivatives?.[0]?.url ?? row.value.url} alt="" loading="lazy" /> : <span>文件</span>}<strong>{row.value.name}</strong></button>
-      <small>{(row.value.bytes / 1024).toFixed(1)} KB</small><button onClick={async () => { try { await navigator.clipboard.writeText(row.value.url); setFeedback('地址已复制'); } catch { onError('无法复制地址，请检查浏览器的剪贴板权限。'); } }}>复制地址</button></article>)}</div>
-      {result.pages > 1 && <nav className="library-pagination"><button disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>上一页</button><span>{page} / {result.pages}</span><button disabled={page >= result.pages} onClick={() => setPage((value) => value + 1)}>下一页</button></nav>}
-    </div>{selected && <aside ref={details} className="media-details"><div className="modal-title"><h2>媒体信息</h2><button disabled={!!progress} onClick={() => void choose(null)}>关闭</button></div><label>名称<input value={selected.value.name} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, name: event.target.value } })} /></label>
-      <label>分组<select aria-label="媒体所属分组" value={selected.value.groupId ?? ''} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, groupId: event.target.value || null } })}><option value="">未分组</option>{groups.filter((row) => !row.value.archived || row.id === selected.value.groupId).map((row) => <option key={row.id} value={row.id}>{row.value.label}{row.value.archived ? '（已归档）' : ''}</option>)}</select></label>
-      {isImage && <><label>图片说明<input value={selected.value.alt ?? ''} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, alt: event.target.value } })} /></label><label>图注<textarea value={selected.value.caption ?? ''} onChange={(event) => setSelected({ ...selected, value: { ...selected.value, caption: event.target.value } })} /></label></>}
-      <AutosaveStatus state={managed.autoSave} label="媒体信息" />
-      {isImage && <section><h3>图片焦点</h3><div className="image-focus" role="slider" aria-label="图片焦点" tabIndex={0} aria-valuetext={'横向 ' + (selected.value.focalPoint?.x ?? 50) + '%，纵向 ' + (selected.value.focalPoint?.y ?? 50) + '%'} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); setSelected({ ...selected, value: { ...selected.value, focalPoint: point(event) } }); }} onPointerMove={event => { if (event.buttons === 1) setSelected({ ...selected, value: { ...selected.value, focalPoint: point(event) } }); }} onKeyDown={event => { if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) return; event.preventDefault(); const focus = { x: 50, y: 50, ...selected.value.focalPoint }; const axis = ['ArrowLeft','ArrowRight'].includes(event.key) ? 'x' : 'y'; focus[axis] = Math.max(0, Math.min(100, focus[axis] + (['ArrowRight','ArrowDown'].includes(event.key) ? 5 : -5))); setSelected({ ...selected, value: { ...selected.value, focalPoint: focus } }); }}>
-        <img src={selected.value.url} alt="点击图片选择裁切时保留的位置" draggable={false} /><span style={{ left: (selected.value.focalPoint?.x ?? 50) + '%', top: (selected.value.focalPoint?.y ?? 50) + '%' }} />
-      </div></section>}
-      {isImage && <button disabled={!!progress} onClick={() => { setCrop({ left: 0, top: 0, width: 100, height: 100 }); setCropError(''); setCropping(true); }}>裁切图片</button>}
-      {isImage && cropping && <Dialog label="裁切图片" className="modal crop-dialog" onClose={() => setCropping(false)} dismissible={!progress}><div className="modal-title"><h2>裁切图片</h2><button disabled={!!progress} onClick={() => setCropping(false)}>关闭</button></div><p id={cropHelp}>拖动框选，或用方向键移动、Shift + 方向键调整大小。</p>
-        <div className="crop-surface" role="group" aria-label="裁切选区" aria-describedby={cropHelp} aria-disabled={!!progress} tabIndex={0} onKeyDown={adjustCrop}
-          onPointerDown={(event) => { if(progress)return;event.currentTarget.focus();const start = point(event); setAnchor(start); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { if (progress||!anchor) return; const end = point(event); setCrop({ left: Math.min(anchor.x, end.x), top: Math.min(anchor.y, end.y), width: Math.max(.1, Math.abs(end.x - anchor.x)), height: Math.max(.1, Math.abs(end.y - anchor.y)) }); }} onPointerUp={() => setAnchor(null)} onPointerCancel={() => setAnchor(null)} onLostPointerCapture={() => setAnchor(null)}><img src={selected.value.url} alt="裁切预览" draggable={false} /><span style={{ left: crop.left + '%', top: crop.top + '%', width: crop.width + '%', height: crop.height + '%' }} /></div>
-        <p className="crop-description" role="status">左侧 {Math.round(crop.left)}%，上方 {Math.round(crop.top)}%，宽 {Math.round(crop.width)}%，高 {Math.round(crop.height)}%</p>
-        <div className="crop-actions"><button type="button" disabled={!!progress} onClick={()=>setCrop({left:0,top:0,width:100,height:100})}>重置选区</button>
-        <button disabled={!!progress || crop.width === 100 && crop.height === 100} onClick={async () => { setProgress('正在保存裁切…'); setCropError(''); try { const row = await save(); const job = await api('media/crop', { id: row.id, revision: row.revision, crop }); const complete = await waitJob(job, (job) => setProgress(job.message)); managed.session.adopt(complete.result); setCropping(false); refresh(); } catch(error: any) { setCropError(error.message); onError(error.message); } finally { setProgress(''); } }}>保存裁切图片</button></div>{progress && <p role="status">{progress}</p>}
-        {cropError && <p role="alert" className="error">{cropError}</p>}
-      </Dialog>}
-      {references && <section><h3>引用位置</h3>{references.working.map((entry: any) => <button key={entry.id} onClick={() => onOpen(entry.id)}>{entry.title}</button>)}{!references.working.length && <p>当前工作稿未引用</p>}{references.layouts.map((layout: any) => <p key={layout.id}>布局：{layout.label}</p>)}{references.settings && <p>网站设置</p>}<p>公开内容 {references.published.length} · 历史修订 {references.historicalRevisions}</p></section>}
-    </aside>}</div>
-  </div>;
+  return (
+    <div
+      className={'panel media-panel' + (dragging ? ' is-file-dragging' : '')}
+      onDragOver={(event) => {
+        if (allowFileDrop(event)) setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (!hasDroppedFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDragging(false);
+        void uploadFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
+      <div className="panel-title">
+        <h1>媒体</h1>
+        <button
+          className="primary"
+          disabled={busy || uploads.busy}
+          onClick={() => fileInput.current?.click()}
+        >
+          上传文件
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          multiple
+          onChange={(event) => {
+            const files = [...(event.target.files ?? [])];
+            event.target.value = '';
+            void uploadFiles(files);
+          }}
+        />
+      </div>
+      <UploadStatus uploads={uploads} omitLabel="取消这些上传" />
+      <MediaLibrary library={library} editor={editor} busy={busy} onError={onError}>
+        <MediaDetails
+          editor={editor}
+          groups={library.groups}
+          busy={busy}
+          onBusy={setBusy}
+          onError={onError}
+          onOpen={onOpen}
+        />
+      </MediaLibrary>
+    </div>
+  );
 }

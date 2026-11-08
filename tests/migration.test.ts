@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Site } from '@weava/core';
 import { migrateCrypto } from '../packages/core/src/migrate.ts';
 it('reuses imported identities and reports target edits without overwriting them', async () => {
-  const base = 'D:/Tools/cache/weava/tests/migration-' + Date.now(),
+  const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/migration-' + Date.now(),
     source = join(base, 'source'),
     target = join(base, 'target'),
     capture = join(base, 'capture');

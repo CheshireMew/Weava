@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
 import type { AnalyticsReport, AnalyticsVisitorDetail } from '@weava/contracts';
-import { api } from '../api.ts';
+import { useAdminQuery } from '../useAdminQuery.ts';
+import { LoadingState } from '../LoadingState.tsx';
 import { Dialog } from '../Dialog.tsx';
 
 import { DataTable } from './DataTable.tsx';
@@ -18,36 +19,15 @@ export function VisitorDetails({
   setVisitor: (id: string | null) => void;
   data: AnalyticsReport | null;
 }) {
-  const [detail, setDetail] = useState<AnalyticsVisitorDetail | null>(null),
-    [detailError, setDetailError] = useState(''),
-    [detailPage, setDetailPage] = useState(1);
+  const scope = JSON.stringify([visitor, data?.range.start, data?.range.end]);
+  const [page, setPage] = useState({ scope, value: 1 });
+  const detailPage = page.scope === scope ? page.value : 1;
+  const setDetailPage = (value: number) => setPage({ scope, value });
+  const query = useAdminQuery<AnalyticsVisitorDetail>(visitor ? `analytics/visitor?${new URLSearchParams({
+    id: visitor, start: data?.range.start || '', end: data?.range.end || '', page: String(detailPage),
+  })}` : null, 15000);
+  const detail = query.data, detailError = query.error;
   const { zone, pageLink } = analyticsPresentation(data, () => {});
-  useEffect(() => {
-    if (!visitor) {
-      setDetail(null);
-      return;
-    }
-    let stopped = false;
-    setDetail(null);
-    setDetailError('');
-    void api(
-      `analytics/visitor?${new URLSearchParams({
-        id: visitor,
-        start: data?.range.start || '',
-        end: data?.range.end || '',
-        page: String(detailPage),
-      })}`,
-    )
-      .then((v) => {
-        if (!stopped) setDetail(v);
-      })
-      .catch((e) => {
-        if (!stopped) setDetailError(e.message);
-      });
-    return () => {
-      stopped = true;
-    };
-  }, [visitor, detailPage, data?.range.start, data?.range.end]);
   return (
     <>
       {' '}
@@ -66,10 +46,9 @@ export function VisitorDetails({
           <p className="analytics-note">
             {data?.range.start} — {data?.range.end} · {zone}
           </p>
-          {detailError ? (
-            <p role="alert">{detailError}</p>
-          ) : !detail ? (
-            <p role="status">正在读取访问记录…</p>
+          {detailError && <p role="alert">{detailError} <button onClick={() => query.refresh().catch(() => {})}>重新读取</button></p>}
+          {!detail ? (
+            query.loading && <LoadingState label="读取访问记录" />
           ) : (
             <>
               <DataTable

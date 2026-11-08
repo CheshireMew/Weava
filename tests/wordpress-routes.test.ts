@@ -11,7 +11,7 @@ import { uploadMedia } from '../packages/core/src/media.ts';
 import { digest } from '../packages/core/src/storage.ts';
 
 it('supplements old public routes, preserves edited article bodies, publishes aliases and refuses later edits', async () => {
-  const folder = 'D:/Tools/cache/weava/tests/wordpress-routes-' + Date.now();
+  const folder = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wordpress-routes-' + Date.now();
   mkdirSync(folder, { recursive: true });
   const target = join(folder, 'site'), input = join(folder, 'routes.json');
   const originalDate = '2025-12-01T00:00:00.000Z';
@@ -126,7 +126,7 @@ it('supplements old public routes, preserves edited article bodies, publishes al
 });
 
 it('encodes WordPress query redirects before writing HTTP response headers', () => {
-  const site = new Site('D:/Tools/cache/weava/tests/wordpress-unicode-' + Date.now());
+  const site = new Site((process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wordpress-unicode-' + Date.now());
   try {
     site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null);
     site.saveEntry(entrySchema.parse({ id: 'chinese', kind: 'content', title: '中文', path: '/posts/中文/', status: 'published' }), null);
@@ -142,7 +142,7 @@ it('encodes WordPress query redirects before writing HTTP response headers', () 
 });
 
 it('keeps verified WordPress rendered text and resolves theme-lazy images to downloaded media', async () => {
-  const root = 'D:/Tools/cache/weava/tests/wordpress-rendered-' + Date.now(), input = root + '/routes.json';
+  const root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wordpress-rendered-' + Date.now(), input = root + '/routes.json';
   const site = new Site(root + '/site');
   site.saveSettings({ ...site.settings().value, domain: 'https://example.test' }, site.settings().revision);
   site.saveType({ id:'post', label:'文章', fields:[], pathPrefix:'/posts/', template:'article' }, null);

@@ -24,14 +24,13 @@ export function registerReportsCommands({
     .command('audit')
     .option('--draft', '检查当前候选工作稿')
     .option('--http', '读取实际公开 HTTP 响应，最多 200 页')
-    .action(async (opts) =>
-      output(
-        await request('seo/audit', {
+    .action(async (opts) => {
+      const job = await wait(await request('seo/audit', {
           target: opts.draft ? 'draft' : 'published',
           http: !!opts.http,
-        }),
-      ),
-    );
+        }), true);
+      output(job.status === 'complete' ? job.result : job);
+    });
 
   seo.command('reports').action(async () => output(await request('seo/audits')));
 

@@ -1,13 +1,15 @@
 import {Popover} from './Popover.tsx';
 import {Plus,Search,SlidersHorizontal,X} from 'lucide-react';
 import {isNoteType,type FieldDefinition} from '@weava/contracts';
+import {useState} from 'react';
 
 import {SavedViewControls} from './AuthoringControls.tsx';
 import {ContentEntries} from './ContentEntries.tsx';
+import {LoadingState} from './LoadingState.tsx';
 
 import type {ContentLibraryModel} from './content-models.ts';
 
-export function ContentLibrary({ model, showBulkEditing = false, showSavedViews = false }: {
+export function ContentLibrary({ model, showBulkEditing = true, showSavedViews = false }: {
   model: ContentLibraryModel;
   showBulkEditing?: boolean;
   showSavedViews?: boolean;
@@ -42,9 +44,12 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
     items,
     newEntry,
   } = model;
-  const notes=tab==='notes',label=notes?'笔记':'文章';
+  const [selectionMode, setSelectionMode] = useState(false);
+  const selecting = showBulkEditing && selectionMode;
+  const notes=tab==='notes';
   const types=state.types.filter(row=>notes?isNoteType(row.value):!isNoteType(row.value));
   const selectedType=types.find(row=>row.id===libraryType);
+  const label=notes?'笔记':selectedType?.value.label??(types.length>1?'内容':types[0]?.value.label??'文章');
   const createLabel=notes?'写笔记':'新建'+(selectedType?.value.label??(types.length===1?types[0].value.label:types.length>1?'内容':'文章'));
   const hasFilters = !!filter || status !== 'all' || visibility !== 'all' || !!libraryType || Object.values(fieldFilters).some(Boolean);
   const clearFilters=()=>{setFilter('');setStatus('all');setVisibility('all');setLibraryType('');setFieldFilters({});setLibraryPage(1);};
@@ -60,6 +65,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
 
   return (
     <section className="library" aria-label="内容列表" tabIndex={-1}>
+      <div className="library-heading">
       <div className="library-header">
         <div className="library-title">
           <h1>{label}</h1>
@@ -74,6 +80,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
         </Popover></div>:<button className="primary library-create" aria-label={createLabel} title={createLabel} onClick={()=>void newEntry(selectedType?.id)}>
           <Plus size={18} />{createLabel}
         </button>}
+      </div>
       </div>
       <div className="library-tools">
         <div className="library-search">
@@ -135,7 +142,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
                       {(field.type === 'boolean' ? ['true', 'false'] : (field.options ?? [])).map(
                         (option) => (
                           <option key={option} value={option}>
-                            {field.type === 'boolean' ? (option === 'true' ? '是' : '否') : option}
+                            {field.type === 'boolean' ? (option === 'true' ? '是' : '否') : field.optionLabels?.[option] ?? option}
                           </option>
                         ),
                       )}
@@ -157,6 +164,10 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
           </div></Popover>
           {sortControl}
         </div>
+        {showBulkEditing && <button type="button" className="library-selection-toggle" aria-pressed={selecting} disabled={model.busy} onClick={() => {
+          setSelectionMode(!selecting);
+          setBulkIds([]);
+        }}>{selecting ? '取消选择' : '批量选择'}</button>}
         {showSavedViews && <Popover label="常用筛选" trigger="常用筛选"><SavedViewControls
           key={tab}
           views={state.contentViews ?? []}
@@ -194,9 +205,10 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
         {extraFilters.map(item=><button type="button" key={item.key} onClick={item.clear} aria-label={'移除筛选：'+item.label}>{item.label}<X size={13} aria-hidden="true"/></button>)}
         <button type="button" className="library-clear-filters" onClick={clearFilters}>清除筛选</button>
       </div>}
-      {showBulkEditing && bulkIds.length > 0 && (
+      {selecting && bulkIds.length > 0 && (
         <button
           className="library-bulk-action"
+          disabled={model.busy || libraryLoading || filter !== searchTerm}
           onClick={async () => {
             try {
               await openBulk();
@@ -208,11 +220,9 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
           批量编辑（{bulkIds.length}）
         </button>
       )}
-      <div className={'entry-list' + (showBulkEditing ? '' : ' without-selection')} aria-busy={libraryLoading}>
+      <div className={'entry-list' + (selecting ? '' : ' without-selection')} aria-busy={libraryLoading}>
         {libraryLoading && (
-          <p className="library-status" role="status">
-            正在查找内容…
-          </p>
+          <LoadingState label="读取内容列表" />
         )}
         {!libraryLoading && !items.length && (
           <div className="library-empty" role="status"><p>
@@ -221,7 +231,7 @@ export function ContentLibrary({ model, showBulkEditing = false, showSavedViews 
               : '还没有内容，可以新建第一篇。'}
           </p>{hasFilters && <button onClick={clearFilters}>清除筛选</button>}</div>
         )}
-        {items.length > 0 && <ContentEntries model={model} selectable={showBulkEditing} />}
+        {items.length > 0 && <ContentEntries model={model} selectable={selecting} showType={!libraryType && types.length > 1} />}
       </div>
         <nav className="library-pagination" aria-label="内容列表分页"><span>共 {library.total} 项</span>
           {library.pages > 1 && <div className="pagination-buttons">

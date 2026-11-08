@@ -23,6 +23,7 @@ export interface Extension {
   panels?: { id: string; label: string; themes?: string[]; fields: FieldDefinition[] }[];
   schedules?: { id: string; intervalMs: number; run: () => Promise<void> }[];
   render?: (entry: Entry, release: Release) => Promise<string | null> | string | null;
+  transformHtml?: (html: string, release: Release, url: URL) => string | Promise<string>;
   metadata?: (entry: Entry, release: Release, url: URL) => Promise<MetadataContribution | null> | MetadataContribution | null;
   route?: (request: Request, release: Release | null) => Promise<Response | null>;
   start?: () => void | Promise<void>;
@@ -32,9 +33,9 @@ const cache = new WeakMap<Site, Promise<ExtensionManager>>();
 export async function extension(
   site: Site,
   services: Record<string, any> = {},
-  options: { mode?: 'runtime' | 'worker'; migrate?: boolean } = {},
+  options: { mode?: 'runtime' | 'worker'; migrate?: boolean; startPaused?:boolean } = {},
 ): Promise<ExtensionManager> {
   let manager = cache.get(site);
-  if (!manager) { manager = ExtensionManager.open(site, services, options.mode ?? 'runtime', options.migrate ?? false); cache.set(site, manager); }
+  if (!manager) { manager = ExtensionManager.open(site, services, options.mode ?? 'runtime', options.migrate ?? false, options.startPaused ?? false); cache.set(site, manager); }
   return manager;
 }

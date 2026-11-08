@@ -1,257 +1,277 @@
-import {renderDocument} from './documents.ts';
-import {renderBlocks} from './render.ts';
-import {metadataHead} from './seo.ts';
-import {queryEntries} from './query.ts';
-import {pathToFileURL} from 'node:url';
-import {join} from 'node:path';
-import {existsSync,readFileSync,mkdirSync} from 'node:fs';
-import * as z from 'zod';
-import {fieldWidgetSchema,blockTypes,typeSchema,WeavaError,VERSION,validateBlockProps,type Entry,type Release} from '@weava/contracts';
-import type {Extension} from './extensions.ts';
-import type {Site} from './site.ts';
+import { WeavaError, type Entry, type Release } from '@weava/contracts';
+import {
+  clearCapabilities,
+  registerCapabilities,
+  validateCapabilities,
+} from './extension-capabilities.ts';
+import {
+  loadExtensions,
+  orderExtensions,
+  type ExtensionDiagnostic,
+  type ExtensionMember,
+} from './extension-catalog.ts';
+import { migrateExtension } from './extension-migrations.ts';
+import {
+  extensionMetadata,
+  extensionRoute,
+  renderExtension,
+  validateExtensionRelease,
+} from './extension-rendering.ts';
+import { ExtensionTasks } from './extension-tasks.ts';
+import { extensionUsage } from './extension-usage.ts';
+import type { Extension } from './extensions.ts';
+import type { Site } from './site.ts';
+export { extensionManifestSchema, type ExtensionDiagnostic } from './extension-catalog.ts';
 
-
-import {inside} from '../../runtime-common/src/paths.ts';
-import {uuid} from '../../runtime-common/src/identity.ts';
-import {visitBlocks} from './layouts.ts';
-import {pageMetadata,customEvidence,type MetadataContribution} from './seo.ts';
-
-
-const identifier = z.string().regex(/^[a-z][a-z0-9-]*$/);
-export const extensionManifestSchema = z.object({ version: z.literal(1), extensions: z.array(z.object({ id: identifier, file: z.string().endsWith('.mjs'), enabled: z.boolean().default(true) })) });
-const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
-const compareVersion = (a: string, b: string) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); return x[0] - y[0] || x[1] - y[1] || x[2] - y[2]; };
-interface Member { id: string; file: string; enabled: boolean; extension?: Extension; error?: string }
-export interface ExtensionDiagnostic { id: string; label: string; version: string; enabled: boolean; status: 'active' | 'disabled' | 'failed' | 'blocked'; error?: string; dependencies: { id: string; minVersion?: string }[]; schemaVersion: number; installedSchema: number; configRevision: number | null; backup?: string; taskError?: string }
 export class ExtensionManager {
-  readonly id = 'weava-extensions'; readonly apiVersion = 1;
-  private members: Member[] = []; private active: Extension[] = [];
-  private timers = new Map<string, ReturnType<typeof setInterval>[]>();
-  private tasks = new Set<Promise<any>>(); private diagnostics: ExtensionDiagnostic[] = [];
-  private changing = false; private disposed = false;
+  readonly id = 'weava-extensions';
+  readonly apiVersion = 1;
+  private members: ExtensionMember[] = [];
+  private active: Extension[] = [];
+  private diagnostics: ExtensionDiagnostic[] = [];
+  private tasks = new ExtensionTasks(
+    () => !this.changing && !this.paused,
+    (id, error) => {
+      const row = this.diagnostics.find((item) => item.id === id);
+      if (row) row.taskError = error;
+    },
+  );
+  private changing = false;
   private started = new Set<Extension>();
-  constructor(private site: Site, private services: Record<string, any>, private mode: 'runtime' | 'worker', private allowMigrations = false) {}
-  static async open(site: Site, services: Record<string, any>, mode: 'runtime' | 'worker', migrate = false) {
-    const manager = new ExtensionManager(site, services, mode, migrate);
-    await manager.load(); await manager.activate();
-    site.extensionCleanup = () => manager.disposeSync(); return manager;
+  constructor(
+    private site: Site,
+    _services: Record<string, any>,
+    private mode: 'runtime' | 'worker',
+    private allowMigrations = false,
+    startPaused = false,
+  ) {
+    this.paused ||= startPaused;
   }
-  get blocks() { return this.site.blockRenderers; }
-  get blockDefinitions() { return this.site.extensionBlockDefinitions; }
-  get themes() { return this.active.flatMap((extension) => extension.themes ?? []); }
-  get migrationFiles() { return this.active.flatMap(extension=>extension.migrationFiles??[]); }
-  async runJob(name:string,payload:unknown) {
-    const [id,job]=name.split(':');const extension=this.active.find(item=>item.id===id),handler=extension?.jobs?.[job];
-    if(!handler)throw new WeavaError('网站任务未注册：'+name,404);
+  static async open(
+    site: Site,
+    services: Record<string, any>,
+    mode: 'runtime' | 'worker',
+    migrate = false,
+    startPaused = false,
+  ) {
+    const manager = new ExtensionManager(site, services, mode, migrate, startPaused);
+    manager.members = await loadExtensions(site, services);
+    await manager.activate();
+    if (!manager.paused) manager.tasks.resume();
+    site.extensionCleanup = () => manager.tasks.dispose();
+    return manager;
+  }
+  get blocks() {
+    return this.site.blockRenderers;
+  }
+  get blockDefinitions() {
+    return this.site.extensionBlockDefinitions;
+  }
+  get themes() {
+    return this.active.flatMap((extension) => extension.themes ?? []);
+  }
+  get migrationFiles() {
+    return this.active.flatMap((extension) => extension.migrationFiles ?? []);
+  }
+  async runJob(name: string, payload: unknown) {
+    const [id, job] = name.split(':');
+    const extension = this.active.find((item) => item.id === id),
+      handler = extension?.jobs?.[job];
+    if (!handler) throw new WeavaError('网站任务未注册：' + name, 404);
     return handler(payload);
   }
-  get panels() { return this.active.flatMap((extension) => extension.panels ?? []); }
-  status() { return structuredClone(this.diagnostics); }
-  private configured(member: Member) { return this.site.store.get('extension-config', member.id)?.value.enabled ?? member.enabled; }
-  private async load() {
-    let folder = join(this.site.root, 'extensions');
-    const pointer=join(this.site.root,'program.json');
-    if(existsSync(pointer)){
-      const selected=JSON.parse(readFileSync(pointer,'utf8'));
-      if(selected.siteBuildId){
-        const build=inside(process.env.WEAVA_SITE_BUILDS_ROOT??join(this.site.root,'site-builds'),selected.siteBuildId),manifestFile=join(build,'site-build.json');
-        const descriptor=JSON.parse(readFileSync(manifestFile,'utf8'));
-        if(descriptor.extensions)folder=inside(build,descriptor.extensions);
-      }
-    }
-    const manifest = join(folder, 'manifest.json');
-    let descriptors: { id?: string; file: string; enabled: boolean }[];
-    try {
-      descriptors = existsSync(manifest) ? extensionManifestSchema.parse(JSON.parse(readFileSync(manifest, 'utf8'))).extensions : existsSync(join(folder, 'index.mjs')) ? [{ file: 'index.mjs', enabled: true }] : [];
-      const seen = new Set<string>();
-      for (const descriptor of descriptors) {
-        if (descriptor.id && seen.has(descriptor.id)) throw new WeavaError('扩展清单编号重复：' + descriptor.id);
-        if (descriptor.id) seen.add(descriptor.id);
-      }
-    } catch (error: any) { this.members = [{ id: 'manifest', file: manifest, enabled: true, error: '扩展清单无效：' + error.message }]; return; }
-    for (const descriptor of descriptors) {
-      const member: Member = { id: descriptor.id ?? 'legacy', file: descriptor.file, enabled: descriptor.enabled }; this.members.push(member);
-      try {
-        const file = inside(folder, descriptor.file);
-        const factory = (await import(/* @vite-ignore */ pathToFileURL(file).href)).default;
-        if (typeof factory !== 'function') throw new Error('扩展需要默认导出工厂函数。');
-        const ext: Extension = await factory({ site: this.site, apiVersion: 1, frameworkVersion: VERSION, renderDocument, renderBlocks, pageMetadata, metadataHead, queryEntries, z, ...this.services });
-        identifier.parse(ext.id); if (descriptor.id && ext.id !== descriptor.id) throw new Error('扩展编号与清单不一致。'); member.id = ext.id;
-        if (ext.apiVersion !== 1) throw new Error('扩展 API 版本不兼容。');
-        versionSchema.parse(ext.version ?? '0.0.0');
-        for (const dependency of ext.dependencies ?? []) { identifier.parse(dependency.id); if (dependency.minVersion) versionSchema.parse(dependency.minVersion); }
-        if (!Number.isSafeInteger(ext.schemaVersion ?? 0) || (ext.schemaVersion ?? 0) < 0) throw new Error('扩展数据版本无效。');
-        const migrations = ext.migrations ?? [], versions = new Set<number>();
-        for (const migration of migrations) { if (!Number.isSafeInteger(migration.version) || migration.version < 1 || migration.version > (ext.schemaVersion ?? 0) || versions.has(migration.version) || typeof migration.up !== 'function' || migration.up.constructor.name === 'AsyncFunction') throw new Error('扩展迁移编号无效、重复或使用了异步函数。'); versions.add(migration.version); }
-        for (const type of ext.contentTypes ?? []) typeSchema.parse(type);
-        for (const [key, renderer] of Object.entries(ext.blocks ?? {})) {
-          if (!key.startsWith(ext.id + ':') || blockTypes.includes(key) || typeof renderer !== 'function') throw new Error('扩展区块需要使用自己的前缀与渲染器：' + key);
-          const definition = ext.blockDefinitions?.[key];
-          if (definition && (!definition.label || !Array.isArray(definition.fields) || typeof definition.schema?.safeParse !== 'function')) throw new Error('扩展区块声明无效：' + key);
-        }
-        for (const key of Object.keys(ext.blockDefinitions ?? {})) if (!ext.blocks?.[key]) throw new Error('区块声明缺少渲染器：' + key);
-        for (const task of ext.schedules ?? []) if (!task.id || !Number.isFinite(task.intervalMs) || task.intervalMs < 1000 || typeof task.run !== 'function') throw new Error('扩展定时任务声明无效。');
-        member.extension = ext;
-      } catch (error: any) { member.error = error.message; }
-    }
+  get panels() {
+    return this.active.flatMap((extension) => extension.panels ?? []);
   }
-  private order(strict = true) {
-    const selected = this.members.filter((member) => this.configured(member)), ordered: Member[] = [], visiting = new Set<string>(), visited = new Set<string>();
-    const visit = (member: Member) => {
-      if (visited.has(member.id)) return;
-      if (visiting.has(member.id)) throw new WeavaError('扩展依赖形成循环：' + [...visiting, member.id].join(' → '));
-      if (member.error || !member.extension) throw new WeavaError(member.id + ' 无法载入：' + member.error);
-      visiting.add(member.id);
-      for (const dependency of member.extension.dependencies ?? []) {
-        const target = selected.find((item) => item.id === dependency.id);
-        if (!target) throw new WeavaError(member.id + ' 需要启用扩展 ' + dependency.id);
-        visit(target);
-        if (dependency.minVersion && compareVersion(target.extension!.version ?? '0.0.0', dependency.minVersion) < 0) throw new WeavaError(member.id + ' 需要 ' + dependency.id + ' ' + dependency.minVersion + ' 或更新版本');
-      }
-      visiting.delete(member.id); visited.add(member.id); ordered.push(member);
+  async transformHtml(html: string, release: Release, url: URL) {
+    for (const extension of this.active) if (extension.transformHtml)
+      html = await extension.transformHtml(html, release, url);
+    return html;
+  }
+  status() {
+    return structuredClone(this.diagnostics);
+  }
+  private configured(member: ExtensionMember) {
+    return this.site.store.get('extension-config', member.id)?.value.enabled ?? member.enabled;
+  }
+  private snapshotDiagnostic(
+    member: ExtensionMember,
+    status: ExtensionDiagnostic['status'],
+    error?: string,
+  ): ExtensionDiagnostic {
+    const ext = member.extension,
+      installed = this.site.store.get('extension-installed', member.id)?.value;
+    return {
+      id: member.id,
+      label: ext?.label ?? member.id,
+      version: ext?.version ?? '0.0.0',
+      enabled: this.configured(member),
+      status,
+      error: error ?? member.error,
+      dependencies: ext?.dependencies ?? [],
+      schemaVersion: ext?.schemaVersion ?? 0,
+      installedSchema: installed?.schemaVersion ?? 0,
+      backup: installed?.backup,
+      configRevision: this.site.store.get('extension-config', member.id)?.revision ?? null,
     };
-    for (const member of selected) try { visit(member); } catch (error: any) {
-      visiting.clear();
-      if (strict) throw error;
-      this.diagnostics[this.members.indexOf(member)] = this.snapshotDiagnostic(member, member.error ? 'failed' : 'blocked', error.message);
-    }
-    return ordered;
-  }
-  private snapshotDiagnostic(member: Member, status: ExtensionDiagnostic['status'], error?: string): ExtensionDiagnostic {
-    const ext = member.extension, installed = this.site.store.get('extension-installed', member.id)?.value;
-    return { id: member.id, label: ext?.label ?? member.id, version: ext?.version ?? '0.0.0', enabled: this.configured(member), status, error: error ?? member.error,
-      dependencies: ext?.dependencies ?? [], schemaVersion: ext?.schemaVersion ?? 0, installedSchema: installed?.schemaVersion ?? 0, backup: installed?.backup,
-      configRevision: this.site.store.get('extension-config', member.id)?.revision ?? null };
   }
   private async activate() {
-    this.diagnostics = this.members.map((member) => this.snapshotDiagnostic(member, this.configured(member) ? 'blocked' : 'disabled'));
-    const ordered = this.order(false);
-    const themes = new Set(['weava', 'newsletter']), panels = new Set<string>(), types = new Set<string>();
+    this.diagnostics = this.members.map((member) =>
+      this.snapshotDiagnostic(member, this.configured(member) ? 'blocked' : 'disabled'),
+    );
+    const ordered = orderExtensions(
+      this.members,
+      (member) => this.configured(member),
+      (member, error) => {
+        this.diagnostics[this.members.indexOf(member)] = this.snapshotDiagnostic(
+          member,
+          member.error ? 'failed' : 'blocked',
+          error.message,
+        );
+      },
+    );
     for (const member of ordered) {
       const ext = member.extension!;
       let attemptedBackup: string | undefined;
       try {
-        for (const dependency of ext.dependencies ?? []) if (!this.active.some((item) => item.id === dependency.id)) throw new Error('依赖扩展启动失败：' + dependency.id);
-        for (const [id, widget] of Object.entries(ext.fieldWidgets ?? {})) {
-          if (!id.startsWith(ext.id + ':') || this.site.fieldWidgets[id]) throw new Error('字段输入器编号需要以扩展编号开头且不能重复：' + id);
-          const parsed = fieldWidgetSchema.parse(widget);
-          if ((parsed.control === 'range') !== (parsed.type === 'number')) throw new Error('range 输入器需要数字基础类型，其它输入器需要文字基础类型。');
-          if (parsed.pattern) new RegExp(parsed.pattern, 'u');
-          this.site.fieldWidgets[id] = parsed;
+        validateCapabilities(this.site, ext, this.active);
+        await migrateExtension(this.site, ext, this.allowMigrations, (path) => {
+          attemptedBackup = path;
+        });
+        if (this.mode === 'runtime' && !this.paused) {
+          await ext.start?.();
+          this.started.add(ext);
         }
-        for (const theme of ext.themes ?? []) if (themes.has(theme.id)) throw new Error('主题编号重复：' + theme.id);
-        for (const panel of ext.panels ?? []) if (panels.has(panel.id)) throw new Error('设置面板编号重复：' + panel.id);
-        for (const type of ext.contentTypes ?? []) if (types.has(type.id)) throw new Error('多个扩展声明了相同内容类型：' + type.id);
-        const installed = this.site.store.get('extension-installed', ext.id), current = installed?.value.schemaVersion ?? 0, target = ext.schemaVersion ?? 0;
-        if (current > target) throw new Error('扩展数据版本较新，不能使用旧版代码。');
-        if (target > current && !this.allowMigrations && process.env.WEAVA_DATABASE_MODE !== 'migrate') throw new Error('扩展需要显式迁移，请执行 site update。');
-        if(target>current&&process.env.WEAVA_MANAGED_UPDATE==='1'&&!Array.isArray(ext.migrationFiles))throw new Error('自动升级需要声明 migrationFiles；仅数据库迁移声明空数组。');
-        for(const file of ext.migrationFiles??[])if(!/^extensions\/state\/[\w./-]+$/.test(file)||file.split('/').includes('..'))throw new Error('扩展迁移文件必须是 extensions/state 内明确的相对文件。');
-        for (let version = current + 1; version <= target; version++) if (!ext.migrations?.some((item) => item.version === version)) throw new Error('缺少扩展迁移：' + version);
-        let backup = installed?.value.backup;
-        if (target > current) { const folder = join(this.site.root, 'archives', 'extension-upgrades'); mkdirSync(folder, { recursive: true }); backup = join(folder, ext.id + '-v' + current + '-to-v' + target + '-' + uuid() + '.sqlite'); attemptedBackup = backup; await this.site.store.raw.backup(backup); }
-        this.site.store.raw.transaction(() => {
-          for (let version = current + 1; version <= target; version++) {
-            const result: unknown = ext.migrations!.find((item) => item.version === version)!.up({ site: this.site });
-            if (result && typeof (result as any).then === 'function') throw new Error('扩展迁移必须同步完成，只写入事务内的站点数据。');
-          }
-          for (const type of ext.contentTypes ?? []) if (!this.site.store.get('type', type.id)) this.site.saveType(type, null);
-          for (const [key, renderer] of Object.entries(ext.blocks ?? {})) {
-            const row = this.site.store.get('extension-block', key), definition = ext.blockDefinitions?.[key];
-            const value = { extension: ext.id, label: definition?.label ?? key, fields: definition?.fields ?? [] };
-            if (JSON.stringify(row?.value) !== JSON.stringify(value)) this.site.store.put('extension-block', key, value, row?.revision ?? null);
-          }
-          const value = { version: ext.version ?? '0.0.0', schemaVersion: target, ...(backup ? { backup } : {}) };
-          if (JSON.stringify(installed?.value) !== JSON.stringify(value)) this.site.store.put('extension-installed', ext.id, value, installed?.revision ?? null, '扩展版本检查');
-        }).immediate();
-        if (this.mode === 'runtime' && !this.paused) { await ext.start?.(); this.started.add(ext); }
-        this.active.push(ext); for (const theme of ext.themes ?? []) themes.add(theme.id); for (const panel of ext.panels ?? []) panels.add(panel.id); for (const type of ext.contentTypes ?? []) types.add(type.id);
-        this.site.extensionThemes = this.themes.map((theme) => theme.id);
-        for (const [key, renderer] of Object.entries(ext.blocks ?? {})) {
-          if (ext.blockDefinitions?.[key]) this.site.extensionBlockDefinitions[key] = ext.blockDefinitions[key];
-          this.site.blockRenderers[key] = (block, release, entry) => { if (ext.blockDefinitions?.[key]) validateBlockProps(key, block.props, true, ext.blockDefinitions[key]); return renderer(block, release, entry); };
-        }
+        this.active.push(ext);
+        registerCapabilities(this.site, ext, this.active);
         this.diagnostics[this.members.indexOf(member)] = this.snapshotDiagnostic(member, 'active');
-        if (this.mode === 'runtime') this.startTasks(ext);
-      } catch (error: any) { for (const id of Object.keys(ext.fieldWidgets ?? {})) delete this.site.fieldWidgets[id]; if (this.mode === 'runtime') await Promise.resolve().then(() => ext.stop?.()).catch(() => {}); this.diagnostics[this.members.indexOf(member)] = { ...this.snapshotDiagnostic(member, 'failed', error.message), ...(attemptedBackup ? { backup: attemptedBackup } : {}) }; }
+        if (this.mode === 'runtime') this.tasks.start(ext);
+      } catch (error: any) {
+        for (const id of Object.keys(ext.fieldWidgets ?? {})) delete this.site.fieldWidgets[id];
+        if (this.mode === 'runtime')
+          await Promise.resolve()
+            .then(() => ext.stop?.())
+            .catch(() => {});
+        this.diagnostics[this.members.indexOf(member)] = {
+          ...this.snapshotDiagnostic(member, 'failed', error.message),
+          ...(attemptedBackup ? { backup: attemptedBackup } : {}),
+        };
+      }
     }
   }
   private paused = process.env.WEAVA_VALIDATION === '1';
-  async initialize(){if(this.mode==='runtime')for(const ext of this.active)if(!this.started.has(ext)){await ext.start?.();this.started.add(ext);}}
+  async initialize() {
+    if (this.mode === 'runtime')
+      for (const ext of this.active)
+        if (!this.started.has(ext)) {
+          await ext.start?.();
+          this.started.add(ext);
+        }
+  }
   async pause(value: boolean) {
-    if(value){this.paused=true;return;}
+    if (value) {
+      this.paused = true;
+      this.tasks.pause();
+      return;
+    }
     await this.initialize();
-    this.paused=false;
+    this.paused = false;
+    this.tasks.resume();
   }
-  get pendingTasks() { return this.tasks.size; }
-  private startTasks(ext: Extension) {
-    this.timers.set(ext.id, (ext.schedules ?? []).map((task) => {
-      let running = false;
-      const timer = setInterval(() => {
-        if (running || this.disposed || this.changing || this.paused) return; running = true;
-        const work = Promise.resolve().then(task.run).catch((error) => { const row = this.diagnostics.find((item) => item.id === ext.id); if (row) row.taskError = task.id + '：' + error.message; }).finally(() => { running = false; this.tasks.delete(work); });
-        this.tasks.add(work);
-      }, task.intervalMs); timer.unref(); return timer;
-    }));
+  get pendingTasks() {
+    return this.tasks.pending;
   }
-  async render(entry: Entry, release: Release) { if (this.changing) throw new WeavaError('扩展正在切换，请稍后重试。', 503); for (const ext of this.active) { const html = await ext.render?.(entry, release); if (html != null) return customEvidence(html, entry); } return null; }
-  async metadata(entry: Entry | undefined, release: Release, url: URL, options: Parameters<typeof pageMetadata>[3] = {}) {
+  private assertAvailable() {
     if (this.changing) throw new WeavaError('扩展正在切换，请稍后重试。', 503);
-    let contribution: MetadataContribution = {};
-    if (entry) for (const ext of this.active) { const value = await ext.metadata?.(entry, release, url); if (value) contribution = { ...contribution, ...value, schema: [...(contribution.schema ?? []), ...(value.schema ?? [])] }; }
-    return pageMetadata(entry, release, url, { ...options, contribution });
   }
-  async validateRelease(release:Release){for(const entry of release.entries)try{const html=await this.render(entry,release);await this.metadata(entry,release,new URL(entry.path,release.settings.domain),{html:html??undefined});}catch(error:any){throw new WeavaError('扩展无法渲染“'+entry.title+'”：'+error.message,400,{id:entry.id});}}
-  async route(request: Request, release: Release | null) { for (const ext of this.active) { const response = await ext.route?.(request, release); if (response != null) return response; } return null; }
+  async render(entry: Entry, release: Release) {
+    this.assertAvailable();
+    return renderExtension(this.active, entry, release);
+  }
+  async metadata(
+    ...args: Parameters<typeof extensionMetadata> extends [unknown, ...infer Rest] ? Rest : never
+  ) {
+    this.assertAvailable();
+    return extensionMetadata(this.active, ...args);
+  }
+  async validateRelease(release: Release) {
+    this.assertAvailable();
+    return validateExtensionRelease(this.active, release);
+  }
+  route(request: Request, release: Release | null) {
+    return extensionRoute(this.active, request, release);
+  }
   usage(id: string) {
-    const ext = this.members.find((member) => member.id === id)?.extension;
-    const result: { kind: string; id: string; label: string }[] = []; if (!ext) return result;
-    const inspect = (kind: string, id: string, label: string, value: any) => {
-      let used = false; visitBlocks(value.blocks ?? [], (block) => { if (block.type.startsWith(ext.id + ':')) used = true; });
-      if ((ext.contentTypes ?? []).some((type) => value.kind === 'content' && type.id === value.type) || (ext.themes ?? []).some((theme) => value.theme === theme.id)) used = true;
-      if (used) result.push({ kind, id, label });
-    };
-    const usesWidget = (fields: any[]): boolean => fields.some((field) => !!ext.fieldWidgets?.[field.widget] || field.fields && usesWidget(field.fields));
-    for (const row of this.site.store.list('type')) if (usesWidget(row.value.fields)) result.push({ kind: 'type', id: row.id, label: row.value.label });
-    for (const type of this.site.release()?.types ?? []) if (usesWidget(type.fields)) result.push({ kind: 'published-type', id: type.id, label: type.label });
-    for (const row of this.site.store.list('entry')) inspect('entry', row.id, row.value.title, row.value);
-    for (const row of this.site.store.list('layout')) inspect('layout', row.id, row.value.label, row.value);
-    inspect('settings', 'site', '网站设置工作稿', this.site.settings().value);
-    const release = this.site.release();
-    if (release) { for (const entry of release.entries) inspect('published', entry.id, entry.title, entry); for (const layout of release.layouts ?? []) inspect('published-layout', layout.id, layout.label, layout); inspect('published-settings', 'site', '公开网站设置', release.settings); }
-    for (const member of this.members) if (this.configured(member) && member.extension?.dependencies?.some((dependency) => dependency.id === id)) result.push({ kind: 'extension', id: member.id, label: member.extension.label ?? member.id });
-    return result;
+    return extensionUsage(this.site, this.members, (member) => this.configured(member), id);
   }
   async setEnabled(id: string, enabled: boolean, expected: number | null) {
     if (this.mode !== 'runtime') throw new WeavaError('任务程序不更改扩展启停。');
     if (this.changing) throw new WeavaError('扩展正在切换，请稍后再试。', 409);
-    const member = this.members.find((member) => member.id === id); if (!member) throw new WeavaError('扩展不存在。', 404);
+    const member = this.members.find((member) => member.id === id);
+    if (!member) throw new WeavaError('扩展不存在。', 404);
     const row = this.site.store.get('extension-config', id);
-    if ((row?.revision ?? null) !== expected) throw new WeavaError('扩展设置已变化，请刷新后重试。', 409);
-    if (!enabled) { const uses = this.usage(id); if (uses.length) throw new WeavaError('扩展仍被以下内容或依赖使用，请先处理引用。', 409, uses); }
-    const before = this.configured(member); this.changing = true;
-    const liveJobs = this.site.activeJobs().filter((job) => ['publish', 'import-wxr'].includes(job.operation));
-    if (liveJobs.length) { this.changing = false; throw new WeavaError('内容任务仍在运行，请等待完成后切换扩展。', 409); }
+    if ((row?.revision ?? null) !== expected)
+      throw new WeavaError('扩展设置已变化，请刷新后重试。', 409);
+    if (!enabled) {
+      const uses = this.usage(id);
+      if (uses.length)
+        throw new WeavaError('扩展仍被以下内容或依赖使用，请先处理引用。', 409, uses);
+    }
+    const before = this.configured(member);
+    this.changing = true;
+    const liveJobs = this.site
+      .activeJobs()
+      .filter((job) => ['publish', 'import-wxr'].includes(job.operation));
+    if (liveJobs.length) {
+      this.changing = false;
+      throw new WeavaError('内容任务仍在运行，请等待完成后切换扩展。', 409);
+    }
     this.site.store.setState('extension-transition', JSON.stringify({ pid: process.pid, id }));
     try {
-      const saved = this.site.store.put('extension-config', id, { enabled }, expected, enabled ? '启用扩展' : '停用扩展');
+      const saved = this.site.store.put(
+        'extension-config',
+        id,
+        { enabled },
+        expected,
+        enabled ? '启用扩展' : '停用扩展',
+      );
       try {
-        await this.stop(); this.disposed = false; await this.activate();
-        if (enabled && !this.active.some((ext) => ext.id === id)) throw new WeavaError(this.diagnostics.find((row) => row.id === id)?.error ?? '扩展未能启动。');
+        await this.stop();
+        await this.activate();
+        if (enabled && !this.active.some((ext) => ext.id === id))
+          throw new WeavaError(
+            this.diagnostics.find((row) => row.id === id)?.error ?? '扩展未能启动。',
+          );
       } catch (error) {
-        this.site.store.put('extension-config', id, { enabled: before }, saved.revision, '恢复扩展启停设置');
-        await this.stop(); this.disposed = false; await this.activate(); throw error;
+        this.site.store.put(
+          'extension-config',
+          id,
+          { enabled: before },
+          saved.revision,
+          '恢复扩展启停设置',
+        );
+        await this.stop();
+        await this.activate();
+        throw error;
       }
       return this.status();
-    } finally { this.site.store.setState('extension-transition', ''); this.changing = false; }
+    } finally {
+      this.site.store.setState('extension-transition', '');
+      this.changing = false;
+    }
   }
-  private disposeSync() { this.disposed = true; for (const timers of this.timers.values()) timers.forEach(clearInterval); this.timers.clear(); }
   async stop() {
-    this.disposeSync(); await Promise.allSettled(this.tasks);
+    await this.tasks.stop();
     const errors: string[] = [];
-    for (const ext of [...this.active].reverse()) try { if (this.mode === 'runtime' && this.started.has(ext)) await ext.stop?.(); } catch (error: any) { errors.push(ext.id + '：' + error.message); }
+    for (const ext of [...this.active].reverse())
+      try {
+        if (this.mode === 'runtime' && this.started.has(ext)) await ext.stop?.();
+      } catch (error: any) {
+        errors.push(ext.id + '：' + error.message);
+      }
     this.started.clear();
-    this.active = []; this.site.blockRenderers = {}; this.site.extensionBlockDefinitions = {}; this.site.extensionThemes = []; this.site.fieldWidgets = {};
+    this.active = [];
+    clearCapabilities(this.site);
     if (errors.length) throw new WeavaError('扩展停止失败：' + errors.join('；'));
   }
 }

@@ -11,6 +11,8 @@ export function checkEntry(site: EntryValidationSite, value: unknown, options: {
   const parsed = entrySchema.safeParse(value);
   if (!parsed.success) return { valid: false, errors: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message, code: issue.code })) };
   const input = parsed.data, errors: FieldIssue[] = [];
+  if (options.required !== false && !input.title.trim())
+    errors.push({ path: 'title', message: '请填写标题。', code: 'required' });
   const previous = site.store.get('entry', input.id)?.value;
   const run = (path: string, fn: () => void) => { try { fn(); } catch (error: any) { errors.push({ path, message: error.message, code: 'invalid' }); } };
   run('path', () => {

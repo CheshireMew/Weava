@@ -6,6 +6,7 @@ import type {ApiOutput} from '@weava/contracts/api';
 import {useAuthCooldown} from './useAuthCooldown.ts';
 import {PasswordField} from './PasswordField.tsx';
 import {useEditGuard} from './EditSessions.tsx';
+import {LoadingState} from './LoadingState.tsx';
 const eventNames:Record<string,string>={
   'account-initialized':'初始化账户','password-reset':'重置密码','account-recovered':'本机恢复账户',
   'account-updated':'修改账户资料或密码','login-succeeded':'登录成功','login-failed':'身份验证失败',
@@ -58,7 +59,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     <label><input type="checkbox" checked={savedCodes} onChange={event=>setSavedCodes(event.target.checked)}/>我已将恢复码保存在网站之外</label>
     <button className="primary" disabled={!savedCodes} onClick={()=>window.location.reload()}>重新登录</button>
   </section>;
-  if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<p role="status">正在读取账户…</p>}</section>;
+  if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<LoadingState label="读取账户" />}</section>;
   const proof={password,code:code||undefined},blocked=busy||!!cooldown.seconds;
   const cannotProve=blocked||!password||(account.twoFactorEnabled&&!code);
   const verification=<div className="account-proof">
@@ -93,7 +94,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
         {qr&&<img className="account-qr" src={qr} width={208} height={208} alt="用验证器扫描此二维码"/>}
         <label>验证器密钥<input readOnly value={setup.secret}/></label><p>用验证器扫码或手动添加密钥，也可以<a href={setup.uri}>在本机验证器中打开</a>。设置在 10 分钟后过期。</p>
         <label>6 位验证码<input required pattern="[0-9]{6}" autoComplete="one-time-code" inputMode="numeric" value={code} onChange={event=>setCode(event.target.value)}/></label>
-        <button disabled={blocked||!password}>确认启用</button><button type="button" disabled={blocked} onClick={()=>{setSetup(null);setPassword('');setCode('');}}>取消</button>
+        <div className="account-actions"><button disabled={blocked||!password}>确认启用</button><button type="button" disabled={blocked} onClick={()=>{setSetup(null);setPassword('');setCode('');}}>取消</button></div>
       </form>:<button disabled={cannotProve} onClick={()=>act(async()=>{setSetup(await api('account/two-factor/begin',proof));},true)}>设置两步验证</button>}
     </section>}
     {section==='sessions'&&<section className="form-card"><h2>登录会话</h2>{verification}<button disabled={cannotProve} onClick={()=>act(async()=>{await api('account/sessions/revoke',{...proof,id:'others'});await refresh();notify('其他登录会话已撤销。');})}>退出其他会话</button>

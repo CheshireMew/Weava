@@ -26,6 +26,7 @@ export class SiteContent {
     >,
   ) {}
   saveType(value: ContentType, revision: number | null, candidates: Entry[] = []) {
+    return this.site.store.raw.transaction(() => {
     const type = typeSchema.parse(value);
     for (const name of type.allowedBlocks ?? [])
       if (!blockDefinitions[name] && !this.site.extensionBlockDefinitions[name])
@@ -73,6 +74,7 @@ export class SiteContent {
     }
     if (affected.length) throw new WeavaError('字段变更与现有内容不兼容。', 409, affected);
     return this.site.store.put('type', type.id, type, revision);
+    }).immediate();
   }
   entries() {
     const published = new Map(this.site.release()?.entries.map((e) => [e.id, e]) ?? []);
@@ -87,6 +89,7 @@ export class SiteContent {
     });
   }
   saveEntry(value: Entry, revision: number | null, options: { references?: EntryReferences } = {}) {
+    return this.site.store.raw.transaction(() => {
     const input = prepareEntryCandidate(this.site, value, { required: false, ...options });
     input.path = normalizePath(input.path);
     if (isReservedContentPath(input.path)) throw new WeavaError('这个网址由系统使用。');
@@ -127,6 +130,7 @@ export class SiteContent {
         ),
       )
       .immediate();
+    }).immediate();
   }
   history(id: string) {
     return this.site.store.history('entry', id);

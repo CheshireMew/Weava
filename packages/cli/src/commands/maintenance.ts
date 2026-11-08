@@ -79,7 +79,8 @@ export function registerMaintenanceCommands({
   program
     .command('job')
     .requiredOption('--id <id>')
-    .action(async (opts) => output(await request('job/' + opts.id)));
+    .option('--cancel','取消等待或正在执行的任务')
+    .action(async (opts) => output(opts.cancel?await request('jobs/cancel',{id:opts.id}):await request('job/' + opts.id)));
 
   program
     .command('logs')
@@ -177,6 +178,8 @@ export function registerMaintenanceCommands({
     });
 
   maintenance.command('archives').action(async () => output(await request('maintenance/archives')));
+  maintenance.command('temporary').action(async()=>output(await request('maintenance/temporary')));
+  maintenance.command('cleanup-temporary').requiredOption('--review <review>','maintenance temporary 返回的预检标识').requiredOption('--confirm','确认删除该预检清单中的暂存文件').action(async opts=>output(await request('maintenance/temporary/cleanup',{review:opts.review,confirm:!!opts.confirm})));
 
   maintenance
     .command('inspect')

@@ -1,16 +1,13 @@
-import { schedules, schedulePublication, cancelSchedule, retrySchedule } from '@weava/core';
 import { WeavaError as DomainError } from '@weava/contracts';
-
+import { cancelSchedule, retrySchedule, schedules } from '@weava/core';
 import {
-  publicationPlans,
-  savePublicationPlan,
-  reviewPublicationPlan,
-  cancelPublicationPlan,
-} from '@weava/core';
+  publicationPlanEntry,
+  requireRunnablePlan,
+} from '../../../../packages/core/src/publication-plans.ts';
 
-import { preparePublication } from '@weava/core';
+import { cancelPublicationPlan, publicationPlans } from '@weava/core';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 export function publicationHandlers(
   services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>,
 ) {
@@ -19,7 +16,7 @@ export function publicationHandlers(
     jobs.enqueue(operation, payload, key);
   return {
     publication: async ({ body: data }) => {
-      return jobs.query('publication-review',data??{});
+      return jobs.query('publication-review', data ?? {});
     },
     publish: async ({ body: data }, context) => {
       const { request } = context;
@@ -29,20 +26,34 @@ export function publicationHandlers(
         request.headers.get('Idempotency-Key') ?? undefined,
       );
     },
-    withdraw: async ({ body: data }) => {
-      return jobs.query('withdraw',data);
+    withdraw: async ({ body: data }, context) => {
+      return jobs.command(
+        'withdraw',
+        data,
+        context.request.headers.get('Idempotency-Key') ?? undefined,
+      );
     },
     rollback: async ({ body: data }) => {
-      if((data.review===undefined)!==(data.baseReleaseId===undefined))throw new DomainError('请重新检查恢复内容。');
-      return site.rollback(data.id,data.review===undefined?undefined:{baseReleaseId:data.baseReleaseId!,review:data.review});
+      if ((data.review === undefined) !== (data.baseReleaseId === undefined))
+        throw new DomainError('请重新检查恢复内容。');
+      return site.rollback(
+        data.id,
+        data.review === undefined
+          ? undefined
+          : { baseReleaseId: data.baseReleaseId!, review: data.review },
+      );
     },
-    previewRollback:async({body})=>site.previewRollback(body.id),
+    previewRollback: async ({ body }) => site.previewRollback(body.id),
     schedules: async ({}, context) => {
       const { url } = context;
       return schedules(site, url.searchParams.get('entryId') ?? undefined);
     },
-    schedule: async ({ body: data }) => {
-      return jobs.query('schedule-create',data);
+    schedule: async ({ body: data }, context) => {
+      return jobs.command(
+        'schedule-create',
+        data,
+        context.request.headers.get('Idempotency-Key') ?? undefined,
+      );
     },
     cancelSchedule: async ({ body: data }) => {
       return cancelSchedule(site, data.id, data.revision);
@@ -53,29 +64,24 @@ export function publicationHandlers(
     plans: async () => {
       return publicationPlans(site);
     },
-    savePlan: async ({ body: data }) => {
-      return jobs.query('plan-save',data);
+    savePlan: async ({ body: data }, context) => {
+      return jobs.command(
+        'plan-save',
+        data,
+        context.request.headers.get('Idempotency-Key') ?? undefined,
+      );
     },
     planEntry: async ({}, context) => {
       const { url } = context;
-      const id = url.searchParams.get('id') ?? '',
-        row = site.store.get('entry', id);
-      if (!row) throw new DomainError('内容不存在。', 404);
-      return {
-        id,
-        title: row.value.title,
-        revision: row.revision,
-        publishedRevision: site.release()?.entries.find((entry) => entry.id === id)?.revisionId,
-      };
+      return publicationPlanEntry(site, url.searchParams.get('id') ?? '');
     },
     previewPlan: async ({ body: data }) => {
-      return jobs.query('publication-plan-review',data);
+      return jobs.query('publication-plan-review', data);
     },
     runPlan: async ({ body: data }, context) => {
       const { request } = context;
       if (!data.options) throw new DomainError('请先检查发布计划。');
-      const plan=site.store.get('publication-plan',data.id);
-      if(!plan||plan.revision!==data.revision||!['draft','scheduled','failed'].includes(plan.value.status))throw new DomainError('计划已变化，请重新载入。',409);
+      requireRunnablePlan(site, data.id, data.revision);
       return await execute(
         'publish',
         { planId: data.id, planRevision: data.revision, options: data.options },

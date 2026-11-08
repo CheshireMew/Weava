@@ -1,3 +1,4 @@
+import { mediaUploadMaxBytes } from './media-rules.ts';
 import {contentSorts} from './content-query.ts';
 import { searchDatasetSchema } from './search-data.ts';
 import { analyticsReportSchema, analyticsRealtimeSchema, analyticsVisitorDetailSchema, geoStatusSchema } from './analytics.ts';
@@ -18,7 +19,8 @@ const rowList=z.array(jsonObject);
 const references=z.object({ working:z.array(z.object({ id,title:z.string(),path:z.string() })),published:z.array(z.object({ id,title:z.string(),path:z.string() })),layouts:z.array(z.object({ id,label:z.string() })),settings:z.boolean(),historicalRevisions:z.number() });
 const planRecord=record(m.planValue),scheduleRecord=record(m.scheduleValue);
 const mediaMetadata=z.object({ name:z.string(),alt:optional,caption:optional,groupId:z.string().nullable().optional(),focalPoint:m.focalPoint.optional() });
-const uploadState=z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string(),expiresAt:z.string(),chunkBytes:z.number(),jobId:id.optional()});
+const uploadState=z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string(),sha256:z.string().nullable(),expiresAt:z.string(),chunkBytes:z.number(),jobId:id.optional()});
+const temporaryCleanup=z.object({review:z.string(),bytes:z.number(),files:z.array(z.object({id,kind:z.enum(['upload','request']),path:z.string(),bytes:z.number()})),skipped:z.array(z.object({path:z.string(),reason:z.string()}))});
 const imageVariant=z.object({ id,revision,presetId:id.optional(),spec:m.imageSpecSchema.optional() }).refine((v)=>!!v.presetId!==!!v.spec,{message:'请选择一种图片规格输入方式。'});
 const redirectRecords=z.array(z.object({ id,revision:nullableRevision,updatedAt:z.string(),value:m.redirectSchema }));
 const exportSchema=z.object({ version:z.number(),schemas:jsonObject,types:z.array(z.object({ id,revision,definition:typeSchema,schema:jsonObject })),rules:z.record(z.string(),z.string()) });
@@ -52,14 +54,14 @@ export const adminApi = {
   queryEntries:get('entries/query','查询工作稿摘要',page(entrySummaryRecord),contentQuery.extend({format:z.enum(['article','note']).optional()})),
   createEntry:post('entries/create','新建内容',z.object({ kind:z.enum(['content','page']),type:optional,templateId:optional,title:optional,path:optional }),entryRecord),
   duplicateEntry:post('entries/duplicate','复制为独立草稿',byVersion,entryRecord),
-  deleteEntry:post('entries/delete','删除内容并撤下公开页面，保留历史快照和共享媒体',byVersion,byId),
+  deleteEntry:post('entries/delete','删除内容并撤下公开页面，保留历史快照和共享媒体',byVersion,jobSchema,202),
   getEntry:get('entry/{id}','读取完整工作稿',entryRecord,empty,pathId),
   saveEntry:post('entry','保存工作稿',save(entrySchema),entryRecord),
   checkEntry:post('entry/check','检查未保存候选',z.object({ value:z.unknown(),required:z.boolean().optional() }),m.entryCheck),
   structureEntry:post('entry/structure','把正文转换为区块',z.object({ value:entrySchema }),z.array(m.blockSchema)),
   previewBulk:post('entries/bulk/preview','预检批量元信息',m.bulkInput,m.bulkPreview),
   applyBulk:post('entries/bulk/apply','保存已预检的批量元信息',m.bulkInput.extend({ review:z.string() }),z.array(entryRecord)),
-  queryReferences:get('references/query','查询允许引用的内容',page(entryRecord),z.object({ ...queryPage,types:optional,filters:optional,q:optional })),
+  queryReferences:get('references/query','查询允许引用的内容摘要',page(m.referenceRecord),z.object({ ...queryPage,types:optional,filters:optional,q:optional })),
   settings:get('settings','读取网站设置',record(settingsSchema)),
   saveSettings:post('settings','保存网站设置',z.object({ value:settingsSchema,revision }),record(settingsSchema)),
   types:get('types','列出内容类型',z.array(record(typeSchema))),
@@ -74,15 +76,15 @@ export const adminApi = {
   saveTemplate:post('authoring/templates','保存新建模板',save(creationTemplateSchema),record(creationTemplateSchema)),
   publication:post('publication','预检冻结的发布内容',m.publishOptions,m.publicationReview),
   publish:post('publish','执行发布任务',m.publishOptions,jobSchema,202),
-  withdraw:post('withdraw','撤下内容或归档',byVersion.extend({ archive:z.boolean().optional() }),entryRecord),
+  withdraw:post('withdraw','撤下内容或归档',byVersion.extend({ archive:z.boolean().optional() }),jobSchema,202),
   previewRollback:post('rollback/preview','查看历史公开版本恢复差异',byId,m.rollbackReview),
   rollback:post('rollback','切换至历史公开版本',byId.extend({baseReleaseId:id.nullable().optional(),review:z.string().optional()}),z.object({ releaseId:id })),
   schedules:get('schedules','列出单篇定时发布',z.array(scheduleRecord),z.object({entryId:z.string().optional()})),
-  schedule:post('schedule','安排固定修订的定时发布',byVersion.extend({ dueAt:z.string() }),scheduleRecord),
+  schedule:post('schedule','安排固定修订的定时发布',byVersion.extend({ dueAt:z.string() }),jobSchema,202),
   cancelSchedule:post('schedule/cancel','取消定时发布',byVersion,scheduleRecord),
   retrySchedule:post('schedule/retry','重试定时发布',byVersion,scheduleRecord),
   plans:get('plans','列出组合发布计划',z.array(planRecord)),
-  savePlan:post('plans','保存组合发布计划',save(m.planDefinition),planRecord),
+  savePlan:post('plans','保存组合发布计划',save(m.planDefinition),jobSchema,202),
   planEntry:get('plans/entry','读取计划可用修订',byVersion.extend({ title:z.string(),publishedRevision:revision.optional() }),byId),
   previewPlan:post('plans/preview','预检组合发布计划',byVersion,z.object({ plan:planRecord,review:m.publicationReview })),
   runPlan:post('plans/run','执行已检查的组合发布计划',byVersion.extend({ options:m.publishOptions }),jobSchema,202),
@@ -98,8 +100,9 @@ export const adminApi = {
   restore:post('restore','恢复历史修订为新工作稿',byVersion.extend({ version:revision }),entryRecord),
   media:get('media','列出媒体',z.array(mediaRecord)),
   uploadMedia:post('media','处理完整上传，兼容旧版 base64 上传',z.union([z.object({uploadId:id}),z.object({ name:z.string(),base64:z.string() })]),jobSchema,202),
-  beginUpload:post('media/uploads','创建可继续的媒体上传',z.object({name:z.string().min(1).max(300),size:z.number().int().min(1).max(32*1024*1024)}),uploadState),
+  beginUpload:post('media/uploads','创建经过内容校验的可续传上传',z.object({name:z.string().min(1).max(300),size:z.number().int().min(1).max(mediaUploadMaxBytes),sha256:z.string().regex(/^[a-f0-9]{64}$/)}),uploadState),
   uploadStatus:get('media/uploads/{id}','读取上传位置和处理任务',uploadState,empty,pathId),
+  cancelUpload:post('media/uploads/cancel','取消尚未处理完成的上传，暂存文件等待预检清理',byId,z.object({id,status:z.string()})),
   uploadChunk:{...post('media/uploads/{id}','追加一份二进制分块（最多 1 MiB）',z.unknown(),uploadState),params:pathId,query:z.object({offset:z.coerce.number<string|number>().int().min(0)}),binary:true},
   mediaQuery:get('media/query','查询媒体',page(mediaRecord),z.object({ ...queryPage,q:optional,kind:z.enum(['image','video','audio','file','']).optional(),group:optional,archived:z.enum(['true','false']).optional() })),
   mediaInfo:post('media/info','保存媒体说明、分组和焦点',byVersion.extend({ value:mediaMetadata }),mediaRecord),
@@ -119,7 +122,9 @@ export const adminApi = {
   extensions:get('extensions','列出扩展诊断',z.array(m.extensionDiagnostic)),
   extensionUsage:get('extensions/usage','查询扩展引用',z.array(m.usage),byId),
   toggleExtension:post('extensions/toggle','切换扩展状态',z.object({ id,enabled:z.boolean(),revision:nullableRevision.optional() }),z.array(m.extensionDiagnostic)),
-  maintenance:get('maintenance','读取存储使用',z.object({ databaseBytes:z.number(),analyticsBytes:z.number(),versions:totals,releases:totals,publicationObjects:z.array(z.object({ kind:z.string(),count:z.number(),bytes:z.number().nullable() })),media:totals,unreferenced:totals.extend({ files:z.array(z.object({ path:z.string(),bytes:z.number() })) }),backups:z.array(z.object({ path:z.string(),bytes:z.number() })) })),
+  maintenance:get('maintenance','读取存储使用',z.object({ databaseBytes:z.number(),analyticsBytes:z.number(),businessBytes:z.number(),uploadsBytes:z.number(),logsBytes:z.number(),importsBytes:z.number(),temporary:temporaryCleanup,pendingUploads:z.array(z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string()})),versions:totals,releases:totals,publicationObjects:z.array(z.object({ kind:z.string(),count:z.number(),bytes:z.number().nullable() })),media:totals,unreferenced:totals.extend({ files:z.array(z.object({ path:z.string(),bytes:z.number() })) }),backups:z.array(z.object({ path:z.string(),bytes:z.number() })) })),
+  previewTemporaryCleanup:get('maintenance/temporary','预检已结束或过期的暂存文件',temporaryCleanup),
+  cleanupTemporaryFiles:post('maintenance/temporary/cleanup','确认删除预检列出的暂存文件',z.object({review:z.string(),confirm:z.literal(true)}),z.object({files:z.number(),bytes:z.number()})),
   previewArchive:post('maintenance/preview','预检历史归档',m.retention,m.archivePreview),
   archiveHistory:post('maintenance/archive','执行已预检的历史归档',z.object({ options:m.retention,review:z.string() }),jobSchema,202),
   restoreArchive:post('maintenance/restore','恢复已归档历史',byId,jobSchema,202),
@@ -127,14 +132,15 @@ export const adminApi = {
   archiveContents:get('maintenance/archive','读取归档清单',archiveContents,byId),
   jobs:get('jobs','列出后台任务',z.array(jobSchema)),
   job:get('job/{id}','读取任务进度',jobSchema,empty,pathId),
+  cancelJob:post('jobs/cancel','取消等待或正在执行的任务',byId,jobSchema),
   logs:get('logs','按 UTF-8 字节页读取任务日志',z.object({ text:z.string(),start:z.number(),end:z.number(),total:z.number(),truncated:z.boolean(),unit:z.literal('bytes') }),byId.extend({ offset:z.coerce.number<string|number>().int().nonnegative().optional() })),
   backup:post('backup','创建完整站点备份',z.object({ path:z.string() }),jobSchema,202),
   verify:post('verify','校验站点备份',z.object({ path:z.string() }),jobSchema,202),
   export:get('export','导出内容交换文件',m.exchange),
-  import:post('import','预检或导入内容交换文件',z.object({ value:m.exchange,options:m.importOptions.optional() }),m.importResult),
+  import:post('import','后台预检或导入内容交换文件',m.importRequestSchema,jobSchema,202),
   importRevisions:get('import/revisions','读取可合并对象的修订',z.record(z.string(),revision)),
   importWxr:post('import/wxr','预检或后台导入 WordPress',z.object({ xml:z.string(),options:m.wxrOptions.optional() }),z.union([m.wxrReport,jobSchema]),202),
-  seoAudit:post('seo/audit','检查公开或候选页面',z.object({ target:z.enum(['draft','published']).optional(),http:z.boolean().optional(),options:m.publishOptions.optional() }),m.seoAudit),
+  seoAudit:post('seo/audit','创建公开或候选页面检查任务；完成后 result 为 SEO 报告',z.object({ target:z.enum(['draft','published']).optional(),http:z.boolean().optional(),options:m.publishOptions.optional() }),jobSchema,202),
   seoAudits:get('seo/audits','列出 SEO 检查报告',z.array(m.seoAudit)),
   seoMetadata:get('seo/metadata','读取最终页面元信息',m.metadata,byId.extend({ path:optional })),
   searchData:get('search-data','读取搜索与观测报告',z.object({ status:z.enum(['available','not-connected']),datasets:rowList,capabilities:z.array(z.string()),notes:z.array(z.string()).optional() })),
@@ -148,7 +154,7 @@ export const adminApi = {
 } as const;
 export type AdminApi = typeof adminApi;
 export type ApiOperation = keyof AdminApi;
-export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','beginUpload','cropMedia','imageVariant','backup','verify','importWxr'];
+export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','beginUpload','cropMedia','imageVariant','backup','verify','importWxr','deleteEntry','withdraw','schedule','savePlan','import','seoAudit'];
 export type ApiInput<K extends ApiOperation> = { params:z.input<AdminApi[K]['params']>;query:z.input<AdminApi[K]['query']>;body:z.input<AdminApi[K]['body']> };
 export type ApiOutput<K extends ApiOperation> = z.output<AdminApi[K]['response']>;
 export type ContractMatch = { operation:ApiOperation; definition:ApiDefinition; params:Record<string,string> };

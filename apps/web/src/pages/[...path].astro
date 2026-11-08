@@ -1,169 +1,45 @@
 ---
-import { site, siteExtension, engagement, features, siteRenderer, contextFor } from '../runtime.ts';
+import {selectPublicPage} from '../../../../packages/core/src/public-page-selection.ts';
+import {publicDocumentResponse} from '../public-documents.ts';
+import {customPageResponse} from '../custom-page.ts';
+import { site, siteExtension, engagement, features } from '../runtime.ts';
 import {
-  normalizePath,
-  renderBlocks,
-  renderDocument,
-  renderFields,
   responsiveImages,
   imageAttributes,
   escape as e,
   renderNavigation,
-  resolveContentLinks,
   queryPublished,
   contentQuery,
   pageLinks,
-  validatePublicQuery,
-  referencedLayouts,
-  validateQueryFields,
   renderEntryTemplate,
   renderSharedRegion,
-  layouts,
-  pageMetadata,
-  wordpressArchiveEntry,
   originalWordPressImages,
-  composeMetadata, scopedFeed, feedLinks,
+  feedLinks,
 } from '@weava/core';
 import '../styles/site.css';
 import Newsletter from '../themes/Newsletter.astro';
+import Library from '../themes/Library.astro';
 import NotesTimeline from '../components/NotesTimeline.astro';
 import {notesTimeline,notesPath,paginate} from '@weava/core';
 import ArticleComments from '../themes/ArticleComments.astro';
 import SeoHead from '../components/SeoHead.astro';
 import Advertisement from '../components/Advertisement.astro';
 import SiteInfoLinks from '../components/SiteInfoLinks.astro';
-import { entrySchema, systemRoutes, WeavaError, supportsDiscussion } from '@weava/contracts';
-import type {Release,PublishedEntry} from '@weava/contracts';
-const preview = Astro.url.pathname.startsWith('/__preview/');
-const token = Astro.cookies.get('weava-session')?.value ?? '';
-const owner = site.authenticate(token);
-if (preview && !owner) return new Response('请先登录后台。', { status: 401 });
-const publicDocument = Object.values(systemRoutes).some((path) => path === Astro.url.pathname);
-let release:Release|null =
-  site.visibleRelease(owner && !publicDocument) ??
-  (preview
-    ? {
-        id: 'preview',
-        createdAt: new Date().toISOString(),
-        label: '草稿预览',
-        entries: [],
-        types: site.store.list('type').map((r) => r.value),
-        settings: site.settings().value,
-      }
-    : null);
-if (!release) return new Response('网站尚未发布，请登录后台发布内容。', { status: 503 });
-let entry:PublishedEntry|undefined;
-if (preview) {
-  const id = decodeURIComponent(Astro.url.pathname.slice(11).replace(/\/$/, ''));
-  const version = Number(Astro.url.searchParams.get('revision'));
-  const stored = version
-    ? site.store.raw
-        .prepare('SELECT data FROM revisions WHERE scope=? AND id=? AND revision=?')
-        .get('entry', id, version)
-    : null;
-  let value = version
-    ? stored
-      ? JSON.parse((stored as any).data)
-      : null
-    : site.store.get('entry', id)?.value;
-  if (id.startsWith('layout:')) {
-    const layout = layouts(site).find((row) => row.id === id.slice(7))?.value;
-    if (!layout) return new Response('布局不存在。', { status: 404 });
-    value = entrySchema.parse({ id, kind: layout.appliesTo === 'content' ? 'content' : 'page', title: '示例标题', description: '示例摘要', path: '/layout-preview/',
-      type: site.store.list('type')[0]?.id ?? 'post', template: layout.kind === 'template' ? layout.id : 'page', document: { version: 1, format: 'markdown', source: '## 示例正文\n\n这里显示内容正文。' },
-      blocks: layout.kind === 'template' ? [] : layout.blocks });
-  }
-  entry = value ? { ...entrySchema.parse(value), html: renderDocument(value.document),modifiedAt:value.updatedAt??new Date().toISOString(),revisionId:version||site.store.get('entry',id)?.revision||0 } : undefined;
-  if (!entry) return new Response('草稿修订不存在。', { status: 404 });
-  release = {
-    ...release,
-    settings: site.settings().value,
-    types: site.store.list('type').map((r) => r.value),
-    layouts: layouts(site).map((row) => row.value),
-  };
-  const selectedLayout = Astro.url.searchParams.get('layout');
-  if (selectedLayout) {
-    const layout = release.layouts?.find((layout) => layout.id === selectedLayout);
-    if (!layout) return new Response('布局不存在。', { status: 404 });
-    entry = layout.kind === 'template' ? { ...entry, template: layout.id } : { ...entry, kind: 'page', template: 'page', blocks: layout.blocks, title: layout.label };
-  }
-  const previewEntry=entry;
-  release = { ...release, entries: [...release.entries.filter((item) => item.id !== previewEntry.id), previewEntry] };
-} else entry = release.entries.find((v) => v.path === normalizePath(Astro.url.pathname)) ?? wordpressArchiveEntry(release, Astro.url);
-try {
-  const pageLayouts = entry ? referencedLayouts(entry, release) : [];
-  validatePublicQuery(Astro.url.searchParams, release, [...(entry?.blocks ?? []), ...pageLayouts.flatMap((layout) => layout.blocks)]);
-  if (Astro.url.pathname === '/search/') validateQueryFields(contentQuery(Astro.url.searchParams), release.types);
-} catch (error) { if (!(error instanceof WeavaError)) throw error; return new Response(error.message, { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }); }
+import { WeavaError, supportsDiscussion } from '@weava/contracts';
+const owner=site.authenticate(Astro.cookies.get('weava-session')?.value??'');
+let page:ReturnType<typeof selectPublicPage>;
+try {page=selectPublicPage(site,Astro.url,owner);}
+catch(error) {if(!(error instanceof WeavaError))throw error;return new Response(error.message,{status:error.status,headers:{'Content-Type':'text/plain; charset=utf-8'}});}
+const {preview,release,entry}=page;
 const privateArticle = entry?.visibility === 'private';
 if (preview || privateArticle) {
   Astro.response.headers.set('Cache-Control', 'private, no-store');
   Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
 }
-if (Astro.url.pathname === systemRoutes.sitemap)
-  return new Response(
-    '<?xml version="1.0" encoding="utf-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
-      release.entries
-        .filter((v) => v.indexable)
-        .map(
-          (v) =>
-            `<url><loc>${e(release.settings.domain.replace(/\/$/, '') + v.path)}</loc><lastmod>${v.modifiedAt?.slice(0, 10) ?? release.createdAt.slice(0, 10)}</lastmod></url>`,
-        )
-        .join('') +
-      '</urlset>',
-    { headers: { 'Content-Type': 'application/xml' } },
-  );
-if (Astro.url.pathname === systemRoutes.robots)
-  return new Response(
-    `User-agent: *\nDisallow: /admin/\nDisallow: /__preview/\nSitemap: ${release.settings.domain.replace(/\/$/, '')}/sitemap.xml\n`,
-    { headers: { 'Content-Type': 'text/plain' } },
-  );
-if (Astro.url.pathname === systemRoutes.rss)
-  return new Response(
-    '<?xml version="1.0"?><rss version="2.0"><channel><title>' +
-      e(release.settings.name) +
-      '</title><link>' +
-      e(release.settings.domain) +
-      '</link><description>' +
-      e(release.settings.description) +
-      '</description>' +
-      scopedFeed(release, Astro.url.searchParams)
-        .map((v) => {
-          const date = v.publishedAt
-            ? '<pubDate>' + new Date(v.publishedAt).toUTCString() + '</pubDate>'
-            : '';
-          return `<item><title>${e(v.title)}</title><link>${e(release.settings.domain + v.path)}</link><guid isPermaLink="false">${e(v.id)}</guid><description>${e(v.description)}</description>${date}</item>`;
-        })
-        .join('') +
-      '</channel></rss>',
-    { headers: { 'Content-Type': 'application/xml' } },
-  );
-if (preview && entry) {
-  const renderer = await siteRenderer;
-  if (renderer) {
-    const request = new Request(new URL(entry.path, Astro.url.origin), Astro.request);
-    const response = await renderer.render(request, contextFor(request,true,entry));
-    if (response) { response.headers.set('Cache-Control','private, no-store'); response.headers.set('X-Robots-Tag','noindex,nofollow'); return response; }
-  }
-}
-if (entry) {
-  const custom = await (await siteExtension)?.render?.(entry, release);
-  if (custom) {
-    const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, html: custom });
-    const html = composeMetadata(custom, metadata, { preview, embedded: Astro.url.searchParams.get('embedded') === '1', track: features.includes('analytics') && !preview && !privateArticle, releaseId: release.id });
-    return new Response(html, {
-      headers: {
-        'Content-Type': 'text/html; charset=utf-8',
-        ...(preview
-          ? {
-              'Content-Security-Policy': "script-src 'none'; connect-src 'none'; object-src 'none'",
-            }
-          : {}),
-        ...(preview || privateArticle ? { 'Cache-Control': 'private, no-store', 'X-Robots-Tag': 'noindex, nofollow' } : {}),
-      },
-    });
-  }
-}
+const documentResponse=publicDocumentResponse(release,Astro.url);
+if(documentResponse)return documentResponse;
+const customResponse=await customPageResponse(Astro.request,Astro.url,release,entry,preview);
+if(customResponse)return customResponse;
 const settings = release.settings,
   theme = settings.themeConfig;
 const isNotesIndex=entry?.kind==='page'&&entry.path===notesPath(release);
@@ -185,7 +61,7 @@ const resultsPage = Astro.url.pathname === '/search/'
   : { items: [], page: 1, pageSize: 20, total: 0, pages: 0 };
 const results = resultsPage.items;
 const searchLinks = pageLinks(resultsPage, Astro.url);
-const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, missing, html: content + headerRegion + beforeRegion + afterRegion + footerRegion });
+const metadata = await (await siteExtension).metadata(entry, release, Astro.url, { preview, missing, media: true, html: content + headerRegion + beforeRegion + afterRegion + footerRegion });
 const schema = metadata.schema;
 const interactive=features.includes('engagement')&&supportsDiscussion(entry)&&!preview&&!privateArticle;
 const readerCookie=Astro.cookies.get('weava-reader')?.value;
@@ -193,6 +69,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
 ---
 
 <!doctype html>
+{settings.theme === 'library' ? <Library release={release} entry={entry} metadata={metadata} preview={preview} missing={missing} results={results}/> : <>
 {settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={metadata.canonical} schema={schema} metadata={metadata} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages }} preview={preview} missing={missing} owner={owner} /> : <>
 <html lang={settings.language}>
   <head
@@ -296,4 +173,5 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
   {(!preview || Astro.url.searchParams.get('embedded') !== '1') && <script src="/weava-code.js" defer is:inline />}
   </body>
 </html>
+</>}
 </>}

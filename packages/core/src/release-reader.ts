@@ -30,7 +30,7 @@ export function loadRelease(db: Database.Database, raw: string): Release {
   let cache=caches.get(db);if(!cache){cache=new BoundedCache(4096,32*1024*1024);caches.set(db,cache);}
   const get = (key: string) => {
     const cached=cache.get(key);if(cached)return cached;
-    const row = read.get(key) as { data: string } | undefined;
+    const row = read.get(key) as { data: string } | undefined ?? archivedPublicationObject(db,key);
     if (!row) throw new Error('公开版本引用的数据不存在：' + key);
     return cache.set(key,JSON.parse(row.data),row.data.length*2+256);
   };
@@ -42,14 +42,14 @@ export function loadRelease(db: Database.Database, raw: string): Release {
       const keys=data.entryKeys.slice(offset,offset+200);
       for(const row of db.prepare(`SELECT key,json_remove(data,'$.document','$.blocks','$.html','$.compatibility','$.source') summary,COALESCE(json_array_length(data,'$.blocks'),0) blocks FROM publication_objects WHERE key IN (${keys.map(()=>'?').join(',')})`).all(...keys) as {key:string;summary:string;blocks:number}[])summaries.set(row.key,{key:row.key,summary:JSON.parse(row.summary),hasBlocks:row.blocks>0});
     }
-    catalog=data.entryKeys.map((key:string)=>{const row=summaries.get(key);if(!row)throw new Error('公开版本引用的数据不存在：'+key);return row;});
+    catalog=data.entryKeys.map((key:string)=>{const row=summaries.get(key);if(row)return row;const entry=get(key);return {key,summary:publishedMetadata(entry),hasBlocks:!!entry.blocks?.length};});
   }
   const readResponsePaths=()=>{
     const missing=catalog.filter(item=>!Object.hasOwn(item,'responsePath'));
     for(let offset=0;offset<missing.length;offset+=200){
       const items=missing.slice(offset,offset+200),keys=items.map(item=>item.key);
       const paths=new Map((db.prepare(`SELECT key,json_extract(data,'$.source.wordpressResponsePath') path FROM publication_objects WHERE key IN (${keys.map(()=>'?').join(',')})`).all(...keys) as {key:string;path:string|null}[]).map(row=>[row.key,row.path]));
-      for(const item of items)item.responsePath=paths.get(item.key)??null;
+      for(const item of items)item.responsePath=paths.has(item.key)?paths.get(item.key):get(item.key).source?.wordpressResponsePath??null;
     }
   };
   const entries=catalog.map(item=>{
@@ -69,3 +69,4 @@ export function loadRelease(db: Database.Database, raw: string): Release {
     ...(data.layoutsKey ? { layouts: get(data.layoutsKey) } : {}),
   };
 }
+import {archivedPublicationObject} from './archived-publication-objects.ts';

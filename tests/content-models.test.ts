@@ -2,13 +2,35 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Site, checkEntry, importSite, queryDrafts, queryReferences } from '@weava/core';
 import { entrySchema, fieldDefaults, fieldIssues, type ContentType, type FieldDefinition } from '@weava/contracts';
 
-const sites: Site[] = [], root = 'D:/Tools/cache/weava/tests/content-models-' + Date.now(); let sequence = 0;
+const sites: Site[] = [], root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/content-models-' + Date.now(); let sequence = 0;
 const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); return site; };
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 const type = (fields: FieldDefinition[], extra: Partial<ContentType> = {}): ContentType => ({ id: 'project', label: '项目', pathPrefix: '/projects/', template: 'article', fields, ...extra });
 const entry = (id: string, fields: Record<string, any> = {}, contentType = 'project') => entrySchema.parse({ id, kind: 'content', type: contentType, title: id, path: '/' + id + '/', fields });
 
 describe('content model rules across all entry points', () => {
+  it('returns reference summaries without reading full entries, retaining filters and pagination',()=>{
+    const site=create();site.saveType(type([]),null);
+    for(let i=0;i<18;i++)site.saveEntry({...entry('reference-'+String(i).padStart(2,'0')),document:{version:1,format:'markdown',source:'Long body. '.repeat(6000)}},null);
+    const get=site.store.get.bind(site.store);
+    site.store.get=((scope:string,id:string)=>{if(scope==='entry')throw new Error('Reference query must use the summary index');return get(scope,id);}) as typeof get;
+    const result=queryReferences(site,{referenceTypes:['project'],query:'reference',page:2,pageSize:10});
+    expect(result).toMatchObject({page:2,total:18,pages:2});expect(result.items).toHaveLength(8);
+    expect(result.items[0].value).toEqual({id:'reference-10',title:'reference-10',path:'/reference-10/',kind:'content',type:'project'});
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(4000);
+  });
+  it('holds one write transaction across type compatibility validation and commit',()=>{
+    const site=create(),other=new Site(site.root);sites.push(other);other.store.raw.pragma('busy_timeout=1');
+    const model=site.saveType(type([{key:'score',label:'Score',type:'number'}]),null);
+    const put=site.store.put.bind(site.store);let attempted=false;
+    site.store.put=((...args:Parameters<typeof put>)=>{
+      if(args[0]==='type'&&!attempted){attempted=true;expect(()=>other.saveEntry(entry('race',{score:123}),null)).toThrow(/locked/);}
+      return put(...args);
+    }) as typeof put;
+    site.saveType(type([{key:'score',label:'Score',type:'text'}]),model.revision);
+    expect(attempted).toBe(true);expect(()=>other.saveEntry(entry('race',{score:123}),null)).toThrow();
+    expect(other.store.get('entry','race')).toBeNull();
+  });
   it('enforces per-type body blocks in checks, save, import, type changes and frozen publication', () => {
     const site=create();const model=site.saveType(type([],{allowedBlocks:['container','text','richtext']}),null);
     const input={...entry('blocks'),blocks:[{id:'group',type:'container',props:{},children:[{id:'body',type:'text',props:{text:'正文'}}]}]};

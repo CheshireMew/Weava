@@ -1,6 +1,7 @@
 import { layouts, saveLayout } from '@weava/core';
+import { contentTypes } from '../../../../packages/core/src/admin-content.ts';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
+import type { AdminHandlers, ApiServices } from './types.ts';
 export function configurationHandlers(services: Pick<ApiServices, 'site'>) {
   const { site } = services;
 
@@ -12,7 +13,7 @@ export function configurationHandlers(services: Pick<ApiServices, 'site'>) {
       return site.saveSettings(data.value, data.revision);
     },
     types: async () => {
-      return site.store.list('type');
+      return contentTypes(site);
     },
     saveType: async ({ body: data }) => {
       return site.saveType(data.value, data.revision ?? null);

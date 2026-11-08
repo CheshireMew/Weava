@@ -4,7 +4,7 @@ import sharp from 'sharp';
 import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument, imageAttributes, responsiveImages, entryCover, queryDrafts } from '@weava/core';
 import { imageDerivatives } from '../packages/core/src/media-images.ts';
 import { entrySchema } from '@weava/contracts';
-const sites: Site[] = [], base = 'D:/Tools/cache/weava/tests/media-edit-' + Date.now();
+const sites: Site[] = [], base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/media-edit-' + Date.now();
 let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); return site; };
 const image = () => sharp({ create: { width: 800, height: 400, channels: 3, background: '#337755' } }).png().toBuffer();

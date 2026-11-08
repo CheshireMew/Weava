@@ -1,7 +1,4 @@
-import { entryRecoveryModel } from './entry-recovery-model.ts';
-import type { useEntryEditor } from './useEntryEditor.ts';
-import type { useContentLibrary } from './useContentLibrary.ts';
-import type { ContentWorkspaceOptions } from './useContentWorkspace.ts';
+import { contentCommands } from './content-commands.ts';
 import type {
   ContentCatalog,
   ContentDialogsModel,
@@ -11,7 +8,10 @@ import type {
   EntryScheduleModel,
   EntrySettingsModel,
 } from './content-models.ts';
-import { contentCommands } from './content-commands.ts';
+import { entryRecoveryModel } from './entry-recovery-model.ts';
+import type { useContentLibrary } from './useContentLibrary.ts';
+import type { ContentWorkspaceOptions } from './useContentWorkspace.ts';
+import type { useEntryEditor } from './useEntryEditor.ts';
 
 interface ViewOptions {
   editor: ReturnType<typeof useEntryEditor>;
@@ -87,8 +87,8 @@ export function contentViewModels({
     publication: library.items.find((row: any) => row.id === record?.id),
     publicationNotice,
     author: {
-      name: state?.settings?.value?.name ?? '',
-      logo: state?.siteIcon ?? state?.settings?.value?.logo ?? '',
+      name: state?.author.name ?? '',
+      logo: state?.author.logo ?? '',
     },
     check: commands.check,
     openHistory: commands.openHistory,

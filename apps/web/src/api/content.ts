@@ -1,31 +1,30 @@
 import {
-  queryDrafts,
+  checkEntry,
   contentQuery,
-  projectTerms,
-  entryRevision,
   entryChanges,
+  entryRevision,
   mergeEntry,
+  queryReferences,
   saveMergedEntry,
-  imageAttributes,
 } from '@weava/core';
-import { WeavaError as DomainError } from '@weava/contracts';
-import { checkEntry, queryReferences } from '@weava/core';
+import { adminEntry, queryAdminEntries } from '../../../../packages/core/src/admin-content.ts';
 
 import {
   contentViews,
+  createContent,
   creationTemplates,
+  duplicateContent,
   saveContentView,
   saveCreationTemplate,
-  createContent,
-  duplicateContent,
   structuredBody,
 } from '@weava/core';
 
-import { previewBulkEdit, applyBulkEdit } from '@weava/core';
-import {siteFeatures} from '../../../../packages/core/src/site-features.ts';
+import { applyBulkEdit, previewBulkEdit } from '@weava/core';
 
-import type { ApiServices, AdminHandlers } from './types.ts';
-export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs' | 'analytics' | 'engagement'>) {
+import type { AdminHandlers, ApiServices } from './types.ts';
+export function contentHandlers(
+  services: Pick<ApiServices, 'site' | 'jobs' | 'analytics' | 'engagement'>,
+) {
   const { site, jobs, analytics, engagement } = services;
 
   return {
@@ -34,40 +33,25 @@ export function contentHandlers(services: Pick<ApiServices, 'site' | 'jobs' | 'a
     },
     queryEntries: async ({}, context) => {
       const { url } = context;
-      const result = queryDrafts(site, {
+      return queryAdminEntries(site, analytics, engagement, {
         ...contentQuery(url.searchParams),
         status: url.searchParams.get('status') ?? undefined,
         visibility: url.searchParams.get('visibility') ?? undefined,
-        format: url.searchParams.get('format') as 'article'|'note'|undefined,
+        format: url.searchParams.get('format') as 'article' | 'note' | undefined,
       });
-      const publishedIds = new Set(result.items.filter(row => row.published).map(row => row.id));
-      const entries = site.visibleRelease()?.entries.filter(entry => publishedIds.has(entry.id)) ?? [];
-      const published = new Map(entries.map(entry => [entry.id, entry]));
-      const features = siteFeatures(site.root);
-      const counts = features.includes('engagement') ? engagement.countsFor(entries.map(entry => entry.id)) : new Map();
-      const views = features.includes('analytics') && entries.length ? analytics.viewTotals(entries) : new Map();
-      return { ...result, items: result.items.map(row => {
-        const entry = published.get(row.id);
-        return { ...row, thumbnail: row.value.cover ? imageAttributes(site, row.value.cover, 240).src : '',
-          ...(entry ? {publication: {path: entry.path, publishedAt: entry.publishedAt}, metrics: {...counts.get(row.id), ...(views.has(row.id) ? {views: views.get(row.id)} : {})}} : {}),
-        };
-      }) };
     },
     createEntry: async ({ body: data }) => {
       return createContent(site, data);
     },
     duplicateEntry: async ({ body: data }) => duplicateContent(site, data.id, data.revision),
-    deleteEntry: async ({ body: data }) => jobs.query('entry-delete', data),
+    deleteEntry: async ({ body: data }, context) =>
+      jobs.command(
+        'entry-delete',
+        data,
+        context.request.headers.get('Idempotency-Key') ?? undefined,
+      ),
     getEntry: async ({ params }) => {
-      const row = site.store.get('entry', params.id);
-      if (!row) throw new DomainError('内容不存在。', 404);
-      return {
-        ...row,
-        value: projectTerms(
-          row.value,
-          site.terms().map((row) => row.value),
-        ),
-      };
+      return adminEntry(site, params.id);
     },
     saveEntry: async ({ body: data }) => {
       return site.saveEntry(data.value, data.revision ?? null);

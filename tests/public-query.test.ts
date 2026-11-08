@@ -6,7 +6,7 @@ import {queryEntries,queryPublished} from '../packages/core/src/query.ts';
 import {newsletterCatalog,newsletterCover,newsletterRanking} from '../packages/core/src/newsletter.ts';
 import {entryCover} from '../packages/core/src/entry-cover.ts';
 import {existsSync,readFileSync} from 'node:fs';
-const base='D:/Tools/cache/weava/tests/public-query-'+Date.now();let sequence=0;const sites:Site[]=[];
+const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/public-query-'+Date.now();let sequence=0;const sites:Site[]=[];
 afterEach(()=>sites.splice(0).forEach(site=>site.close()));
 it('gives imageless articles stable local photos while preserving manual covers and first body images',()=>{
   const value=entrySchema.parse({id:'imageless',kind:'content',type:'post',title:'无图文章',path:'/imageless/',document:{version:1,format:'markdown',source:'只有文字。'}});

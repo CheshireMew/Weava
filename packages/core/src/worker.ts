@@ -18,9 +18,16 @@ import {siteFeatures} from './site-features.ts';
 import {BusinessStore,websiteContext,withWebsite} from './site-sdk.ts';
 import {migrateWebsite} from './site-migrations.ts';
 import {readJobLog} from './job-logs.ts';
+import {isMainThread} from 'node:worker_threads';
+import {superviseJob} from './job-supervisor.ts';
+import {executeContentMutation} from './content-mutations.ts';
+import {executeJsonImport} from './json-import.ts';
 const [root, id] = process.argv.slice(2);
+if(!root||!id)throw new Error('任务执行缺少网站目录或任务编号。');
 if(id==='--service'){
   (await import('./task-service-worker.ts')).serveTasks(root);
+}else if(isMainThread){
+  await superviseJob(root,id);
 }else{
 const site = new Site(root);
 const job = site.job(id);
@@ -48,7 +55,29 @@ try {
     const release = commitPublication(site,prepared,{...job.payload,jobId:id});
     result = { releaseId: release.id, entries: release.entries.length };
     }
-  } else if (job.operation.startsWith('analytics-')) {
+  } else if (job.operation === 'seo-audit') {
+    const {preparePublication}=await import('./publication.ts');
+    const {auditBasis,auditRelease,auditStatus,fetchAuditResponses,storeAudit}=await import('./seo-audit.ts');
+    const target=job.payload.target==='draft'?'draft':'published';
+    if(job.payload.http&&target!=='published')throw new WeavaError('HTTP 检查只能读取已发布页面。');
+    site.updateJob(id,{message:'正在准备检查内容…'});
+    if(siteFeatures(root).includes('analytics'))extensionAnalytics=new Analytics(root);
+    const manager=await extension(site,extensionAnalytics?{analytics:extensionAnalytics}:{},{mode:'worker'});
+    const basis=auditBasis(site,target);
+    const release=target==='draft'?preparePublication(site,job.payload.options??{}).release:site.release();
+    if(!release)throw new WeavaError('网站尚未发布，请选择工作稿检查。');
+    site.updateJob(id,{message:job.payload.http?'正在读取公开页面…':'正在检查页面…'});
+    const responses=job.payload.http?await fetchAuditResponses(release,job.payload.origin):undefined;
+    const report=await auditRelease(release,{target,basis,responses,blocks:manager.blocks,
+      render:(entry,release)=>manager.render(entry,release),metadata:(entry,release,url,options)=>manager.metadata(entry,release,url,options),
+      progress:(checked,total)=>site.updateJob(id,{message:`正在检查页面：${checked} / ${total}`})});
+    storeAudit(site,report);result=auditStatus(site,report);
+  } else if(['schedule-create','plan-save','withdraw','entry-delete'].includes(job.operation)) {
+    if(siteFeatures(root).includes('analytics'))extensionAnalytics=new Analytics(root);
+    const manager=await extension(site,extensionAnalytics?{analytics:extensionAnalytics}:{}, {mode:'worker'});
+    result=await executeContentMutation(site,manager,job.operation,job.payload,id);
+  } else if(job.operation==='import-json')result=executeJsonImport(site,id,job.payload);
+  else if (job.operation.startsWith('analytics-')) {
     extensionAnalytics = new Analytics(root);
     const params = new URLSearchParams(job.payload.query);
     if(job.operation==='analytics-report')result=extensionAnalytics.report(params,job.payload.timezone);

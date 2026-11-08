@@ -18,5 +18,5 @@ export function useAdminQuery<T = any>(path: string | null, ttl = 30000) {
     window.addEventListener('focus', load); document.addEventListener('visibilitychange', load);
     return () => { window.removeEventListener('focus', load); document.removeEventListener('visibilitychange', load); };
   }, [path, state.invalidation, refresh]);
-  return { ...state, loading: !!path && (state.pending || state.data === undefined && !state.error), refresh };
+  return { ...state, loading: !!path && state.data === undefined && !state.error, refreshing: state.pending && state.data !== undefined, refresh };
 }

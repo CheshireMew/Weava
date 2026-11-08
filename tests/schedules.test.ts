@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { Site, schedulePublication, runSchedules, schedules, cancelSchedule, retrySchedule,runSchedulesAsync } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
-const base = 'D:/Tools/cache/weava/tests/schedules-' + Date.now();
+const base = (process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests') + '/schedules-' + Date.now();
 const sites: Site[] = [];
 let sequence = 0;
 function create() { const site = new Site(base + '/' + sequence++); sites.push(site);
