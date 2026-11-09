@@ -30,14 +30,16 @@ describe('SEO protection during upgrades',()=>{
    const path=req.url!;visited.push(path);
    if(path==='/robots.txt')return res.end('User-agent: *');
    if(path==='/sitemap.xml'){res.setHeader('content-type','application/xml');return res.end('<urlset><url><loc>'+domain+'/unselected/</loc></url></urlset>');}
-   if(path==='/old/'){res.writeHead(broken?302:301,{Location:'/'});return res.end();}
+   if(path==='/old/'||path===encodeURI('/旧地址/')){res.writeHead(broken?302:301,{Location:'/'});return res.end();}
+   if(path===encodeURI('/static/中文图片.png')){res.writeHead(200,{'content-type':'image/png'});return res.end();}
    if(path==='/media/cover.png'){res.writeHead(broken?404:200,{'content-type':'image/png'});return res.end();}
    if(path==='/static/missing.png'){res.writeHead(404);return res.end();}
    res.setHeader('content-type','text/html');res.end('<html><title>Home</title><main><a href="/unselected/">Article</a><img src="/media/cover.png"></main></html>');
   });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   try{
-   const options={origin:'http://127.0.0.1:'+(server.address() as any).port,domain,paths:['/','/old/','/static/missing.png'],discovery:'selected' as const};
+   const options={origin:'http://127.0.0.1:'+(server.address() as any).port,domain,paths:['/','/old/','/旧地址/','/static/中文图片.png','/static/missing.png'],discovery:'selected' as const};
    const expected=activationSnapshot(await captureSeo(options),options.paths,[]);visited.length=0;
+   expect(expected.pages[encodeURI('/旧地址/')].status).toBe(301);expect(expected.pages[encodeURI('/static/中文图片.png')].status).toBe(200);
    expect(compareSeo(expected,await captureSeo({...options,seed:expected})).passed).toBe(true);
    expect(visited).not.toContain('/unselected/');expect(visited).toContain('/sitemap.xml');expect(visited).toContain('/static/missing.png');
    broken=true;const differences=compareSeo(expected,await captureSeo({...options,seed:expected})).differences;

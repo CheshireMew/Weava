@@ -101,7 +101,7 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
 /** Full output comparison already ran while the old site was serving traffic.
  * The maintenance gate verifies each page template, redirects, and resource route. */
 export function activationSnapshot(snapshot:SeoSnapshot,paths:string[],prefixes:string[]):SeoSnapshot{
- const selected=new Set(['/',...paths]),families=new Set<string>();
+ const selected=new Set(['/',...paths].map(path=>localPath(path,snapshot.domain)).filter((path):path is string=>path!==null)),families=new Set<string>();
  for(const path of Object.keys(snapshot.pages).sort()){
   const page=snapshot.pages[path];if(page.status<200||page.status>=300)continue;
   const url=new URL(path,snapshot.domain),segments=url.pathname.split('/').filter(Boolean);
