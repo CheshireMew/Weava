@@ -7,7 +7,11 @@ import { TaskService } from './task-service.ts';
 import {siteFeatures,operationFeature} from './site-features.ts';
 import {digest} from '../../runtime-common/src/identity.ts';
 import {updateMediaOptimization} from './media.ts';
-export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number; startPaused?: boolean; timeoutMs?:number }
+import {nextPublicationTime} from './publication-time.ts';
+import {queueScheduledPublications} from './schedules.ts';
+export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number; startPaused?: boolean; timeoutMs?:number;schedulePublications?:boolean }
+const publicationCommands=['publish','withdraw','entry-delete'];
+const backgroundCommands=['media-optimize','preflight-wxr','import-wxr','import-source','backup','verify','import-json','archive-history','restore-history','media','seo-audit','storage-scan'];
 export class JobRunner {
   private children = new Map<string,ChildProcess>();
   private timer: ReturnType<typeof setInterval>;
@@ -16,7 +20,27 @@ export class JobRunner {
   private retryAt=0;
   private failures=0;
   private exited=new Map<string,string>();
-  pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); if(!value&&this.background?.isStopped)this.background=new TaskService(this.site.root,this.options,1);if(!value&&this.publication?.isStopped)this.publication=new TaskService(this.site.root,this.options,1); }
+  private dueTimer?:ReturnType<typeof setTimeout>;
+  private dueAt:number|null=null;
+  private lastDueAttempt=0;
+  private administrationWarm=false;
+  pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); if(!value&&this.background?.isStopped)this.background=new TaskService(this.site.root,this.options,1);if(!value&&this.publication?.isStopped)this.publication=new TaskService(this.site.root,this.options,1);this.refreshSchedule(); }
+  refreshSchedule(){
+    if(!this.options.schedulePublications||this.stopped||this.paused||!this.site.store.raw.open){clearTimeout(this.dueTimer);this.dueTimer=undefined;this.dueAt=null;return;}
+    const due=nextPublicationTime(this.site.store);
+    if(this.dueTimer&&due===this.dueAt)return;
+    clearTimeout(this.dueTimer);this.dueTimer=undefined;this.dueAt=due;
+    if(due===null||this.site.activeJobs().some(job=>publicationCommands.includes(job.operation)))return;
+    const delay=Math.min(2147483647,Math.max(0,due-Date.now(),this.lastDueAttempt+1000-Date.now()));
+    this.dueTimer=setTimeout(()=>{
+      this.dueTimer=undefined;
+      if(this.stopped||this.paused||!this.site.store.raw.open)return;
+      if(due>Date.now()){this.refreshSchedule();return;}
+      this.lastDueAttempt=Date.now();
+      try{queueScheduledPublications(this.site,this);}catch(error){console.error('定时发布检查失败',error);}
+      this.refreshSchedule();
+    },delay);this.dueTimer.unref();
+  }
   get pendingQueries() { return this.service.pending + this.background.pending + this.publication.pending; }
   get queryProcessCount() { return this.service.processCount + this.background.processCount + this.publication.processCount; }
   stopQueries() { this.service.stop(); this.background.stop();this.publication.stop(); }
@@ -49,7 +73,10 @@ export class JobRunner {
       const created=this.site.createJob(operation,payload,key);
       return this.site.updateJob(created.id,{managed:true});
     }).immediate();
-    this.pump(); return this.site.job(job.id);
+    // Commands/import staging can enqueue inside an outer transaction. A reused
+    // process may read immediately, so dispatch only after that transaction commits.
+    if(this.site.store.raw.inTransaction)queueMicrotask(()=>this.pump());else this.pump();
+    return this.site.job(job.id);
   }
   pump() {
     if(!this.site.store.raw.open||Date.now()<this.retryAt)return;
@@ -67,13 +94,13 @@ export class JobRunner {
     for(;;){
       const claimed=this.site.store.raw.transaction(()=>{
         const light=['schedule-create','plan-save','media-edit','media-variant'];
-        const background=['media-optimize','preflight-wxr','import-wxr','import-source'];
+        const background=backgroundCommands;
         const running=this.site.activeJobs().filter(job=>job.status==='running');
         const queued=this.site.store.raw.prepare("SELECT id,operation FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 ORDER BY CASE WHEN operation='media-optimize' THEN 2 WHEN operation IN ('schedule-create','plan-save') THEN 0 ELSE 1 END,rowid LIMIT 128").all() as {id:string;operation:string}[];
-        const next=queued.find(job=>job.operation==='publish'?!running.some(active=>active.operation==='publish'):background.includes(job.operation)
+        const next=queued.find(job=>publicationCommands.includes(job.operation)?!running.some(active=>publicationCommands.includes(active.operation)):background.includes(job.operation)
           ? !running.some(active=>background.includes(active.operation))
           : light.includes(job.operation) ? !running.some(active=>light.includes(active.operation))
-          : running.filter(active=>active.operation!=='publish'&&!background.includes(active.operation)&&!light.includes(active.operation)).length<this.concurrency);
+          : running.filter(active=>!publicationCommands.includes(active.operation)&&!background.includes(active.operation)&&!light.includes(active.operation)).length<this.concurrency);
         return next?this.site.updateJob(next.id,{status:'running',workerPid:process.pid,deadlineAt:Date.now()+this.timeoutMs,heartbeatAt:Date.now(),message:next.operation==='publish'?'正在提交发布版本':'正在启动任务'}):null;
       }).immediate();
       if(!claimed)break;
@@ -82,18 +109,34 @@ export class JobRunner {
         else if(claimed.operation==='media-optimize')this.optimizeImage(claimed);
         else if(['preflight-wxr','import-wxr','import-source'].includes(claimed.operation))this.runImport(claimed);
         else if(['schedule-create','plan-save','media-edit','media-variant'].includes(claimed.operation))this.runCommand(claimed);
+        else if(publicationCommands.includes(claimed.operation)||backgroundCommands.includes(claimed.operation))this.runManaged(claimed);
         else this.launch(claimed);
       }catch(error:any){this.site.updateJob(claimed.id,{status:'failed',workerPid:undefined,message:error.message});}
     }
   }
   warmPublication(){return this.publication.run('publication-warm',{});}
+  warmAdministration(){
+    if(this.administrationWarm||this.paused||this.stopped)return;
+    this.administrationWarm=true;
+    void Promise.all([this.service.run('command-warm',{}),this.background.run('background-warm',{})])
+      .catch(()=>{this.administrationWarm=false;});
+  }
+  private runManaged(job:Job){
+    const service=publicationCommands.includes(job.operation)?this.publication:this.background;
+    const heartbeat=setInterval(()=>{if(this.site.store.raw.open&&this.site.job(job.id).status==='running')this.site.updateJob(job.id,{heartbeatAt:Date.now()});},1000);heartbeat.unref();
+    void service.run('managed-job',{jobId:job.id,deadlineAt:job.deadlineAt}).then(result=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:'complete',message:'已完成。',result});
+    },(error:any)=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message,errorStatus:error.status??400,errorDetails:error.details});
+    }).finally(()=>{clearInterval(heartbeat);this.pump();this.refreshSchedule();});
+  }
   private runPublication(job:Job){
     const heartbeat=setInterval(()=>{if(this.site.store.raw.open&&this.site.job(job.id).status==='running')this.site.updateJob(job.id,{heartbeatAt:Date.now()});},1000);heartbeat.unref();
     void this.publication.run('publication-publish',{...job.payload,jobId:job.id,deadlineAt:job.deadlineAt}).then(result=>{
       if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:'complete',message:'发布已完成。',result});
     },(error:any)=>{
       if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:this.site.job(job.id).cancelRequestedAt?'任务已取消。':error.message,errorStatus:error.status??400,errorDetails:error.details});
-    }).finally(()=>clearInterval(heartbeat));
+    }).finally(()=>{clearInterval(heartbeat);if(this.site.store.raw.open&&this.site.job(job.id).status==='complete')this.lastDueAttempt=0;this.refreshSchedule();});
   }
   private optimizeImage(job: Job) {
     this.site.updateJob(job.id,{message:'正在优化图片，原图已可使用'});
@@ -111,14 +154,14 @@ export class JobRunner {
       if(this.site.store.raw.open)this.site.updateJob(job.id,{status:'complete',message:'已完成。',result});
     },(error:any)=>{
       if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message,errorStatus:error.status??400,errorDetails:error.details});
-    });
+    }).finally(()=>this.refreshSchedule());
   }
   private runImport(job: Job) {
     void this.background.run('background-import',{operation:job.operation,payload:job.payload,jobId:job.id}).then(result=>{
       if(this.site.store.raw.open)this.site.updateJob(job.id,{status:'complete',message:'导入处理已完成。',result});
     },(error:any)=>{
       if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message,errorStatus:error.status??400,errorDetails:error.details});
-    });
+    }).finally(()=>this.refreshSchedule());
   }
   private launch(job: Job) {
     const framework=this.options.framework,worker=this.options.worker??join(framework,'dist','worker.mjs');
@@ -186,5 +229,5 @@ export class JobRunner {
     }).immediate();
   }
   /** Running workers finish independently. Never close their instance leases or kill unrelated processes. */
-  stop() {this.stopped=true;clearInterval(this.timer);this.service.stop();this.background.stop();this.publication.stop();}
+  stop() {this.stopped=true;clearInterval(this.timer);clearTimeout(this.dueTimer);this.service.stop();this.background.stop();this.publication.stop();}
 }

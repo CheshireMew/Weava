@@ -164,7 +164,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                 disabled={busy || saving}
                 onClick={() => publish().catch((error) => setError(error.message))}
               >
-                {busy ? '准备发布…' : '发布'}
+                {model.publicationPhase==='running'?'正在发布…':busy ? '准备发布…' : '发布'}
               </button>
             </div>
           </div>

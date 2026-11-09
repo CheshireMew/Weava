@@ -13,13 +13,13 @@ import {captureSeo} from '../packages/manager/src/seo-check.ts';
 const state=vi.hoisted(()=>({program:null as any,site:null as any,root:'',failure:'',activated:false,recovering:false}));
 vi.mock('../packages/manager/src/state.ts',async original=>({...await original<any>(),programFor:()=>state.program}));
 vi.mock('../packages/manager/src/operations.ts',()=>({
-  onlineWorkspace:async()=>{const root=join(state.root,'work');mkdirSync(root);return {root,stamp:'stable'};},checkWorkspace:async()=>({}),
+  onlineWorkspace:vi.fn(async(home:string)=>{const root=join(home,'backups/blog/preflight-unit');mkdirSync(root,{recursive:true});return {root,stamp:'stable'};}),checkWorkspace:async()=>({}),
   adoptSite:async(_home:string,root:string,_id:string,_program:string,_build:string,options:any)=>{const point=join(root,'checkpoint');atomic(join(root,'.weava-update.json'),{status:'switched',point,programId:'old',online:{operation:options.operation}});return {point};},
   restoreCheckpoint:vi.fn(()=>{const row=state.site.settings();state.site.saveSettings({...row.value,name:'Restored old data'},row.revision);}),
   withLease:async(_home:any,_root:any,_program:any,action:()=>unknown)=>action(),
 }));
 vi.mock('../packages/manager/src/public-inventory.ts',()=>({siteStamp:()=> 'stable',publicInventory:()=>({paths:['/'],domain:'https://fixture.example',redirects:[],dynamicRedirects:[]})}));
-vi.mock('../packages/manager/src/seo-check.ts',()=>({upgradeProbePath:()=>'/probe',captureSeo:vi.fn(async(_options:any)=>({pages:{'/':{status:200}},robots:{status:200,text:'User-agent: *'}})),compareSeo:()=>({passed:true,differences:[]})}));
+vi.mock('../packages/manager/src/seo-check.ts',async original=>({...await original<any>(),upgradeProbePath:()=>'/probe',captureSeo:vi.fn(async(_options:any)=>({pages:{'/':{status:200}},robots:{status:200,text:'User-agent: *'}})),compareSeo:()=>({passed:true,differences:[]})}));
 vi.mock('../packages/manager/src/probe-server.ts',()=>({probeServer:async()=>({origin:'http://probe',headers:{},stop:async()=>{}})}));
 vi.mock('../packages/manager/src/host.ts',()=>({requestHost:vi.fn(async(_home:string,action:string)=>{
   if(action==='status')return {protocol:2,sites:[{id:'blog',status:'running'}]};
@@ -32,6 +32,31 @@ vi.mock('../packages/manager/src/host.ts',()=>({requestHost:vi.fn(async(_home:st
 })}));
 afterEach(()=>{state.site?.close();vi.unstubAllGlobals();vi.clearAllMocks();});
 
+it('skips workspace, maintenance and checkpoint creation for the running selected program',async()=>{
+ const home=join(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests','upgrade-unchanged-'+randomUUID()),root=join(home,'site');
+ state.program=fixtureProgram(home);state.program.manifest.upgradeProtocol=2;state.root=root;state.site=new Site(root);
+ atomic(join(root,'site.json'),{version:2,id:'blog',port:4500,features:[],template:'blank'});
+ atomic(join(root,'program.json'),{version:2,programId:state.program.manifest.id,manifestHash:state.program.manifestHash,selectedAt:new Date().toISOString(),installationRoot:home});
+ writeFileSync(join(root,'cli-token'),'fixture-token');updateInstallation(home,value=>{value.sites.blog={root,autostart:false};});
+ vi.mocked(requestHost).mockResolvedValueOnce({protocol:2,sites:[{id:'blog',status:'running',programId:state.program.manifest.id}]} as any);
+ vi.stubGlobal('fetch',vi.fn(async()=>new Response('ok')));
+ expect(await protectedUpgrade(home,root,'blog',state.program.manifest.id,undefined)).toMatchObject({unchanged:true,oldSiteStopped:false,timings:{maintenanceMs:0}});
+ expect(captureSeo).not.toHaveBeenCalled();expect(existsSync(join(root,'work'))).toBe(false);expect(existsSync(join(root,'.weava-update.json'))).toBe(false);
+ expect(vi.mocked(requestHost).mock.calls.map(call=>call[1])).toEqual(['status']);
+});
+
+it('reuses an approved unchanged rehearsal without repeating the two full crawls',async()=>{
+ const home=join(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests','upgrade-reuse-'+randomUUID()),root=join(home,'site');
+ state.program=fixtureProgram(home);state.program.manifest.upgradeProtocol=2;state.root=root;state.site=new Site(root);state.failure='';state.activated=false;
+ atomic(join(root,'site.json'),{version:2,id:'blog',port:4500,features:[],template:'blank'});
+ atomic(join(root,'program.json'),{version:2,programId:'old',manifestHash:'a'.repeat(64),selectedAt:new Date().toISOString(),installationRoot:home});
+ writeFileSync(join(root,'cli-token'),'fixture-token');updateInstallation(home,value=>{value.sites.blog={root,autostart:false};});vi.stubGlobal('fetch',vi.fn(async()=>new Response('ok')));
+ const check=await protectedUpgrade(home,root,'blog',state.program.manifest.id,undefined,{check:true});
+ expect(captureSeo).toHaveBeenCalledTimes(2);
+ const updated=await protectedUpgrade(home,root,'blog',state.program.manifest.id,undefined,{acceptSeo:(check as any).approval});
+ expect(updated).toMatchObject({verified:true,reusedPreflight:true});expect(captureSeo).toHaveBeenCalledTimes(3);
+ expect(vi.mocked(captureSeo).mock.calls[2][0].discovery).toBe('selected');
+});
 it.each(['lost-reply','proxy-check'])('preserves writes after activation during %s and resumes without restoring a checkpoint',async failure=>{
   const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests',home=join(base,'upgrade-activation-'+randomUUID()),root=join(home,'site');
   state.program=fixtureProgram(home);state.program.manifest.upgradeProtocol=2;state.root=root;state.site=new Site(root);state.failure=failure;state.activated=false;state.recovering=false;

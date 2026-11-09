@@ -145,14 +145,15 @@ export class OwnerAuth {
       sessions: (this.store.raw.prepare('SELECT s.token id,s.expires,d.created_at createdAt,d.last_seen lastSeen,d.user_agent userAgent FROM sessions s LEFT JOIN owner_sessions d ON s.token=d.token WHERE s.expires>? ORDER BY s.expires DESC').all(Date.now()) as any[])
         .map(row => { const ua = new UAParser(row.userAgent ?? '').getResult(); return { id: row.id, createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null, lastSeen: row.lastSeen ? new Date(row.lastSeen).toISOString() : null, expiresAt:new Date(row.expires).toISOString(),browser:ua.browser.name??'未知浏览器',os:ua.os.name??'未知系统',userAgent: row.userAgent ?? '旧登录会话', current: row.id === digest(token) }; }) };
   }
-  async updateAccount(password: string, network: string, value: { username: string; displayName: string; newPassword?: string; code?: string }) {
-    const verified = await this.credentials(password, network, value.code);
+  async updateAccount(password: string|undefined, network: string, value: { username: string; displayName: string; newPassword?: string; code?: string }) {
     validateOwnerName(value.username);
     if (!value.displayName.trim() || value.displayName.length > 80) throw new WeavaError('显示名需要 1～80 个字符。');
     if (value.newPassword) validateOwnerPassword(value.newPassword,value.username);
     const renamed = this.profile().username !== value.username;
+    const verified=renamed||value.newPassword?await this.credentials(password??'',network,value.code):undefined;
     this.store.raw.transaction(() => {
-      this.assertCredentials(verified);
+      if(verified)this.assertCredentials(verified);
+      else if(this.profile().username!==value.username)throw new WeavaError('账户名已变化，请重新读取账户。',409);
       this.store.setState('owner-profile', JSON.stringify({ username: value.username, displayName: value.displayName.trim() }));
       if (value.newPassword) this.setOwner(value.newPassword,'browser',network);
       else if (renamed) { this.advanceSecurity(); this.store.raw.prepare('UPDATE sessions SET expires=0').run(); }

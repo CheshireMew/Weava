@@ -15,7 +15,7 @@ function valueFor(row: any, key: string) {
 
 export function ContentEntries({ model, selectable = false, showType = false }: { model: Pick<ContentLibraryModel,'items'|'state'|'libraryLoading'|'filter'|'searchTerm'|'bulkIds'|'setBulkIds'|'select'|'tab'|'busy'|'actions'>; selectable?: boolean; showType?: boolean }) {
   const { items, state, libraryLoading, filter, searchTerm, bulkIds, setBulkIds, select, tab } = model;
-  const disabled = libraryLoading || filter !== searchTerm;
+  const disabled = libraryLoading || filter !== searchTerm || model.busy;
   const selected = items.length > 0 && items.every((row: any) => bulkIds.includes(row.id));
   return <div className="publication-list" role="list" aria-label={tab === 'pages' ? '页面目录' : '内容目录'}>
     {selectable && <div className="publication-select-all"><label><input type="checkbox" aria-label="全选本页内容" disabled={disabled || !items.length} checked={selected}
@@ -31,7 +31,7 @@ export function ContentEntries({ model, selectable = false, showType = false }: 
       const custom = columns.filter(key => !['title', 'status', 'type', 'updatedAt', 'publishedAt'].includes(key));
       return <article role="listitem" className={'publication-row' + (bulkIds.includes(row.id) ? ' checked' : '')} key={row.id}>
         {selectable && <label className="publication-selection"><input type="checkbox" disabled={disabled} aria-label={'批量选择 ' + row.value.title} checked={bulkIds.includes(row.id)} onChange={event => { const checked = event.currentTarget.checked; setBulkIds(ids => checked ? [...ids, row.id] : ids.filter(id => id !== row.id)); }} /></label>}
-        <button className="publication-open" disabled={disabled} onClick={() => select(row.id)}>
+        <button className="publication-open" disabled={model.busy} onClick={() => select(row.id)}>
           <span className="publication-cover" aria-hidden="true">{row.value.cover ? <img src={row.thumbnail ?? row.value.cover} alt="" loading="lazy" decoding="async" /> : <FileText size={26} strokeWidth={1.4} />}</span>
           <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>
             {tab === 'pages' && <span className="publication-page-path">{row.value.path === '/' ? '首页' : row.value.path}</span>}

@@ -57,10 +57,10 @@ export function publicationHandlers(
       );
     },
     cancelSchedule: async ({ body: data }) => {
-      return cancelSchedule(site, data.id, data.revision);
+      const result=cancelSchedule(site,data.id,data.revision);jobs.refreshSchedule();return result;
     },
     retrySchedule: async ({ body: data }) => {
-      return retrySchedule(site, data.id, data.revision);
+      const result=retrySchedule(site,data.id,data.revision);jobs.refreshSchedule();return result;
     },
     plans: async () => {
       return publicationPlans(site);
@@ -90,7 +90,7 @@ export function publicationHandlers(
       );
     },
     cancelPlan: async ({ body: data }) => {
-      return cancelPublicationPlan(site, data.id, data.revision);
+      const result=cancelPublicationPlan(site,data.id,data.revision);jobs.refreshSchedule();return result;
     },
   } satisfies Pick<
     AdminHandlers,

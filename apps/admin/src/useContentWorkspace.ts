@@ -15,6 +15,7 @@ export interface ContentWorkspaceOptions {
   compact: boolean;
   busy: boolean;
   isPublishing?: (id?:string)=>boolean;
+  publicationPhase?:(id?:string)=>'submitting'|'running'|null;
   setError: (message: string) => void;
   notify: (message: string) => void;
   refresh: () => Promise<any>;

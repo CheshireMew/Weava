@@ -1,4 +1,4 @@
-import {useLayoutEffect, useRef, useState, type DragEvent} from 'react';
+import {useLayoutEffect, useRef, useState,lazy,Suspense, type DragEvent} from 'react';
 import {createPortal} from 'react-dom';
 import {Dialog} from '../Dialog.tsx';
 import {useSelectors, type SelectedMedia} from '../Selectors.tsx';
@@ -6,6 +6,8 @@ import {allowFileDrop} from '../file-drop.tsx';
 import {FormattingToolbar, ToolbarOutlet, type FormatAction} from './FormattingToolbar.tsx';
 import {SnippetsDialog, WritingInsertDialog, type WritingInsert} from './WritingDialogs.tsx';
 import {escapeWritingHtml, inlineCode} from '../../../../packages/runtime-common/src/writing-format.ts';
+import type {SourceInput} from './SourceCode.tsx';
+const SourceCode=lazy(()=>import('./SourceCode.tsx'));
 
 interface Selection {start: number; end: number}
 interface Snapshot extends Selection {source: string}
@@ -25,10 +27,10 @@ function fenceAt(source: string, position: number) {
 
 export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, snippets, uploading, onError}: {
   source: string; onChange: (source: string) => void; onMode: () => void;
-  onMedia: () => Promise<SelectedMedia | null>; onDrop: (event: DragEvent<HTMLTextAreaElement>) => void;
+  onMedia: () => Promise<SelectedMedia | null>; onDrop: (event: DragEvent<HTMLElement>,offset:number) => void;
   target?: HTMLElement | null; compact: boolean; snippets: boolean; uploading: boolean; onError: (message: string) => void;
 }) {
-  const selectors = useSelectors(), field = useRef<HTMLTextAreaElement>(null);
+  const selectors = useSelectors(), field = useRef<SourceInput|null>(null),large=useRef(source.length>40000).current;
   const current = useRef(source), selection = useRef<Selection>({start: 0, end: 0});
   const pending = useRef<(Selection & {scroll: number}) | null>(null);
   const history = useRef<{undo: Snapshot[]; redo: Snapshot[]}>({undo: [], redo: []});
@@ -44,8 +46,8 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     field.current.focus({preventScroll: true}); field.current.setSelectionRange(next.start, next.end); field.current.scrollTop = next.scroll;
   });
   const capture = () => {
-    const element = field.current!;
-    return {start: element.selectionStart, end: element.selectionEnd};
+    const element = field.current;
+    return element?{start: element.selectionStart, end: element.selectionEnd}:selection.current;
   };
   function emit(next: Snapshot, focus = true) {
     current.current = next.source; selection.current = {start: next.start, end: next.end};
@@ -165,15 +167,16 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
         const prefix = fence.marker + language + '\n', difference = prefix.length - (fence.body - fence.start);
         commit({source: source.slice(0, fence.start) + prefix + source.slice(fence.body), start: Math.max(fence.start + prefix.length, range.start + difference), end: Math.max(fence.start + prefix.length, range.end + difference)});
       }}/></ToolbarOutlet>
-    <textarea ref={field} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
+    <div onKeyDownCapture={event=>{
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key=event.key.toLowerCase(),command=key==='b'?'bold':key==='i'?'italic':key==='k'?'link':key==='z'?(event.shiftKey?'redo':'undo'):key==='y'?'redo':undefined;
+      if(command){event.preventDefault();event.stopPropagation();action(command);}
+    }}>
+    {large?<Suspense fallback={<p role="status">正在打开源码…</p>}><SourceCode ref={field} source={source} onInput={(source,start,end)=>commit({source,start,end},false)} onSelection={(start,end)=>{selection.current={start,end};setRange({start,end});}} onDrop={onDrop}/></Suspense>:<textarea ref={element=>{field.current=element;}} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
       onBeforeInput={() => {selection.current = capture();}}
       onSelect={() => {selection.current = capture(); setRange({...selection.current});}}
       onChange={event => commit({source: event.target.value, ...capture()}, false)}
-      onKeyDown={event => {
-        if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-        const key = event.key.toLowerCase(), command = key === 'b' ? 'bold' : key === 'i' ? 'italic' : key === 'k' ? 'link' : key === 'z' ? (event.shiftKey ? 'redo' : 'undo') : key === 'y' ? 'redo' : undefined;
-        if (command) {event.preventDefault(); action(command);}
-      }} onDragOver={allowFileDrop} onDrop={onDrop}/>
+      onDragOver={allowFileDrop} onDrop={event=>onDrop(event,event.currentTarget.selectionStart)}/>}</div>
     {link && createPortal(<Dialog label={link.kind === 'video' ? '插入视频' : '插入链接'} onClose={() => setLink(null)}>
       <form onSubmit={event => {event.preventDefault(); insertLink(url);}}><h2>{link.kind === 'video' ? '插入视频' : '插入链接'}</h2>
         <label>网址<input data-autofocus aria-label="链接地址" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://…" required/></label>

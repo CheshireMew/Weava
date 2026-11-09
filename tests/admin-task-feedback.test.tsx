@@ -14,10 +14,16 @@ beforeEach(async()=>{
  host=document.createElement('div');document.body.append(host);root=createRoot(host);await act(async()=>root.render(<View/>));
 });
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();window.dispatchEvent(new Event('weava-session-ended'));});
-it('opens a review without refreshing content or issuing a publication',async()=>{
+it('opens a multi-entry review without refreshing content or issuing a publication',async()=>{
  const review={options:{candidateId:'reviewed'}};vi.mocked(api).mockResolvedValue(review as any);
- await act(async()=>model.task('publish',{ids:['one']}));
+ await act(async()=>model.task('publish',{ids:['one','two']}));
  expect(model.publication).toBe(review);expect(api).toHaveBeenCalledTimes(1);expect(waitJob).not.toHaveBeenCalled();expect(refresh).not.toHaveBeenCalled();
+});
+it('publishes one entry directly while keeping its revision checks in the submitted request',async()=>{
+ vi.mocked(submitJob).mockResolvedValue({id:'direct',status:'complete',operation:'publish'});
+ await act(async()=>model.task('publish',{ids:['one'],revisions:{one:17}}));
+ expect(model.publication).toBeNull();expect(api).not.toHaveBeenCalled();
+ expect(vi.mocked(submitJob).mock.calls[0].slice(0,2)).toEqual(['publish',{ids:['one'],revisions:{one:17}}]);expect(notify).toHaveBeenCalledWith('已发布');
 });
 it('rejects duplicate submissions and releases controls as soon as the job is accepted',async()=>{
  let finish!:(value:any)=>void;vi.mocked(submitJob).mockReturnValue(new Promise(resolve=>finish=resolve));
@@ -27,7 +33,7 @@ it('rejects duplicate submissions and releases controls as soon as the job is ac
  await act(async()=>finish({id:'job',status:'queued',operation:'publish'}));expect(model.busy).toBe(false);expect(model.isPublishing('one')).toBe(true);expect(model.isPublishing('two')).toBe(false);
  vi.mocked(api).mockResolvedValue({id:'job',status:'complete',operation:'publish'} as any);
  await act(async()=>{await refreshBackgroundTasks();expect((await task).status).toBe('complete');});
- expect(model.job).toBeNull();expect(notify).toHaveBeenCalledWith('已发布');expect(refresh).toHaveBeenCalledTimes(1);
+ expect(model.job).toBeNull();expect(model.publicationPhase('one')).toBeNull();expect(notify).toHaveBeenCalledWith('已发布');expect(refresh).toHaveBeenCalledTimes(1);
 });
 it('keeps backup progress independent from writing and survives a transient progress error',async()=>{
  vi.mocked(submitJob).mockResolvedValue({id:'backup-job',status:'queued',operation:'backup'});

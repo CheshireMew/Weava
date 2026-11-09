@@ -6,17 +6,17 @@ import {textColors, highlightColors} from '../../../../packages/runtime-common/s
 
 export type FormatAction = 'undo' | 'redo' | 'bold' | 'italic' | 'strikethrough' | 'inline-code' | 'underline' | 'subscript' | 'superscript' | 'quote' | 'bullet' | 'ordered' | 'code' | 'link' | 'video' | 'table' | 'media' | 'divider' | 'button' | 'footnote' | 'details' | 'snippets' | `color:${string}` | `highlight:${string}` | `align:${string}`;
 export function ToolbarOutlet({target, children}: {target?: HTMLElement | null; children: ReactNode}) {return target ? createPortal(children, target) : children;}
-export function FormattingToolbar({mode, onMode, onAction, onBlock, onCaptureBlock, onCapture, blockType = 'paragraph', codeLanguage = 'text', onLanguage, onCaptureLanguage, compact = false, snippets = true, uploading = false, linkActive = false, onEdit = () => {}}: {
+export function FormattingToolbar({mode, onMode, onAction, onBlock, onCaptureBlock, onCapture, blockType = 'paragraph', codeLanguage = 'text', onLanguage, onCaptureLanguage, compact = false, snippets = true, uploading = false, linkActive = false, onEdit = () => {},disabled=false}: {
   mode: 'visual' | 'source'; onMode: () => void; onAction: (action: FormatAction) => void;
   onBlock: (type: string) => void; onCaptureBlock?: () => void; onCapture?: () => void; blockType?: string;
   codeLanguage?: string; onLanguage: (language: string) => void; onCaptureLanguage?: () => void;
-  compact?: boolean; snippets?: boolean; uploading?: boolean; linkActive?: boolean; onEdit?: () => void;
+  compact?: boolean; snippets?: boolean; uploading?: boolean; linkActive?: boolean; onEdit?: () => void;disabled?:boolean;
 }) {
   const action = (command: FormatAction) => {onEdit(); onAction(command);};
   const item = (label: string, command: FormatAction) => <button type="button" key={command} aria-label={label} onClick={() => action(command)}>{label}</button>;
   const button = (label: string, icon: ReactNode, command: FormatAction) => <button type="button" title={label} aria-label={label} aria-pressed={command === 'link' ? linkActive : undefined} onMouseDown={event => event.preventDefault()} onClick={() => action(command)}>{icon}</button>;
   const menuLabel = (label: string) => <span className="toolbar-menu-label">{label}<ChevronDown size={12}/></span>;
-  return <div className={'format-toolbar grouped-toolbar' + (mode === 'source' ? ' source-toolbar' : '')} role="toolbar" aria-label="正文格式" onMouseDownCapture={onCapture}>
+  return <div inert={disabled} className={'format-toolbar grouped-toolbar' + (mode === 'source' ? ' source-toolbar' : '')} role="toolbar" aria-label="正文格式" onMouseDownCapture={onCapture}>
     <button type="button" className="editor-mode-toggle" disabled={uploading} title={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} aria-label={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} onMouseDown={event => event.preventDefault()} onClick={onMode}>{mode === 'visual' ? <FileCode2 size={18}/> : <FileText size={18}/>}</button>
     <span className="toolbar-divider"/>{button('撤销', <Undo2 size={16}/>, 'undo')}{button('重做', <Redo2 size={16}/>, 'redo')}
     {!compact && <select aria-label="段落格式" value={blockType} onMouseDown={onCaptureBlock} onChange={event => {onEdit(); onBlock(event.target.value);}}><option value="paragraph">正文</option>{[1,2,3,4,5,6].map(level => <option key={level} value={'h' + level}>{level} 级标题</option>)}<option value="quote">引用</option><option value="code">代码</option></select>}

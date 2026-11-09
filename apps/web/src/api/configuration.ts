@@ -1,5 +1,6 @@
 import { layouts, saveLayout } from '@weava/core';
 import { contentTypes } from '../../../../packages/core/src/admin-content.ts';
+import {resolveSiteInfo} from '../../../../packages/core/src/site-info.ts';
 
 import type { AdminHandlers, ApiServices } from './types.ts';
 export function configurationHandlers(services: Pick<ApiServices, 'site'>) {
@@ -9,6 +10,7 @@ export function configurationHandlers(services: Pick<ApiServices, 'site'>) {
     settings: async () => {
       return site.settings();
     },
+    siteInfo:async()=>resolveSiteInfo(site),
     saveSettings: async ({ body: data }) => {
       return site.saveSettings(data.value, data.revision);
     },
@@ -33,6 +35,7 @@ export function configurationHandlers(services: Pick<ApiServices, 'site'>) {
   } satisfies Pick<
     AdminHandlers,
     | 'settings'
+    | 'siteInfo'
     | 'saveSettings'
     | 'types'
     | 'saveType'

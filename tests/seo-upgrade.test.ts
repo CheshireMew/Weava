@@ -3,16 +3,43 @@ import {createServer} from 'node:http';
 import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {analyzePage,captureSeo,compareSeo,upgradeProbePath,type SeoSnapshot} from '../packages/manager/src/seo-check.ts';
+import {activationSnapshot,analyzePage,captureSeo,compareSeo,upgradeProbePath,type SeoSnapshot} from '../packages/manager/src/seo-check.ts';
 import {Site} from '../packages/core/src/site.ts';
 import {siteStamp,publicInventory} from '../packages/manager/src/public-inventory.ts';
 import {onlineWorkspace} from '../packages/manager/src/operations.ts';
 import {saveInstallation,hash} from '../packages/manager/src/state.ts';
+import {publicProgramFingerprint} from '../packages/manager/src/upgrade.ts';
 const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/seo-upgrade-20261105';
 const domain='https://blog.example';
 const html=(extra='')=>`<!doctype html><html><head><title>文章</title><meta name="description" content="摘要"><link rel="canonical" href="${domain}/post/"><meta name="robots" content="index,follow"><script type="application/ld+json">{"@type":"Article","headline":"文章"}</script>${extra}</head><body><main><h1>文章</h1><article>原始正文</article><a href="?page=2">下一页</a><img src="/media/cover.png"></main><section id="comments">会变化的评论</section></body></html>`;
 function snapshot(value:string){return {version:1,domain,createdAt:'now',pages:{'/post/':analyzePage(value,200,new Headers({'content-type':'text/html'}),domain,'/post/').page},sitemaps:{'/sitemap.xml':{status:200,urls:[domain+'/post/']}},robots:{status:200,text:'User-agent: *\nDisallow: /admin/'},resources:{'/media/cover.png':200}} as SeoSnapshot;}
 describe('SEO protection during upgrades',()=>{
+ it('distinguishes public render and schema changes from admin or manager changes',()=>{
+  const p={manifest:{schemaVersion:15,files:[{path:'web/server/page.mjs',hash:'page'},{path:'runtime/manager.mjs',hash:'manager'},{path:'admin/index.html',hash:'admin'}]}};
+  const before=publicProgramFingerprint(p);p.manifest.files[1].hash='new manager';p.manifest.files[2].hash='new admin';expect(publicProgramFingerprint(p)).toBe(before);
+  p.manifest.files[0].hash='new renderer';expect(publicProgramFingerprint(p)).not.toBe(before);
+  p.manifest.files[0].hash='page';p.manifest.schemaVersion++;expect(publicProgramFingerprint(p)).not.toBe(before);
+ });
+ it('checks selected activation routes without crawling sitemap articles, and still detects missing images and redirects',async()=>{
+  const visited:string[]=[];let broken=false;
+  const server=createServer((req,res)=>{
+   const path=req.url!;visited.push(path);
+   if(path==='/robots.txt')return res.end('User-agent: *');
+   if(path==='/sitemap.xml'){res.setHeader('content-type','application/xml');return res.end('<urlset><url><loc>'+domain+'/unselected/</loc></url></urlset>');}
+   if(path==='/old/'){res.writeHead(broken?302:301,{Location:'/'});return res.end();}
+   if(path==='/media/cover.png'){res.writeHead(broken?404:200,{'content-type':'image/png'});return res.end();}
+   if(path==='/static/missing.png'){res.writeHead(404);return res.end();}
+   res.setHeader('content-type','text/html');res.end('<html><title>Home</title><main><a href="/unselected/">Article</a><img src="/media/cover.png"></main></html>');
+  });await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+   const options={origin:'http://127.0.0.1:'+(server.address() as any).port,domain,paths:['/','/old/','/static/missing.png'],discovery:'selected' as const};
+   const expected=activationSnapshot(await captureSeo(options),options.paths,[]);visited.length=0;
+   expect(compareSeo(expected,await captureSeo({...options,seed:expected})).passed).toBe(true);
+   expect(visited).not.toContain('/unselected/');expect(visited).toContain('/sitemap.xml');expect(visited).toContain('/static/missing.png');
+   broken=true;const differences=compareSeo(expected,await captureSeo({...options,seed:expected})).differences;
+   expect(differences).toEqual(expect.arrayContaining([expect.objectContaining({path:'/old/',field:'status'}),expect.objectContaining({path:'/media/cover.png',field:'resource-status'})]));
+  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+ });
  it('ARC-R06 probes real versioned image URLs and compares their stable identity across builds',async()=>{
   let build='one',missing=false;const requested:string[]=[];
   const server=createServer((request,response)=>{

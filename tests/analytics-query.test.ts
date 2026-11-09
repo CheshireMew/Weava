@@ -10,7 +10,7 @@ function normalized(value:any):any{
   return value;
 }
 it('matches the previous report semantics for attributed sessions, filters, actions, legacy identities and DST boundaries',()=>{
-  const root='D:/Tools/cache/weava/tests/analytics-query-'+Date.now();mkdirSync(root,{recursive:true});const analytics=new Analytics(root),db=analytics.raw;
+  const root=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/analytics-query-'+Date.now();mkdirSync(root,{recursive:true});const analytics=new Analytics(root),db=analytics.raw;
   try{
     const insert=db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)'),detail=db.prepare('INSERT INTO event_context VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'),activity=db.prepare('INSERT INTO page_activity VALUES(?,?,?,?,?)');
     db.transaction(()=>{

@@ -23,7 +23,12 @@ export function publicInventory(root:string){
   const domain=String(settings.domain??'http://127.0.0.1');new URL(domain);
   const config=JSON.parse(readFileSync(join(root,'site.json'),'utf8'));
   const dynamicRedirects=Object.fromEntries((config.upgrade?.dynamicRedirects??[]).map((rule:any)=>[new URL(rule.path,domain).pathname,{status:rule.status??302,targets:entries.filter(entry=>entry.visibility!=='private'&&entry.kind==='content'&&entry.type===rule.contentType).map(entry=>new URL(entry.path,domain).href).sort()}]));
-  return {releaseId:releaseId??null,domain,paths,redirects:Object.keys(redirects),dynamicRedirects,indexable:entries.filter(entry=>entry.visibility!=='private'&&entry.indexable!==false).map(entry=>String(entry.path))};
+  const templates=new Set<string>(),criticalPaths=[...siteRoutes(root).paths];
+  for(const entry of entries.filter(entry=>entry.visibility!=='private')){
+   const key=JSON.stringify([entry.kind,entry.type,entry.template]);
+   if(!templates.has(key)){templates.add(key);criticalPaths.push(String(entry.path));}
+  }
+  return {releaseId:releaseId??null,domain,paths,criticalPaths,redirects:Object.keys(redirects),dynamicRedirects,indexable:entries.filter(entry=>entry.visibility!=='private'&&entry.indexable!==false).map(entry=>String(entry.path))};
  }finally{db.close();}
 }
 

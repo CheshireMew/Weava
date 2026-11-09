@@ -1,11 +1,11 @@
 import {describe,expect,it} from 'vitest';
 import {spawn,type ChildProcess} from 'node:child_process';
 import {createServer} from 'node:net';
-import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {mkdirSync,readFileSync,writeFileSync,linkSync,symlinkSync} from 'node:fs';
+import {dirname,join,relative} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {once} from 'node:events';
-import {saveInstallation,verify,json,atomic} from '../packages/manager/src/state.ts';
+import {saveInstallation,verify,json,atomic,hash,updateInstallation} from '../packages/manager/src/state.ts';
 import {createSite} from '../packages/manager/src/operations.ts';
 import {requestHost} from '../packages/manager/src/host.ts';
 import {protectedUpgrade,recoverProtected} from '../packages/manager/src/upgrade.ts';
@@ -38,7 +38,14 @@ describe('real managed upgrade lifecycle',{skip:!programRoot},()=>{
   await requestHost(home,'start',{id:'blog'});
   const original=await client('settings');
   const originalDeployment=readFileSync(join(root,'program.json'),'utf8');
-  const updated=await protectedUpgrade(home,root,'blog',programId,undefined);
+  expect(await protectedUpgrade(home,root,'blog',programId,undefined)).toMatchObject({unchanged:true,oldSiteStopped:false});
+  // A second immutable identity reuses frozen file bytes, rather than copying dependencies.
+  const source=verify(programRoot!),target=join(home,'candidate'),manifest={...source.manifest,id:randomUUID()};
+  for(const file of [...manifest.files,...manifest.dependencyFiles]){const dest=join(target,file.path);mkdirSync(dirname(dest),{recursive:true});linkSync(join(source.root,file.path),dest);}
+  for(const link of manifest.dependencyLinks){const dest=join(target,link.path);mkdirSync(dirname(dest),{recursive:true});symlinkSync(relative(dirname(dest),join(target,link.target)),dest,'junction');}
+  atomic(join(target,'program.json'),manifest);
+  updateInstallation(home,value=>{value.programs[manifest.id]={root:target,manifestHash:hash(readFileSync(join(target,'program.json')))};});
+  const updated=await protectedUpgrade(home,root,'blog',manifest.id,undefined);
   expect(readFileSync(join(root,'program.json'),'utf8')).not.toBe(originalDeployment);
   const committed=readFileSync(join(root,'.weava-preparation.json'),'utf8');
   await client('settings',{value:{...original.value,name:'After the completed upgrade'},revision:original.revision});

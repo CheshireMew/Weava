@@ -7,6 +7,33 @@ import { JobRunner, Site, readJsonBody, Analytics } from '@weava/core';
 import {createAdminDispatcher} from '../apps/web/src/api/dispatch.ts';
 import {executeContentMutation} from '../packages/core/src/content-mutations.ts';
 const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/job-runner-'+Date.now();
+it('runs the nearest scheduled publication at its deadline without waiting for a five-second sweep',async()=>{
+ const site=new Site(join(base,'nearest-schedule')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false,schedulePublications:true});
+ try{
+  const row=site.saveEntry(entrySchema.parse({id:'due',kind:'page',title:'Due',path:'/due/'}),null),due=Date.now()+300;
+  const {schedulePublication}=await import('../packages/core/src/schedules.ts');
+  const schedule=schedulePublication(site,row.id,row.revision,new Date(due).toISOString());
+  const run=(await import('vitest')).vi.spyOn((runner as any).publication,'run');
+  // Observe dispatch independently of cold renderer startup; commit behavior is covered by publication tests.
+  run.mockImplementation(()=>new Promise(()=>{}));
+  runner.refreshSchedule();
+  while(Date.now()<due+800&&!run.mock.calls.length)await new Promise(resolve=>setTimeout(resolve,10));
+  expect(run).toHaveBeenCalledTimes(1);expect(Date.now()-due).toBeLessThan(800);
+  expect(site.job((run.mock.calls[0][1] as any).jobId).operation).toBe('publish');run.mockRestore();
+ }finally{runner.stop();site.close();}
+});
+it('dispatches a reused executor only after the outer transaction makes its task durable',async()=>{
+ const site=new Site(join(base,'durable-command')),reader=new Site(site.root),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false});
+ try{
+  const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);
+  const run=(await import('vitest')).vi.spyOn((runner as any).publication,'run').mockImplementation(async(_operation,payload:any)=>{
+   const committed=reader.job(payload.jobId);expect(committed.status).toBe('running');
+   return executeContentMutation(reader,undefined,committed.operation,committed.payload,committed.id);
+  });
+  const job=site.store.raw.transaction(()=>{const created=runner.command('entry-delete',{id:row.id,revision:row.revision});expect(run).not.toHaveBeenCalled();return created;}).immediate();
+  expect(await runner.wait(job.id,1000)).toEqual({id:row.id});expect(reader.store.get('entry',row.id)).toBeNull();run.mockRestore();
+ }finally{runner.stop();reader.close();site.close();}
+});
 it('keeps an atomically committed command successful if its worker loses the result connection',async()=>{
  const site=new Site(join(base,'committed-result')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:true});
  try{

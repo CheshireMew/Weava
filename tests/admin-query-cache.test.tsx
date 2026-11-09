@@ -8,6 +8,14 @@ import { api } from '../apps/admin/src/api.ts';
 import { useAdminState } from '../apps/admin/src/useAdminState.ts';
 vi.mock('../apps/admin/src/api.ts', () => { const request = vi.fn(); return { api: Object.assign(request, { request }) }; });
 const pending = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
+it('revalidates authored data on job completion rather than merely queueing work',async()=>{
+ const {adminApi}=await import('../packages/contracts/src/admin-api.ts');const {submissionDomains}=await import('../apps/admin/src/query-effects.ts');
+ for(const [operation,definition] of Object.entries(adminApi))if(definition.status===202&&operation!=='updateGeo')expect(submissionDomains(definition.path,{}),definition.path).toEqual(['operations']);
+ expect(submissionDomains('analytics/geo',{})).toEqual(['analytics']);
+ const cache=new QueryCache(),content=vi.fn(async()=>({saved:true}));await cache.read('content',content);
+ const end=cache.beginWrite(key=>key==='operations');end(key=>key==='operations');await cache.read('content',content);expect(content).toHaveBeenCalledTimes(1);
+ cache.invalidate(false,key=>key==='content');await cache.read('content',content);expect(content).toHaveBeenCalledTimes(2);
+});
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>;
 beforeEach(() => { adminQueries.invalidate(true); vi.mocked(api).mockReset(); (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });

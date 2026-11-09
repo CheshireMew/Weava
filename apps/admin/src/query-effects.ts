@@ -1,9 +1,12 @@
 export type QueryDomain='content'|'content-count'|'settings'|'models'|'terms'|'layouts'|'media'|'publication'|'operations'|'account'|'analytics'|'extensions'|'comments';
+const jobSubmissions=new Set(['publish','withdraw','entries/delete','plans','plans/run','schedules','media','media/optimize','media/crop','media/variant','backup','verify','import','import/source','import/wxr','maintenance/archive','maintenance/restore','maintenance/scan','seo/audit']);
+/** A queued job changes the task list; its authored domains change only on completion. */
+export const submissionDomains=(path:string,body?:any):QueryDomain[]=>jobSubmissions.has(path.split('?')[0])?['operations']:mutationDomains(path,body);
 function domains(path:string):QueryDomain[]{
   const [route,query='']=path.split('?');
   if(route==='state')return ['settings','models','terms','layouts','extensions','content-count',...(['appearance','comments'].includes(new URLSearchParams(query).get('panel')??'')?['publication' as const]:[]),...(new URLSearchParams(query).get('panel')==='operations'||new URLSearchParams(query).has('entryId')?['operations' as const]:[])];
   if(/^(entry|entries|references)(\/|$)/.test(route))return ['content','publication'];
-  if(route==='settings')return ['settings'];
+  if(route==='settings'||route.startsWith('settings/'))return ['settings'];
   if(route==='types'||route.startsWith('authoring/'))return ['models'];
   if(route==='terms')return ['terms'];
   if(route==='layouts')return ['layouts'];

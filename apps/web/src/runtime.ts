@@ -22,7 +22,7 @@ export const analytics=new Proxy({} as Analytics,{get(_target,key){
  const value=(actualAnalytics as any)[key];return typeof value==='function'?value.bind(actualAnalytics):value;
 }});
 export const engagement=new Engagement(site.store.raw,site.engagementSecret());
-export const jobs=new JobRunner(site,{framework:process.env.WEAVA_PROGRAM_ROOT??process.env.WEAVA_FRAMEWORK??process.cwd(),worker:process.env.WEAVA_WORKER,source:process.env.WEAVA_SOURCE_WORKER==='1'||import.meta.env.MODE==='development'});
+export const jobs=new JobRunner(site,{framework:process.env.WEAVA_PROGRAM_ROOT??process.env.WEAVA_FRAMEWORK??process.cwd(),worker:process.env.WEAVA_WORKER,source:process.env.WEAVA_SOURCE_WORKER==='1'||import.meta.env.MODE==='development',schedulePublications:features.includes('content')});
 export const reports=new TaskResults(jobs);
 let actualBusiness:BusinessStore|undefined;
 export const business=new Proxy({} as BusinessStore,{get(_target,key){actualBusiness??=new BusinessStore(root);const value=(actualBusiness as any)[key];return typeof value==='function'?value.bind(actualBusiness):value;}});
@@ -44,7 +44,7 @@ const initialization=Promise.all([siteExtension,siteRenderer]).then(async([manag
 });
 void initialization.catch(error=>{console.error('网站初始化失败',error);process.exitCode=1;setTimeout(()=>process.exit(1),10);});
 atomicJson(runtimeFile,state);
-const tick=async()=>{if(maintenance||!ready)return;site.recoverJobs();jobs.pump();if(features.includes('content'))queueScheduledPublications(site,jobs);};
+const tick=async()=>{if(maintenance||!ready)return;site.recoverJobs();jobs.pump();if(features.includes('content'))jobs.refreshSchedule();};
 const watch=setInterval(()=>{void tick().catch(e=>console.error(e));},5000);watch.unref();
 const geoWatch=setInterval(()=>{if(!maintenance&&actualAnalytics)void actualAnalytics.geo.update(false).catch(()=>{});},86400000);geoWatch.unref();
 let stopping=false;

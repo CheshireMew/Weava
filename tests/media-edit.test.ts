@@ -46,7 +46,7 @@ describe('media library editing', () => {
     expect(queryDrafts(site).items[0].value.cover).toBe('https://example.com/new.png');
     expect(entryCover({ ...value, blocks: [{ id: 'container', type: 'container', props: {}, children: [{ id: 'image', type: 'image', props: { src: 'https://example.com/block.png' } }] }] })).toBe('https://example.com/block.png');
     expect(entryCover({ ...value, document: { version: 1, format: 'lexical', source: { root: { type: 'root', children: [{ type: 'image', src: 'https://example.com/editor.png', kind: 'image' }] } } } })).toBe('https://example.com/editor.png');
-    expect(entryCover({ ...value, document: { version: 1, format: 'markdown', source: 'Only text' } })).toMatch(/^\/default-covers\/picsum-\d+\.webp$/);
+    expect(entryCover({ ...value, document: { version: 1, format: 'markdown', source: 'Only text' } })).toBe('');
   });
   it('preserves readable native sizes, avoids larger display copies and leaves animation intact', async () => {
     const site = create(), bytes = await image(), row = await uploadMedia(site, bytes, 'readable.png');

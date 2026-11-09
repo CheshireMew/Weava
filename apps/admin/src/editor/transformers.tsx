@@ -7,7 +7,7 @@ import {
   $isTableCellNode,
 } from '@lexical/table';
 import { TRANSFORMERS, CODE, $convertFromMarkdownString, $convertToMarkdownString, type Transformer, type TextMatchTransformer } from '@lexical/markdown';
-import { $createParagraphNode, $getRoot, $isParagraphNode, $isLineBreakNode, $isTextNode, $getState, type ElementNode, type LexicalNode } from 'lexical';
+import { $createParagraphNode, $getRoot, $isParagraphNode, $isElementNode, $isLineBreakNode, $isTextNode, $getState, type ElementNode, type LexicalNode } from 'lexical';
 import {CodeNode} from '@lexical/code';
 import {$isListNode, $isListItemNode, ListNode, ListItemNode} from '@lexical/list';
 import {HorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
@@ -216,9 +216,33 @@ export const table: Transformer = {
 
 export const transformers: Transformer[] = [writingBlock, table, codeBlock, mediaBlock, listBlock, writingInline, linkedImage, image, embed, nestedBlock, literalText, ...TRANSFORMERS];
 
+interface MarkdownPart {nodes:LexicalNode[];source:string;notes:[string,string][]}
+const markdownParts=new WeakMap<LexicalNode,MarkdownPart>();
+const emptyParagraph=(node:LexicalNode)=>{
+  if(!$isParagraphNode(node))return false;
+  const first=node.getFirstChild();return !first||node.getChildrenSize()===1&&$isTextNode(first)&&/^\s{0,3}$/.test(first.getTextContent());
+};
+function descendants(nodes:LexicalNode[]){
+  const result:LexicalNode[]=[],visit=(node:LexicalNode)=>{result.push(node);if($isElementNode(node))for(const child of node.getChildren())visit(child);};
+  for(const node of nodes)visit(node);return result;
+}
+/** Immutable nodes let unchanged groups reuse their Markdown, including nested edits and footnotes. */
 export function exportMarkdown(root: ElementNode = $getRoot()) {
-  const source = $convertToMarkdownString(transformers, root), notes = new Map<string, string>();
-  for (const node of writingDescendants(root)) if (node instanceof FootnoteNode) notes.set(node.getLabel(), node.getSource());
+  const children=root.getChildren(),notes=new Map<string,string>(),parts:string[]=[];
+  for(let index=0;index<children.length;index+=64){
+    const group=children.slice(index,index+64),nodes=descendants(group),previous=markdownParts.get(group[0]);
+    let part=previous;
+    if(!part||part.nodes.length!==nodes.length||part.nodes.some((node,index)=>node!==nodes[index])){
+      // Lexical's public converter reads the supplied root's children. This read-only
+      // root view retains its normal conversion rules while limiting work to this group.
+      const view=new Proxy(root,{get(target,key,receiver){return key==='getChildren'?()=>group:Reflect.get(target,key,receiver);}});
+      part={nodes,source:$convertToMarkdownString(transformers,view),notes:nodes.filter((node):node is FootnoteNode=>node instanceof FootnoteNode).map(node=>[node.getLabel(),node.getSource()])};
+      markdownParts.set(group[0],part);
+    }
+    if(index)parts.push(emptyParagraph(children[index-1])||emptyParagraph(group[0])?'\n':'\n\n');
+    parts.push(part.source);for(const [label,body] of part.notes)notes.set(label,body);
+  }
+  const source=parts.join('');
   for (const [label, body] of Object.entries($getState(root, footnoteOrphans))) if (!notes.has(label)) notes.set(label, body);
   return source + (notes.size ? '\n\n' + [...notes].map(([label, body]) => `[^${label}]: ${body.split('\n').join('\n    ')}`).join('\n\n') : '');
 }

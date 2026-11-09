@@ -482,6 +482,7 @@ input[type='checkbox'] {
   margin-bottom: 12px;
 }
 .visual-editor p { line-height: inherit; }
+.visual-editor > * { content-visibility: auto; contain-intrinsic-block-size: auto 2em; }
 .visual-editor img,
 .visual-editor video {
   max-width: 100%;

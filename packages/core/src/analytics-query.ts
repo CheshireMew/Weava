@@ -14,7 +14,8 @@ const overviews=new WeakMap<Database.Database,BoundedCache<string,any>>();
 const ranges=new WeakMap<Database.Database,{key:string;cursor:number}>();
 type Report=Omit<AnalyticsReport,'geo'|'lifetimeViews'|'historicalViews'|'lifetimePages'>;
 const reports=new WeakMap<Database.Database,BoundedCache<string,Report>>();
-const filtered=new WeakMap<Database.Database,{key:string;sessions:boolean;visitors:boolean}>();
+interface PreparedRange {key:string;sessions:boolean;visitors:boolean;totals?:{views:number;visitors:number;sessions:number;clicks:number};previous?:any;activeMs?:number;daily?:any[]}
+const filtered=new WeakMap<Database.Database,PreparedRange>();
 const dimensions=['country','browser','os','device','model'] as const;
 const byViews=(a:any,b:any)=>b.views-a.views||String(a.path||a.name||a.host||'').localeCompare(String(b.path||b.name||b.host||''));
 const metric=`COALESCE(SUM(kind='view'),0) views,COUNT(DISTINCT CASE WHEN kind='view' THEN visitor_key END) visitors,COUNT(DISTINCT CASE WHEN kind='view' THEN session_token END) sessions,COALESCE(SUM(kind='click'),0) clicks`;
@@ -69,22 +70,22 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
   const feed=db.prepare('SELECT MIN(seq) first,MAX(seq) last FROM analytics_changes').get() as {first:number|null;last:number|null};
   const rebuild=!oldRange||oldRange.key!==rangeKey||oldRange.cursor<(feed.first??1)-1||oldRange.cursor>(feed.last??0)||!db.prepare("SELECT 1 FROM temp.sqlite_master WHERE name='weava_report_range'").get();
   if(rebuild){
-    // Bound native SQLite memory as well as the V8 heap. Larger ranges spill to temporary files.
-    const estimated=(db.prepare('SELECT COALESCE(SUM(256+4*(length(id)+length(kind)+length(ts)+length(path)+length(visitor)+length(session)+length(url)+length(label)+length(zone)+length(referrer)+length(release_id))),0) bytes FROM events WHERE ts>=? AND ts<?').get(dayStart(previousStart,timezone),upper) as {bytes:number}).bytes;
-    db.pragma('temp_store='+(estimated<=64*1024*1024?'MEMORY':'FILE'));
-    db.pragma('temp.cache_size=-16384');
+    // SQLite keeps a bounded page cache and spills larger ranges automatically.
+    // Do not scan every event a second time merely to estimate the scan's memory.
+    db.pragma('temp_store=FILE');
+    db.pragma('temp.cache_size=-32768');
   }
   if(!initialized.has(db)){
     db.function('weava_channel',{deterministic:true},(value:any)=>referralFallback(value).channel);
     db.function('weava_engine',{deterministic:true},(value:any)=>referralFallback(value).engine);
     initialized.add(db);
   }
-  let cursor=0,prepared:{key:string;sessions:boolean;visitors:boolean};
+  let cursor=0,prepared:PreparedRange;
   const result=db.transaction(()=>{
     const changes=db.prepare('SELECT MIN(seq) first,MAX(seq) last FROM analytics_changes').get() as {first:number|null;last:number|null};cursor=changes.last??0;
     const refresh=rebuild||oldRange!.cursor<(changes.first??1)-1||oldRange!.cursor>cursor;
-    const rangeSelect=(changed=false)=>`SELECT e.id,e.kind,e.ts,e.path,e.url,e.label,e.zone,e.referrer,e.visitor_key,e.session_key,e.session_token,e.active_ms,
-      d.day,d.aligned,d.period,e.ts||e.id event_order,${context('e','e')}
+    const rangeSelect=(changed=false)=>`SELECT e.id,e.kind,e.ts,e.path,e.visitor_key,e.session_key,e.session_token,e.active_ms,
+      d.aligned,d.period,e.ts||e.id event_order
       FROM weava_report_days d JOIN analytics_facts e ${changed?'':'INDEXED BY analytics_fact_date'} ON e.ts>=d.lower AND e.ts<d.upper${changed?' WHERE e.id IN (SELECT id FROM analytics_changes WHERE seq>?)':''}`;
     const originsSelect=(changed=false)=>`WITH keys AS(SELECT DISTINCT visitor_key,session_key FROM weava_report_range WHERE kind='view'${changed?' AND (visitor_key,session_key) IN (SELECT visitor_key,session_key FROM analytics_changes WHERE seq>?)':''})
       SELECT b.visitor_key,b.session_key,f.ts first_ts,l.ts last_ts,f.path first_path,l.path last_path,
@@ -113,13 +114,12 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     const filteredKey=JSON.stringify([rangeKey,cursor,selection]),old=filtered.get(db);
     const reuse=!refresh&&old?.key===filteredKey&&!!db.prepare("SELECT 1 FROM temp.sqlite_master WHERE name='weava_report_events'").get();
     prepared=reuse?{...old!}:{key:filteredKey,sessions:false,visitors:false};
-    const filter=filters(params,'r','','COALESCE(o.channel,r.channel)');
+    const needsFacts=!!params.get('channel')||dimensions.some(key=>!!params.get(key));
+    const filter=filters(params,needsFacts?'f':'r','','COALESCE(o.channel,COALESCE(NULLIF(f.channel,\'\'),weava_channel(f.referrer)))');
     if(!reuse){
     db.exec('DROP TABLE IF EXISTS temp.weava_report_events;DROP TABLE IF EXISTS temp.weava_report_sessions;DROP TABLE IF EXISTS temp.weava_report_visitors;');
-    db.prepare(`CREATE TEMP TABLE weava_report_events AS SELECT r.*,COALESCE(o.channel,r.channel) origin_channel,COALESCE(o.engine,r.engine) origin_engine,
-      COALESCE(o.referrer,r.referrer) origin_referrer,COALESCE(o.source,r.source) origin_source,COALESCE(o.medium,r.medium) origin_medium,COALESCE(o.campaign,r.campaign) origin_campaign,
-      COALESCE(o.first_path,r.path) first_path,COALESCE(o.last_path,r.path) last_path
-      FROM weava_report_range r LEFT JOIN weava_report_origins o ON o.visitor_key=r.visitor_key AND o.session_key=r.session_key WHERE 1=1${filter.sql}`).run(...filter.args);
+    db.prepare(`CREATE TEMP TABLE weava_report_events AS SELECT r.*
+      FROM weava_report_range r ${needsFacts?'JOIN analytics_facts f ON f.id=r.id':''} ${params.get('channel')?'LEFT JOIN weava_report_origins o ON o.visitor_key=r.visitor_key AND o.session_key=r.session_key':''} WHERE 1=1${filter.sql}`).run(...filter.args);
     db.exec(`CREATE INDEX temp.weava_report_events_kind ON weava_report_events(period,kind);
       CREATE INDEX temp.weava_report_events_visitor ON weava_report_events(visitor_key,event_order);`);
     }
@@ -128,18 +128,23 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     db.exec(`CREATE TEMP TABLE weava_report_visitors AS WITH aggregates AS(
         SELECT visitor_key id,COUNT(*) views,COUNT(DISTINCT session_token) sessions,MIN(ts) firstSeen,MAX(ts) lastSeen,SUM(active_ms) activeMs,MIN(event_order) first_order,MAX(event_order) last_order
         FROM weava_report_events WHERE period=1 AND kind='view' GROUP BY visitor_key)
-      SELECT v.*,e.first_path entryPath,e.last_path exitPath,e.country,e.browser,e.os,e.device,e.model,e.origin_channel channel,
-        COALESCE(NULLIF(e.origin_source,''),NULLIF(e.origin_engine,''),NULLIF(e.origin_referrer,''),'直接 / 未知') source
-      FROM aggregates v JOIN weava_report_events e ON e.visitor_key=v.id AND e.event_order=v.last_order;`);
+      SELECT v.*,COALESCE(o.first_path,e.path) entryPath,COALESCE(o.last_path,e.path) exitPath,f.country,f.browser,f.os,f.device,f.model,COALESCE(o.channel,COALESCE(NULLIF(f.channel,''),weava_channel(f.referrer))) channel,
+        COALESCE(NULLIF(COALESCE(o.source,f.source),''),NULLIF(COALESCE(o.engine,NULLIF(f.engine,''),weava_engine(f.referrer)),''),NULLIF(COALESCE(o.referrer,f.referrer),''),'直接 / 未知') source
+      FROM aggregates v JOIN weava_report_events e ON e.visitor_key=v.id AND e.event_order=v.last_order
+      JOIN analytics_facts f ON f.id=e.id
+      LEFT JOIN weava_report_origins o ON o.visitor_key=e.visitor_key AND o.session_key=e.session_key;`);
     prepared.visitors=true;
     }
     const all=(sql:string,...args:any[])=>db.prepare(sql).all(...args) as any[];
-    const totals=db.prepare(`SELECT ${metric} FROM weava_report_events WHERE period=1`).get() as {views:number;visitors:number;sessions:number;clicks:number};
-    const previous=db.prepare(`SELECT ${metric} FROM weava_report_events WHERE period=0`).get() as any;
-    const daily=wants('overview','sources')?all(`SELECT aligned date,COALESCE(SUM(kind='view' AND period=1),0) views,COUNT(DISTINCT CASE WHEN kind='view' AND period=1 THEN visitor_key END) visitors,
+    if(!prepared.totals){
+      const {activeMs,...totals}=db.prepare(`SELECT ${metric},COALESCE(SUM(CASE WHEN kind='view' THEN active_ms ELSE 0 END),0) activeMs FROM weava_report_events WHERE period=1`).get() as {views:number;visitors:number;sessions:number;clicks:number;activeMs:number};
+      prepared.totals=totals;prepared.activeMs=activeMs;prepared.previous=db.prepare(`SELECT ${metric} FROM weava_report_events WHERE period=0`).get();
+    }
+    const totals=prepared.totals,previous=prepared.previous;
+    const daily=wants('overview','sources')?(prepared.daily??=all(`SELECT aligned date,COALESCE(SUM(kind='view' AND period=1),0) views,COUNT(DISTINCT CASE WHEN kind='view' AND period=1 THEN visitor_key END) visitors,
       COUNT(DISTINCT CASE WHEN kind='view' AND period=1 THEN session_token END) sessions,COALESCE(SUM(kind='click' AND period=1),0) clicks,
       COALESCE(SUM(kind='view' AND period=0),0) previousViews,COUNT(DISTINCT CASE WHEN kind='view' AND period=0 THEN visitor_key END) previousVisitors
-      FROM weava_report_events GROUP BY aligned`):[];
+      FROM weava_report_events GROUP BY aligned`)):[];
     const dates=new Map(daily.map(row=>[row.date,row]));
     const pages=wants('overview')?all(`SELECT path,COALESCE(SUM(kind='view'),0) views,COUNT(DISTINCT CASE WHEN kind='view' THEN visitor_key END) visitors,COALESCE(SUM(kind='click'),0) clicks,
       0 entries,0 exits,COALESCE(SUM(CASE WHEN kind='view' THEN active_ms ELSE 0 END),0) activeMs FROM weava_report_events WHERE period=1 GROUP BY path`):[];
@@ -159,15 +164,15 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     const visitorRows=(order:string)=>!needVisitors?[]:all('SELECT * FROM weava_report_visitors ORDER BY '+order+' LIMIT 100').map(({first_order,last_order,...row})=>row);
     const path=params.get('path')?normalizePath(params.get('path')!):'';
     return {...totals,...(section==="all"?{}:{section:section as NonNullable<AnalyticsReport["section"]>}),range:{start,end,previousStart,previousEnd,days,timezone},previous,...baseMetrics(db,params,timezone,today),
-      averageActiveMs:totals.views?Math.round((db.prepare("SELECT COALESCE(SUM(active_ms),0) n FROM weava_report_events WHERE kind='view' AND period=1").get() as any).n/totals.views):0,
+      averageActiveMs:totals.views?Math.round(prepared.activeMs!/totals.views):0,
       pages:pages.sort(byViews),daily:Array.from({length:days},(_,offset)=>{const date=shiftDay(start,offset);return dates.get(date)??{date,views:0,visitors:0,sessions:0,clicks:0,previousViews:0,previousVisitors:0};}),
-      links:wants('actions')?all("SELECT path,url,zone,label,COUNT(*) clicks FROM weava_report_events WHERE period=1 AND kind='click' GROUP BY path,url,zone,label ORDER BY clicks DESC,MIN(event_order)"):[],
+      links:wants('actions')?all("SELECT e.path,f.url,f.zone,f.label,COUNT(*) clicks FROM weava_report_events e JOIN analytics_facts f ON f.id=e.id WHERE e.period=1 AND e.kind='click' GROUP BY e.path,f.url,f.zone,f.label ORDER BY clicks DESC,MIN(e.event_order)"):[],
       sources:wants('sources')?all(`SELECT o.channel,NULLIF(o.referrer,'') host,COALESCE(NULLIF(o.source,''),NULLIF(o.engine,''),NULLIF(o.referrer,''),'直接 / 未知') name,SUM(s.views) views,COUNT(*) sessions,COUNT(DISTINCT s.visitor_key) visitors
         FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE s.period=1 GROUP BY o.channel,o.referrer,o.source,o.medium,o.campaign ORDER BY MIN(s.first_order)`).sort(byViews):[],
       engines:[...engines.values()],campaigns:wants('sources')?all(`SELECT o.source,o.medium,o.campaign,COUNT(*) sessions,SUM(s.views) views FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE s.period=1 AND (o.source<>'' OR o.campaign<>'') GROUP BY o.source,o.medium,o.campaign ORDER BY views DESC,MIN(s.first_order)`):[],
       countries:dimension('country'),browsers:dimension('browser'),operatingSystems:dimension('os'),devices:dimension('device'),models:dimension('model'),
       recentVisitors:visitorRows('lastSeen DESC,first_order'),activeVisitors:visitorRows('views DESC,first_order'),
-      actions:wants('actions')?all("SELECT label name,COUNT(*) count FROM weava_report_events WHERE period=1 AND kind='event' GROUP BY label ORDER BY MIN(event_order)"):[],
+      actions:wants('actions')?all("SELECT f.label name,COUNT(*) count FROM weava_report_events e JOIN analytics_facts f ON f.id=e.id WHERE e.period=1 AND e.kind='event' GROUP BY f.label ORDER BY MIN(e.event_order)"):[],
       ...fresh()};
   })();
   ranges.set(db,{key:rangeKey,cursor});

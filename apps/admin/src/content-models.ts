@@ -89,6 +89,7 @@ export interface EntryEditorModel {
   contentCheck: ContentCheck | null;
   state: ContentCatalog;
   busy: boolean;
+  publicationPhase?:'submitting'|'running'|null;
   publication: EntrySummary | undefined;
   publicationNotice: string;
   update: (patch: Partial<Entry>) => void;

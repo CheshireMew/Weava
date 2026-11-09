@@ -38,6 +38,10 @@ export function serveTasks(root:string) {
       if(operation==='analytics-export')return analytics.export(params,payload.timezone);
     }
     const site=await database();
+    if(operation==='database-warm')return {ready:true};
+    if(operation==='command-warm'){await import('./content-mutations.ts');await import('./media.ts');return {ready:true};}
+    if(operation==='background-warm'){await import('./maintenance.ts');await import('./backup.ts');return {ready:true};}
+    if(operation==='managed-job')return(await import('./managed-jobs.ts')).executeManagedJob(site,site.job(payload.jobId),content);
     if(operation==='background-import'){
       await content();
       imports??=await import('./import-sources.ts');
@@ -134,7 +138,10 @@ export function serveTasks(root:string) {
     if(message?.type!=='run'||stopping)return;
     queue=queue.then(async()=>{
       try{const value=await execute(message.operation,message.payload);if(process.connected)process.send!({type:'result',id:message.id,value});}
-      catch(error:any){if(process.connected)process.send!({type:'result',id:message.id,error:{message:error.message,status:error.status??500,details:error.details}});}
+      catch(error:any){
+        if(message.payload?.jobId)try{appendFileSync(join(root,'logs',message.payload.jobId+'.log'),String(error.stack??error.message).slice(-8192)+'\n');}catch{}
+        if(process.connected)process.send!({type:'result',id:message.id,error:{message:error.message,status:error.status??500,details:error.details}});
+      }
     });
   });
   process.once('disconnect',()=>{void queue.then(stop);});

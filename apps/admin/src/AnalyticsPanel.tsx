@@ -27,14 +27,14 @@ export default function AnalyticsPanel({ onError, timezone = 'Asia/Shanghai' }: 
     setRoute({ report, query, section });
     document.querySelector('.analytics-panel')?.scrollTo({ top: 0 });
   };
-  return <AnalyticsWorkspace key={route.query} route={route} navigate={navigate} onError={onError} timezone={timezone} />;
+  return <AnalyticsWorkspace route={route} navigate={navigate} onError={onError} timezone={timezone} />;
 }
 function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Location; navigate: (report: ReportName | null, query?: string, section?: AnalyticsSection) => void; onError: (message: string) => void; timezone: string }) {
   const model = useAnalyticsReport(route.query,true,route.section);
   const [visitor, setVisitor] = useState<{ id: string; data: AnalyticsReport } | null>(null);
   const id = useId(), { data, loading, error } = model;
   const query = new URLSearchParams(route.query);
-  if (data) { query.set('start', data.range.start); query.set('end', data.range.end); }
+  if (data&&!model.stale) { query.set('start', data.range.start); query.set('end', data.range.end); }
   const appliedQuery = query.toString();
   const changeQuery = (query: string) => navigate(route.report, query, route.section);
   const changeRange = (start: string, end: string) => { const next = new URLSearchParams(appliedQuery); next.set('start', start); next.set('end', end); changeQuery(next.toString()); };
@@ -46,8 +46,8 @@ function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Loc
     <section id={id + 'panel'} role="tabpanel" aria-labelledby={id + route.section} aria-busy={loading}>
       {error && <div className="analytics-error" role="alert"><span>{error}</span><div className="analytics-error-actions">{model.start && model.end && <DateRangeMenu label="统计" start={model.start} end={model.end} timezone={timezone} onChange={changeRange} />}<button onClick={() => model.load()}>重试</button></div></div>}
       {!data && loading && <LoadingState label="读取统计" />}
-      {data && !error && <ReportWorkspace.Provider value={{ data, query: appliedQuery, loading, changeRange, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
-        <AnalyticsExportContext.Provider value={!loading ? appliedQuery : null}>
+      {data && <ReportWorkspace.Provider value={{ data, query: model.stale?model.loadedQuery:appliedQuery, loading, changeRange, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
+        <AnalyticsExportContext.Provider value={!loading&&!model.stale ? appliedQuery : null}>
           {route.report ? <>
             <div className="analytics-report-heading"><a href={reportUrl(null, appliedQuery, route.section)} onClick={event => internalClick(event, () => navigate(null, appliedQuery, route.section))}><ArrowLeft size={14} />返回{sections.find(([key]) => key === route.section)?.[1]}</a></div>
             <AnalyticsExportContext.Provider value={route.report === 'actions' ? appliedQuery : null}><AnalyticsDetail report={route.report} query={appliedQuery} model={model} onError={onError} /></AnalyticsExportContext.Provider>

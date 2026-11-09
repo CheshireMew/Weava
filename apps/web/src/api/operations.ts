@@ -4,6 +4,7 @@ import { adminState } from '../../../../packages/core/src/admin-state.ts';
 import { readJobLog } from '@weava/core';
 
 import { historyArchives } from '@weava/core';
+import {storageOverview} from '../../../../packages/core/src/maintenance.ts';
 import { join } from 'node:path';
 
 import {
@@ -21,6 +22,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     previewTemporaryCleanup: async () => previewTemporaryCleanup(site),
     cleanupTemporaryFiles: async ({ body }) => cleanupTemporaryFiles(site, body.review),
     state: async ({}, context) => {
+      jobs.warmAdministration?.();
       const { url } = context;
       return adminState(site, await siteExtension, {
         panel: url.searchParams.get('panel'),
@@ -40,8 +42,9 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       return await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null);
     },
     maintenance: async () => {
-      return jobs.query('storage-usage', {});
+      return storageOverview(site);
     },
+    scanStorage:async ({},context)=>site.activeJobs().find(job=>job.operation==='storage-scan')??execute('storage-scan',{},context.request.headers.get('Idempotency-Key')??undefined),
     previewArchive: async ({ body: data }) => {
       return jobs.query('archive-plan', data);
     },
@@ -94,6 +97,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     | 'extensionUsage'
     | 'toggleExtension'
     | 'maintenance'
+    | 'scanStorage'
     | 'previewArchive'
     | 'archiveHistory'
     | 'restoreArchive'

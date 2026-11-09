@@ -9,7 +9,6 @@ import { schedules } from './schedules.ts';
 import { SCHEMA_VERSION } from './schema-version.ts';
 import { settingsPublicationState } from './settings-state.ts';
 import { siteFeatures } from './site-features.ts';
-import { resolveSiteInfo } from './site-info.ts';
 import type { Site } from './site.ts';
 export function adminState(
   site: Site,
@@ -30,7 +29,7 @@ export function adminState(
           published,
         )
       : {}),
-    ...(options.panel === 'appearance' ? { siteInfo: resolveSiteInfo(site) } : {}),
+    ...(options.panel === 'appearance' ? { siteInfo: settings.value.siteInfo } : {}),
     types: site.store.list('type'),
     contentViews: contentViews(site),
     creationTemplates: creationTemplates(site),

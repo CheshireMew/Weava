@@ -24,12 +24,15 @@ import {Toolbar,TableTools} from './editor/Toolbar.tsx';
 import {MediaNode,EmbedNode} from './editor/nodes.tsx';
 import {FileDropPlugin} from './editor/FileDropPlugin.tsx';
 import {CodeCopyPlugin} from './editor/CodeCopyPlugin.tsx';
+import {LargeMarkdownPlugin} from './editor/LargeMarkdownPlugin.tsx';
 import {LinkEditorPlugin} from './editor/LinkEditorPlugin.tsx';
 import {DocumentChangePlugin} from './editor/DocumentChangePlugin.tsx';
 import {MarkdownEditor} from './editor/MarkdownEditor.tsx';
 import {supportsVisualEditing, importMarkdown} from './editor/markdown.ts';
 import {ButtonLinkNode, DetailsNode, FootnoteNode, WritingNodesPlugin} from './editor/WritingNodes.tsx';
 import {writingDOMImport} from './editor/writing-dom.ts';
+const documentNodes=[HeadingNode,QuoteNode,ListNode,ListItemNode,LinkNode,AutoLinkNode,CodeNode,CodeHighlightNode,
+  TableNode,TableRowNode,TableCellNode,MediaNode,HorizontalRuleNode,EmbedNode,ButtonLinkNode,DetailsNode,FootnoteNode];
 
 export function Editor({
   value,
@@ -55,6 +58,8 @@ export function Editor({
   const [mode, setMode] = useState(() => supportsVisualEditing(value) ? 'visual' : 'source');
   const uploads = useFileUploads();
   const editing = useRef(false);
+  const [loading,loadingProgress]=useState<number|null>(null),loadingError=useRef(onError);loadingError.current=onError;
+  const flushSnapshot=useRef(()=>{});
   const markEditing = () => { editing.current = true; };
   const current = useRef({ value, onChange }); current.current = { value, onChange };
   const [sourceView, setSourceView] = useState(value.format === 'markdown' ? String(value.source) : '');
@@ -63,70 +68,61 @@ export function Editor({
   const sourceDrops = useRef<{ offset: number }[]>([]);
   function changeSource(source: string) {
     const before = sourceText.current;
-    let start = 0, end = 0;
-    while (start < before.length && start < source.length && before[start] === source[start]) start++;
-    while (end < before.length - start && end < source.length - start && before[before.length - end - 1] === source[source.length - end - 1]) end++;
-    for (const position of sourceDrops.current) if (position.offset > start)
-      position.offset = position.offset >= before.length - end ? position.offset + source.length - before.length : source.length - end;
+    if(sourceDrops.current.length){
+      let start = 0, end = 0;
+      while (start < before.length && start < source.length && before[start] === source[start]) start++;
+      while (end < before.length - start && end < source.length - start && before[before.length - end - 1] === source[source.length - end - 1]) end++;
+      for (const position of sourceDrops.current) if (position.offset > start)
+        position.offset = position.offset >= before.length - end ? position.offset + source.length - before.length : source.length - end;
+    }
     sourceText.current = source; setSourceView(source);
     const document: Document = source === sourceBaseline.current.source ? sourceBaseline.current.document : {version: 1, format: 'markdown', source};
-    const unchanged = JSON.stringify(document) === JSON.stringify(current.current.value);
+    const unchanged = document===current.current.value||document.format===current.current.value.format&&document.source===current.current.value.source;
     current.current = { ...current.current, value: document };
     if (!unchanged) current.current.onChange(document);
   }
   const [seed, setSeed] = useState<Document>(value);
+  const visitedVisual=useRef(mode==='visual');if(mode==='visual')visitedVisual.current=true;
+  const retainVisual=visitedVisual.current&&seed.format==='markdown'&&String(seed.source).length>40000;
   if (value.format === 'html') return <HtmlPageText value={value.source} cleanFormatting label="正文" onChange={source => onChange({ version: 1, format: 'html', source })} />;
-  if (mode === 'source') return <div className="document-editor">
+  const sourceEditor=mode === 'source'?<div className="document-editor">
     <MarkdownEditor source={sourceView} onChange={changeSource} target={toolbarTarget} compact={compact} snippets={snippets} uploading={uploads.busy || uploads.failed.length > 0} onError={onError} onMedia={onMedia}
       onMode={() => {
         const document: Document = sourceText.current === sourceBaseline.current.source ? sourceBaseline.current.document : {version: 1, format: 'markdown', source: sourceText.current};
         if (!supportsVisualEditing(document)) {onError('包含不能无损转换的来源格式，继续使用源码模式可完整保留内容。'); return;}
-        editing.current = false; setSeed(document); setMode('visual');
+        editing.current = false;if(!retainVisual||sourceText.current!==sourceBaseline.current.source)setSeed(document);setMode('visual');
       }}
-      onDrop={event => {
+      onDrop={(event,offset) => {
         if (!hasDroppedFiles(event.dataTransfer)) return;
         event.preventDefault(); event.stopPropagation();
-        const position = {offset: event.currentTarget.selectionStart}; sourceDrops.current.push(position);
-        uploads.upload(Array.from(event.dataTransfer.files), (row, file) => {
+        const position = {offset}; sourceDrops.current.push(position);
+        const files=Array.from(event.dataTransfer.files);let remaining=files.length;
+        uploads.upload(files, (row, file) => {
           const source = sourceText.current, offset = Math.min(source.length, position.offset);
           const image = document.createElement('img'); image.src = row.value.url; image.alt = row.value.alt ?? file.name;
           const text = '![' + image.alt.replace(/[\\[\]]/g, '\\$&') + '](' + row.value.url + ')';
           changeSource(source.slice(0, offset) + '\n\n' + text + '\n\n' + source.slice(offset)); position.offset = offset + text.length + 4;
+          if(!--remaining)sourceDrops.current=sourceDrops.current.filter(anchor=>anchor!==position);
         });
       }}/>
     <UploadStatus uploads={uploads}/>
-  </div>;
-  return (
-    <div className="document-editor" onBeforeInputCapture={markEditing} onInputCapture={markEditing} onPasteCapture={markEditing} onCutCapture={markEditing} onDropCapture={markEditing}
+  </div>:null;
+  if(mode==='source'&&!retainVisual)return sourceEditor;
+  return (<>{sourceEditor}
+    <div className="document-editor" style={mode==='source'?{display:'none'}:undefined} onBeforeInputCapture={markEditing} onInputCapture={markEditing} onPasteCapture={markEditing} onCutCapture={markEditing} onDropCapture={markEditing}
       onKeyDownCapture={event => {if ((event.target as Element).closest('.visual-editor') && (['Backspace','Delete','Enter'].includes(event.key) || event.key === ' ' && (event.target as Element).closest('[role="checkbox"]') || (event.ctrlKey || event.metaKey) && ['b','i','u','z','y'].includes(event.key.toLowerCase()))) markEditing();}}
       onClickCapture={event => { if ((event.target as Element).closest('button:not(.editor-mode-toggle):not([aria-haspopup])')) markEditing(); }}>
       <LexicalComposer
         initialConfig={{
           namespace: 'Weava',
           html: {import: writingDOMImport},
-          nodes: [
-            HeadingNode,
-            QuoteNode,
-            ListNode,
-            ListItemNode,
-            LinkNode,
-            AutoLinkNode,
-            CodeNode,
-            CodeHighlightNode,
-            TableNode,
-            TableRowNode,
-            TableCellNode,
-            MediaNode,
-            HorizontalRuleNode,
-            EmbedNode,
-            ButtonLinkNode, DetailsNode, FootnoteNode,
-          ],
+          nodes: documentNodes,
           onError: (error) => onError(error.message),
           editorState:
             seed.format === 'lexical'
               ? JSON.stringify(seed.source)
               : (editor) => {
-                  importMarkdown(editor, String(seed.source));
+                  if(String(seed.source).length<=40000)importMarkdown(editor, String(seed.source));
                   if (!$getRoot().getChildrenSize()) $getRoot().append($createParagraphNode());
                 },
           theme: {
@@ -142,23 +138,26 @@ export function Editor({
           },
         }}
       >
-        <Toolbar
+        {mode==='visual'&&<Toolbar
+          disabled={loading!==null}
           onEdit={markEditing}
           target={toolbarTarget}
           compact={compact}
           snippets={snippets}
           uploading={uploads.busy || uploads.failed.length > 0}
           onMode={(source) => {
+            flushSnapshot.current();
             const document = current.current.value;
-            const markdown = document.format === 'markdown' ? String(document.source) : source;
+            const markdown = document.format === 'markdown' ? String(document.source) : source();
             sourceText.current = markdown; sourceBaseline.current = {source: markdown, document}; setSourceView(markdown);
             editing.current = false;
             setMode('source');
           }}
           onMedia={onMedia}
-        />
+        />}
         <WritingNodesPlugin/>
-        <div className="editor-canvas">
+        {loading!==null&&<p role="status">正在载入正文… {loading}%</p>}
+        <div className="editor-canvas" aria-busy={loading!==null}>
           <RichTextPlugin
             contentEditable={<ContentEditable className="visual-editor" aria-label="正文编辑器" />}
             placeholder={<span className="editor-placeholder">{placeholder}</span>}
@@ -175,9 +174,10 @@ export function Editor({
         <LinkEditorPlugin onEdit={markEditing} onError={onError}/>
         <TablePlugin hasCellMerge={false} hasHorizontalScroll />
         <TableTools />
-        <DocumentChangePlugin value={value} editing={editing} outputFormat={outputFormat} onChange={onChange}/>
+        <DocumentChangePlugin value={value} seed={seed} editing={editing} outputFormat={outputFormat} onChange={document=>{current.current.value=document;current.current.onChange(document);}} flushSnapshot={flushSnapshot}/>
+        {seed.format==='markdown'&&String(seed.source).length>40000&&<LargeMarkdownPlugin source={String(seed.source)} nodes={documentNodes} progress={loadingProgress} onError={loadingError}/>}
       </LexicalComposer>
       <UploadStatus uploads={uploads}/>
-    </div>
+    </div></>
   );
 }

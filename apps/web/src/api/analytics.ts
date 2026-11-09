@@ -5,13 +5,18 @@ export function analyticsHandlers(services: Pick<ApiServices, 'site' | 'analytic
   return {
     analytics: async ({}, context) => {
       const { url } = context;
-      return {
-        ...(await reports.read('analytics-report', {
+      const value=await reports.read('analytics-report', {
           query: url.searchParams.toString(),
           timezone: site.settings().value.timezone,
-        })),
+        });
+      const section=url.searchParams.get('section')??'all';
+      const report={...value,lifetimePages:['all','actions'].includes(section)?value.lifetimePages:[]};
+      const paths=new Set<string>();
+      for(const key of ['pages','links','crawlers','lifetimePages','recentVisitors','activeVisitors'])for(const row of report[key]??[])for(const field of ['path','entryPath','exitPath'])if(row[field])paths.add(row[field]);
+      for(const row of report.realtime?.visitors??[])if(row.path)paths.add(row.path);
+      return {...report,
         pageTitles: Object.fromEntries(
-          site.visibleRelease()?.entries.map((e) => [e.path, e.title]) || [],
+          site.visibleRelease()?.entries.filter(entry=>paths.has(entry.path)).map((e) => [e.path, e.title]) || [],
         ),
       };
     },

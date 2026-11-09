@@ -61,7 +61,7 @@ it('uses native section tabs and preserves unsaved account fields when switching
   expect(host.querySelector('[role="tablist"]')?.classList.contains('library-status-tabs')).toBe(true);
   expect([...host.querySelectorAll('[role="tab"]')].map(node=>node.textContent)).toEqual(['账户资料','两步验证','登录会话','账户记录']);
   expect([...host.querySelectorAll('h2')].map(node=>node.textContent)).toEqual(['账户资料']);
-  await fill('显示名','新显示名');await fill('当前密码','violet river lantern 2026!');
+  await fill('账户名','changed-owner');await fill('显示名','新显示名');await fill('当前密码','violet river lantern 2026!');
   await click('账户记录');expect(host.querySelector('input')).toBeNull();
   await act(async()=>button('账户记录').dispatchEvent(new KeyboardEvent('keydown',{key:'Home',bubbles:true})));
   expect(host.querySelector('[aria-selected="true"]')?.textContent).toBe('账户资料');
@@ -73,13 +73,13 @@ it('guards leaving an unsaved account form without storing credentials or silent
   let manager!:ReturnType<typeof useEditSessions>;
   function Capture(){manager=useEditSessions();return <AccountPanel setError={setError} notify={notify} sessionGeneration={0}/>;}
   await act(async()=>root.render(<EditSessionsProvider><Capture/></EditSessionsProvider>));
-  await fill('显示名','未保存的显示名');await fill('当前密码','proof stays in memory');
+  await fill('账户名','changed-owner');await fill('显示名','未保存的显示名');await fill('当前密码','proof stays in memory');
   let leave!:Promise<void>;
   await act(async()=>{leave=manager.flush();void leave.catch(()=>{});await Promise.resolve();});
   expect(host.querySelector('dialog[open]')?.textContent).toContain('账户资料尚未保存');
   await click('留在当前页');await expect(leave).rejects.toThrow('修改仍保留');expect(input('显示名').value).toBe('未保存的显示名');
   await act(async()=>{leave=manager.flush();await Promise.resolve();});await click('放弃修改并继续');await leave;
-  expect(input('显示名').value).toBe('站主');expect(input('当前密码').value).toBe('');
+  expect(input('显示名').value).toBe('站主');expect(input('账户名').value).toBe('owner');expect(host.querySelector('[autocomplete="current-password"]')).toBeNull();
   expect(mocks.api.mock.calls.every(([path])=>path==='account')).toBe(true);expect(localStorage.length).toBe(0);
 });
 it('shows the server wait and prevents immediate resubmission on the login screen',async()=>{

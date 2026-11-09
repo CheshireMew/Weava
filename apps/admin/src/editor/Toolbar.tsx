@@ -85,14 +85,16 @@ export function Toolbar({
   snippets = true,
   uploading = false,
   onEdit,
+  disabled,
 }: {
-  onMode: (markdown: string) => void;
+  onMode: (markdown: () => string) => void;
   onMedia: () => Promise<SelectedMedia | null>;
   target?: HTMLElement | null;
   compact?: boolean;
   snippets?: boolean;
   uploading?: boolean;
   onEdit: () => void;
+  disabled?:boolean;
 }) {
   const [editor] = useLexicalComposerContext();
   const [linkActive, setLinkActive] = useState(false);
@@ -175,8 +177,8 @@ export function Toolbar({
   }
   return (
     <ToolbarOutlet target={target}>
-      <FormattingToolbar mode="visual" compact={compact} snippets={snippets} uploading={uploading} onEdit={onEdit} linkActive={linkActive} onCapture={capture}
-        onMode={() => editor.getEditorState().read(() => onMode(exportMarkdown()))}
+      <FormattingToolbar mode="visual" disabled={disabled} compact={compact} snippets={snippets} uploading={uploading} onEdit={onEdit} linkActive={linkActive} onCapture={capture}
+        onMode={() => onMode(()=>editor.getEditorState().read(() => exportMarkdown()))}
         onAction={action} blockType={blockType} onBlock={block}
         onCaptureBlock={() => {blockSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);}}
         codeLanguage={codeLanguage} onCaptureLanguage={() => {codeSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);}}

@@ -8,6 +8,7 @@ export function usePublication(refresh:()=>Promise<any>,setError:(message:string
   const active=useRef(new Set<string>());
   const pending=(operation:string)=>tasks.some(task=>task.job.operation===operation&&taskPending(task))||submitting.some(item=>item.operation===operation);
   const isPublishing=(id?:string)=>!!id&&(submitting.some(item=>item.operation==='publish'&&!!item.ids?.includes(id))||tasks.some(task=>task.job.operation==='publish'&&taskPending(task)&&task.context?.ids?.includes(id)));
+  const publicationPhase=(id?:string)=>!id?null:tasks.some(task=>task.job.operation==='publish'&&taskPending(task)&&task.context?.ids?.includes(id))?'running' as const:submitting.some(item=>item.operation==='publish'&&item.ids?.includes(id))?'submitting' as const:null;
   async function submit(operation:'publish'|'backup'|'verify',payload:any={}) {
     const key=operation+':'+JSON.stringify(payload.ids??[]);
     if(active.current.has(key))return;
@@ -25,7 +26,7 @@ export function usePublication(refresh:()=>Promise<any>,setError:(message:string
     finally{active.current.delete(key);setSubmitting(items=>items.filter(item=>item.key!==key));}
   }
   async function task(operation:'publish'|'backup'|'verify',payload:any={},reviewed=false){
-    if(operation==='publish'&&!reviewed){
+    if(operation==='publish'&&!reviewed&&payload.ids?.length!==1){
       if(active.current.has('review'))return;active.current.add('review');setSubmitting(items=>[...items,{key:'review',operation,ids:payload.ids}]);setError('');
       try{const review=await api('publication',payload);setPublication(review);return review;}catch(error:any){setError(error.message);}finally{active.current.delete('review');setSubmitting(items=>items.filter(item=>item.key!=='review'));}
       return;
@@ -33,6 +34,6 @@ export function usePublication(refresh:()=>Promise<any>,setError:(message:string
     const job=await submit(operation,payload);if(!job)return;
     try{return await awaitTask(job.id);}catch{/* The independent task observer reports this error. */}
   }
-  return {busy:submitting.some(item=>item.operation==='publish'),job:all.find(task=>taskPending(task))?.job??null,publication,setPublication,task,submit,pending,isPublishing};
+  return {busy:submitting.some(item=>item.operation==='publish'),job:all.find(task=>taskPending(task))?.job??null,publication,setPublication,task,submit,pending,isPublishing,publicationPhase};
 }
 export type PublicationController=ReturnType<typeof usePublication>;

@@ -7,6 +7,12 @@ import {createMarkdownParser, markdownFootnotes} from '../../../../packages/runt
 import {FootnoteNode, writingDescendants} from './WritingNodes.tsx';
 
 const parser = createMarkdownParser();
+let parsed: {source:string;tokens:ReturnType<typeof parser.parse>;env:any}|undefined;
+function parse(source:string){
+  if(parsed?.source===source)return parsed;
+  const env:any={},tokens=parser.parse(source,env);
+  return parsed={source,tokens,env};
+}
 export const codeMetadata = createState('weavaCodeMetadata', {parse: value => typeof value === 'string' ? value : ''});
 export const footnoteOrphans = createState('weavaFootnoteOrphans', {parse: (value): Record<string, string> => value && typeof value === 'object' && !Array.isArray(value)
   ? Object.fromEntries(Object.entries(value).filter(([, source]) => typeof source === 'string')) as Record<string, string> : {}});
@@ -18,12 +24,11 @@ const mediaHTML = /^(?:<figure><(video|audio) src="[^"]*" controls preload="meta
 export function supportsVisualEditing(document: Document) {
   if (document.format === 'lexical') return true;
   if (document.format !== 'markdown') return false;
-  const supported = (tokens: ReturnType<typeof parser.parse>): boolean => tokens.every(token =>
+  const supported = (tokens: ReturnType<typeof parser.parse>): boolean => tokens.every(token => token.meta?.weavaTask ||
     !(token.type === 'html_block' && !blockHTML.test(token.content.trim()) && !mediaHTML.test(token.content.trim())) && !(token.type === 'html_inline' && !inlineHTML.test(token.content)) &&
     !(token.type === 'text' && /(?:^::|\$\$)/m.test(token.content)) && (!token.children || supported(token.children)));
   // The checkboxes are generated from Markdown, rather than authored HTML.
-  const tokens = parser.parse(document.source, {});
-  tokens.forEach(token => { if (token.children) token.children = token.children.filter(child => !child.meta?.weavaTask); });
+  const {tokens}=parse(document.source);
   return supported(tokens);
 }
 
@@ -32,10 +37,15 @@ export function importMarkdown(editor: LexicalEditor, source: string) {
   root.append(...markdownNodes(editor, source));
 }
 
-export function markdownNodes(editor: LexicalEditor, source: string) {
-  const env: any = {}, tokens = parser.parse(source, env), codeBlocks = tokens.filter(token => token.type === 'fence' || token.type === 'code_block');
+export function markdownChunks(source:string){
+  const {tokens}=parse(source),chunks:typeof tokens[]=[],chunk:typeof tokens=[];let depth=0,blocks=0;
+  for(const token of tokens){chunk.push(token);depth+=token.nesting;if(depth===0&&++blocks>=512){chunks.push(chunk.splice(0));blocks=0;}}
+  if(chunk.length)chunks.push(chunk);return chunks;
+}
+export function markdownNodes(editor: LexicalEditor, source: string,selected?:ReturnType<typeof parser.parse>) {
+  const parsed=parse(source),env=parsed.env,tokens=selected??parsed.tokens,codeBlocks = tokens.filter(token => token.type === 'fence' || token.type === 'code_block');
   const document = new DOMParser().parseFromString(parser.renderer.render(tokens, parser.options, env), 'text/html');
-  const notes = markdownFootnotes(env), existing = new Map(writingDescendants().filter(node => node instanceof FootnoteNode).map(node => [(node as FootnoteNode).getLabel(), (node as FootnoteNode).getSource()]));
+  const notes = markdownFootnotes(env), existing = new Map(notes.length?writingDescendants().filter(node => node instanceof FootnoteNode).map(node => [(node as FootnoteNode).getLabel(), (node as FootnoteNode).getSource()]):[]);
   const labels = notes.map(note => {
     let label = note.label, suffix = 1;
     while (existing.has(label) && existing.get(label) !== note.source) label = note.label + '-' + ++suffix;

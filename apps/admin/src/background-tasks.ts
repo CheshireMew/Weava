@@ -13,7 +13,7 @@ function persist(){
   try{sessionStorage.setItem(storageKey,JSON.stringify(tasks.map(({id,scope,label,context,job})=>({id,scope,label,context,operation:job.operation}))));}catch{/* Quota failures do not interrupt a server job. */}
 }
 function emit(){tasks=[...tasks];persist();for(const listener of listeners)listener();}
-function schedule(delay=800){if(!timer&&tasks.some(task=>taskPending(task)||task.job.status==='unknown'))timer=setTimeout(()=>{timer=undefined;void poll();},delay);}
+function schedule(delay=50){if(!timer&&tasks.some(task=>taskPending(task)||task.job.status==='unknown'))timer=setTimeout(()=>{timer=undefined;void poll();},delay);}
 function initialize(){
   if(initialized)return;initialized=true;
   try{const saved=JSON.parse(sessionStorage.getItem(storageKey)??'[]');if(Array.isArray(saved))tasks=saved.filter(row=>typeof row.id==='string'&&typeof row.scope==='string').slice(-20).map(row=>({...row,job:{id:row.id,status:'unknown',operation:row.operation}}));}catch{}
@@ -30,7 +30,11 @@ async function poll(){
       if(error.status===404)task.job={...task.job,status:'failed',message:'任务记录已不存在。'};
       else task.readError='暂时无法读取进度，连接恢复后会继续更新。';
     }
-  }));emit();}finally{polling=false;const interactive=tasks.some(task=>task.scope==='publication'&&taskPending(task)&&!task.readError);schedule(typeof document!=='undefined'&&document.hidden?3000:interactive?250:1000);}
+  }));emit();}finally{
+    polling=false;
+    const active=tasks.filter(task=>taskPending(task)&&!task.readError),young=active.some(task=>Date.now()-Date.parse(task.job.createdAt??'')<500),interactive=active.some(task=>task.scope==='publication');
+    schedule(typeof document!=='undefined'&&document.hidden?3000:young?100:interactive?250:1000);
+  }
 }
 const subscribe=(listener:()=>void)=>{initialize();listeners.add(listener);return()=>{listeners.delete(listener);};};
 const snapshot=()=>tasks;
@@ -41,7 +45,7 @@ export function trackTask(job:any,description:{scope:string;label:string;context
   else tasks.push({id:job.id,...description,job});
   const completed=tasks.filter(task=>!taskPending(task)&&task.job.status!=='unknown');
   const remove=new Set(completed.slice(0,Math.max(0,completed.length-12)));tasks=tasks.filter(task=>!remove.has(task));
-  emit();schedule(description.scope==='publication'?50:800);return job;
+  emit();schedule(50);return job;
 }
 export async function startTask(path:string,body:unknown,description:{scope:string;label:string;context?:any},key?:string){return trackTask(await submitJob(path,body,key),description);}
 export function awaitTask(id:string):Promise<any>{

@@ -125,10 +125,11 @@ it('shows the original public date, live metrics and published URL independently
   expect(host.querySelector('time')?.dateTime).toBe(row.updatedAt);
 });
 
-it('prevents opening or batch selection while displayed results are stale', async () => {
+it('keeps visible results openable while a new query settles, without selecting a stale batch', async () => {
   const current = { ...model(), filter: '新查询', searchTerm: '' };
   await act(async () => root.render(<ContentEntries model={current} selectable />));
-  expect(host.querySelector<HTMLButtonElement>('.publication-open')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLButtonElement>('.publication-open')!.disabled).toBe(false);
+  await act(async()=>host.querySelector<HTMLButtonElement>('.publication-open')!.click());expect(current.select).toHaveBeenCalled();
   expect(host.querySelector<HTMLInputElement>('[aria-label="批量选择 已有文章"]')!.disabled).toBe(true);
   expect(host.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!.disabled).toBe(true);
 });

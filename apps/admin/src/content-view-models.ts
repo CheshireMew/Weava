@@ -80,6 +80,7 @@ export function contentViewModels({
     clear,
     state: catalog,
     busy,
+    publicationPhase:options.publicationPhase?.(record?.id),
     setError,
     newEntry,
     publish,

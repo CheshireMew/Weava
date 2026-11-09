@@ -13,7 +13,7 @@ export interface SeoPage{
 export interface DynamicRedirect{status:number;targets:string[]}
 export interface SeoSnapshot{version:1;domain:string;createdAt:string;pages:Record<string,SeoPage>;sitemaps:Record<string,{status:number;urls:string[]}>;robots:{status:number;text:string};resources:Record<string,number>;resourcePaths?:Record<string,string[]>;dynamicRedirects?:Record<string,DynamicRedirect>}
 export interface SeoDifference{path:string;field:string;before:unknown;after:unknown}
-export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;routes?:{prefix:string;origin:string}[];paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;signal?:AbortSignal}
+export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;routes?:{prefix:string;origin:string}[];paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;discovery?:'full'|'selected';signal?:AbortSignal}
 function localPath(value:string,domain:string){try{const url=new URL(value,domain);if(url.origin!==new URL(domain).origin)return null;url.hash='';url.searchParams.sort();return url.pathname+url.search;}catch{return null;}}
 function logicalUrl(value:string,domain:string){try{return new URL(value,domain).href.replace(/\/_site\/[\w-]+\//g,'/_site/{build}/');}catch{return value;}}
 export function upgradeProbePath(stamp:string,target:string,build?:string){return '/__weava_upgrade_missing_'+digest([stamp,target,build??null]).slice(0,32);}
@@ -70,7 +70,7 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
   snapshot.sitemaps[path]={status:response.status,urls};
   if(response.status>=500)throw new Error('网站地图暂不可用：'+path);
   if(response.ok){for(const loc of $('sitemap > loc').map((_,e)=>$(e).text().trim()).get()){const path=localPath(loc,domain);if(!path)throw new Error('网站地图索引指向站外地址，请检查：'+loc);maps.push(path);}
-   for(const loc of urls){const path=localPath(loc,domain);if(!path)throw new Error('网站地图包含站外地址，请检查：'+loc);initial.push(path);}}
+   for(const loc of urls){const path=localPath(loc,domain);if(!path)throw new Error('网站地图包含站外地址，请检查：'+loc);if(options.discovery!=='selected')initial.push(path);}}
  }
  const queued=new Set<string>(),resources=new Set<string>();let frontier:string[]=[];
  const enqueue=(path:string)=>{const parsed=localPath(path,domain);if(!parsed||reserved.test(parsed)||queued.has(parsed))return;if(queued.size>=max)throw new Error('公开页面超过 SEO 检查上限，未使用抽样代替完整检查。');queued.add(parsed);frontier.push(parsed);};
@@ -81,7 +81,7 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
    if(staticPath&&response.status===200&&response.headers.get('content-type')?.includes('html')){await response.body?.cancel();response=await request(path);}
    let text='';if(response.headers.get('content-type')?.includes('html'))text=await readBounded(response,4*1024*1024);else await response.body?.cancel();const result=analyzePage(text,response.status,response.headers,domain,path);
    const dynamic=options.dynamicRedirects?.[path];if(dynamic&&result.page.status===dynamic.status&&dynamic.targets.includes(result.page.location??''))result.page.location='dynamic:'+path;
-   snapshot.pages[path]=result.page;result.discover.forEach(enqueue);result.resources.forEach(path=>resources.add(path));
+   snapshot.pages[path]=result.page;if(options.discovery!=='selected')result.discover.forEach(enqueue);result.resources.forEach(path=>resources.add(path));
   }));}
  const identity=(path:string)=>localPath(logicalUrl(path,domain),domain)!;
  const current=new Set([...resources].map(identity));
@@ -97,6 +97,21 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
   (snapshot.resourcePaths![key]??=[]).push(path);await response.body?.cancel();
  }));
  return snapshot;
+}
+/** Full output comparison already ran while the old site was serving traffic.
+ * The maintenance gate verifies each page template, redirects, and resource route. */
+export function activationSnapshot(snapshot:SeoSnapshot,paths:string[],prefixes:string[]):SeoSnapshot{
+ const pages=Object.fromEntries(sorted(['/',...paths]).filter(path=>snapshot.pages[path]).map(path=>[path,snapshot.pages[path]]));
+ const images=new Set(Object.values(pages).flatMap(page=>page.images??[]).map(value=>localPath(value,snapshot.domain)));
+ const groups=new Set<string>(),resources:Record<string,number>={},resourcePaths:Record<string,string[]>={};
+ for(const [key,status] of Object.entries(snapshot.resources??{})){
+  const pathname=new URL(key,snapshot.domain).pathname;
+  const prefix=[...prefixes,'/media/','/_site/'].find(prefix=>pathname.startsWith(prefix))??pathname.split('/').slice(0,2).join('/')+'/';
+  const group=prefix+':'+(pathname.match(/\.[a-z0-9]+$/i)?.[0]??'')+':'+status;
+  if(!images.has(key)&&groups.has(group))continue;
+  groups.add(group);resources[key]=status;resourcePaths[key]=snapshot.resourcePaths?.[key]??[key];
+ }
+ return {...snapshot,pages,resources,resourcePaths};
 }
 const robotsPolicy=(text:string)=>text.split(/\r?\n/).map(line=>line.split('#')[0].trim()).filter(Boolean).join('\n');
 export function compareSeo(before:SeoSnapshot,after:SeoSnapshot){

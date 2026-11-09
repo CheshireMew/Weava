@@ -62,6 +62,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
   if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<LoadingState label="读取账户" />}</section>;
   const proof={password,code:code||undefined},blocked=busy||!!cooldown.seconds;
   const cannotProve=blocked||!password||(account.twoFactorEnabled&&!code);
+  const sensitiveProfile=username!==account.username||!!newPassword||!!repeat;
   const verification=<div className="account-proof">
       <PasswordField label="当前密码" autoComplete="current-password" value={password} onChange={event=>setPassword(event.target.value)}/>
       {account.twoFactorEnabled&&<label>验证码或恢复码<input autoComplete="one-time-code" value={code} onChange={event=>setCode(event.target.value)}/></label>}
@@ -72,7 +73,7 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     <section className="panel-section" role="tabpanel" id={id+'panel'} aria-labelledby={id+section}>
     {section==='profile'&&<section className="form-card"><h2>账户资料</h2><form onSubmit={event=>{event.preventDefault();act(async()=>{
       if(newPassword!==repeat)throw new Error('两次新密码不一致。');
-      const result=await api('account',{...proof,username,displayName,newPassword:newPassword||undefined});
+      const result=await api('account',{...(sensitiveProfile?proof:{}),username,displayName,newPassword:newPassword||undefined});
       if(result.loginRequired){window.location.reload();return;}await refresh();notify('账户资料已保存。');
     });}}>
       <label>账户名<input required minLength={3} maxLength={64} pattern={'[a-zA-Z0-9_.\\-]+'} autoComplete="username" value={username} onChange={event=>setUsername(event.target.value)}/></label>
@@ -80,8 +81,8 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
       <PasswordField label="新密码" minLength={15} maxLength={1024} autoComplete="new-password" value={newPassword} onChange={event=>setNewPassword(event.target.value)}/>
       <PasswordField label="确认新密码" autoComplete="new-password" value={repeat} onChange={event=>setRepeat(event.target.value)}/>
       <p>新密码至少 15 个字符，支持中文和空格。留空则保留原密码。修改账户名或密码会退出全部网页登录。</p>
-      {verification}
-      <button className="primary" disabled={cannotProve}>保存账户</button>
+      {sensitiveProfile&&verification}
+      <button className="primary" disabled={sensitiveProfile?cannotProve:blocked}>保存账户</button>
     </form></section>}
     {section==='two-factor'&&<section className="form-card"><h2>两步验证</h2>
       <p>{account.twoFactorEnabled?`已启用，还剩 ${account.recoveryCodesRemaining} 个恢复码。`:'使用验证器应用生成的 6 位验证码保护账户。'}</p>

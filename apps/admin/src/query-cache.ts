@@ -78,7 +78,7 @@ export class QueryCache {
     this.epoch++;
     for(const [key,entry]of this.entries)if(matches(key)){entry.epoch=this.epoch;entry.expires=0;entry.request=undefined;}
     let ended=false;
-    return ()=>{if(ended)return;ended=true;this.writes.delete(write);this.invalidate(false,matches);finish();};
+    return (revalidate=matches)=>{if(ended)return;ended=true;this.writes.delete(write);this.invalidate(false,revalidate);finish();};
   }
   invalidate(clear = false, matches:(key:string)=>boolean = ()=>true) {
     this.epoch++;

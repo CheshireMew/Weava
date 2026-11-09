@@ -1,21 +1,18 @@
 import { load } from 'cheerio';
-import { createHash } from 'node:crypto';
 import {isNoteType,type ContentType,type Block,type Entry,type PublishedEntry} from '@weava/contracts';
 import { firstDocumentImage } from './document-inspection.ts';
 
 function firstImage(html: string) {
+  if(!/<img\b/i.test(html))return '';
   return load(html, null, false)('img[src]').first().attr('src') ?? '';
 }
-
-const defaultCoverIds = [10, 11, 12, 15, 16, 17, 18, 19];
-function defaultArticleCover(entry: Entry) {
-  if (entry.kind !== 'content') return '';
-  const index = createHash('sha256').update(entry.id).digest().readUInt32BE(0) % defaultCoverIds.length;
-  return '/default-covers/picsum-' + defaultCoverIds[index] + '.webp';
-}
+const publishedImages=new WeakMap<object,{html:string;image:string}>();
 
 function firstBodyImage(entry: Entry | PublishedEntry): string {
-  if ('html' in entry) return firstImage(entry.html);
+  if ('html' in entry){
+    const cached=publishedImages.get(entry);if(cached?.html===entry.html)return cached.image;
+    const image=firstImage(entry.html);publishedImages.set(entry,{html:entry.html,image});return image;
+  }
   if (!entry.blocks?.length) return firstDocumentImage(entry.document);
   const visit = (blocks: Block[]): string => {
     for (const block of blocks) {
@@ -37,8 +34,8 @@ function firstBodyImage(entry: Entry | PublishedEntry): string {
   return visit(entry.blocks);
 }
 
-/** Manual cover, body image, then a stable local photo for otherwise imageless articles. */
+/** Use an authored cover or body image; imageless articles keep the layout's light placeholder. */
 export function entryCover(entry: Entry | PublishedEntry, definition?:Pick<ContentType,'id'|'format'>): string {
   if(isNoteType(definition??{id:entry.type}))return '';
-  return entry.cover || firstBodyImage(entry) || defaultArticleCover(entry);
+  return entry.cover || firstBodyImage(entry);
 }

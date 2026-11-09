@@ -110,7 +110,7 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     const existing = graph.findIndex((item) => node['@id'] ? item['@id'] === node['@id'] : item['@type'] === node['@type'] && item.url === node.url);
     if (existing < 0) graph.push(node); else graph[existing] = { ...node, ...graph[existing] };
   }
-  if (options.html) {
+  if (options.html&&(/\bdata-weava-faq\b/i.test(options.html)||options.media&&entry&&!hidden&&/<video\b/i.test(options.html))) {
     const $ = load(options.html), questions: Record<string, any>[] = [];
     $('[data-weava-faq] details').each((_index, element) => {
       const question = $(element).children('summary').first().text().trim(), answer = $(element).children('div').text().trim();

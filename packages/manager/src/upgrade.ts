@@ -13,7 +13,7 @@ import {
 import { probeServer } from './probe-server.ts';
 import { maintenance, maintenanceProbeHeaders, prepareProxy, proxyDirectory, saveRobots } from './proxy.ts';
 import { publicInventory, siteStamp } from './public-inventory.ts';
-import { captureSeo, compareSeo, upgradeProbePath, type SeoSnapshot } from './seo-check.ts';
+import { activationSnapshot, captureSeo, compareSeo, upgradeProbePath, type SeoSnapshot } from './seo-check.ts';
 import { checkService } from './service-check.ts';
 import {
   atomic,
@@ -29,6 +29,12 @@ import {
 export interface UpgradeOptions {
   check?: boolean;
   acceptSeo?: string;
+}
+/** Runtime/CLI maintenance changes do not require crawling unchanged public render code. */
+export function publicProgramFingerprint(program: {manifest:any}) {
+  return hash([program.manifest.schemaVersion,program.manifest.files
+    .filter((file:any)=>file.path.startsWith('web/')||/^runtime\/site-(?:entry|build|public)\.mjs$/.test(file.path))
+    .sort((a:any,b:any)=>a.path.localeCompare(b.path))]);
 }
 export async function withUpgradeLock<T>(root: string, action: () => Promise<T>) {
   const lock = new DatabaseSync(root + '.upgrade-access.sqlite');
@@ -113,6 +119,13 @@ export async function protectedUpgrade(
     const wasRunning = hostStatus.sites.some(
       (s: any) => s.id === id && ['running', 'starting'].includes(s.status),
     );
+    if (!options.check && wasRunning && prior.programId === candidate.manifest.id &&
+        prior.manifestHash === candidate.manifestHash && prior.siteBuildId === buildId &&
+        hostStatus.sites.some((s:any)=>s.id===id&&s.status==='running'&&s.programId===candidate.manifest.id)) {
+      await checkService(root, { homepage:true, agent:'WeavaUpgradeCheck' });
+      return { unchanged:true, verified:true, programId:candidate.manifest.id, oldSiteStopped:false,
+        timings:{preparationMs:0,maintenanceMs:0} };
+    }
     const operation = randomUUID(),
       started = Date.now();
     let work: string | undefined,
@@ -126,8 +139,19 @@ export async function protectedUpgrade(
       maintenanceStarted = 0;
     try {
       if (!wasRunning) await requestHost(home, 'start', { id });
-      const originalStamp = siteStamp(root),
-        prepared = await onlineWorkspace(home, root, candidate, buildId, buildHash);
+      const originalStamp = siteStamp(root),preflightFile=join(root,'.weava-preflight.json');
+      let cached:any;
+      if(options.acceptSeo&&existsSync(preflightFile)){
+        try{
+          const saved=json<any>(preflightFile);
+          if(saved.approval===options.acceptSeo&&saved.stamp===originalStamp&&saved.target===candidate.manifestHash&&
+              saved.buildHash===(buildHash??null)&&saved.routingHash===routingHash){
+            const work=inside(join(installation.backupRoot,config.id),saved.work),before=json(join(work,'seo-before.json')),after=json(join(work,'seo-preflight.json'));
+            if(siteStamp(work)===saved.workStamp&&hash([before,after,saved.rehearsal])===saved.outputHash)cached={...saved,before,after};
+          }
+        }catch{/* An unavailable or changed rehearsal is recomputed while the old site stays online. */}
+      }
+      const prepared:{root:string;stamp:string} = cached?{root:cached.work,stamp:originalStamp}:await onlineWorkspace(home, root, candidate, buildId, buildHash);
       work = prepared.root;
       if (prepared.stamp !== originalStamp || siteStamp(root) !== originalStamp)
         throw new Error('准备网站副本时资料发生变化，旧站继续运行，请重试。');
@@ -138,30 +162,41 @@ export async function protectedUpgrade(
         ...inventory.paths,
         upgradeProbePath(originalStamp, candidate.manifestHash, buildHash),
       ];
-      const baseline = await captureSeo({
+      const missingStatic=routes.map(route=>route.prefix+upgradeProbePath(originalStamp,candidate.manifestHash,buildHash).slice(1)+'.png');
+      paths.push(...missingStatic);
+      const priorProgram=programFor(installation,prior.programId,false);
+      const unchangedRendering=!options.check&&prior.siteBuildId===buildId&&
+        publicProgramFingerprint(priorProgram)===publicProgramFingerprint(candidate);
+      const criticalPaths=[...(inventory.criticalPaths??inventory.paths),...inventory.redirects,
+        ...Object.keys(inventory.dynamicRedirects),...paths.filter(path=>path.includes('__weava_upgrade_missing_'))];
+      const discovery=unchangedRendering?'selected' as const:undefined;
+      const baseline:SeoSnapshot = cached?.before??await captureSeo({
         origin,
         routes:routes.map(route=>({prefix:route.prefix,origin})),
         domain: inventory.domain,
-        paths,
+        paths:unchangedRendering?criticalPaths:paths,
+        discovery,
         redirects: inventory.redirects,
         dynamicRedirects: inventory.dynamicRedirects,
       });
       atomic(join(work, 'seo-before.json'), baseline);
       if (siteStamp(root) !== originalStamp)
         throw new Error('采集公开页面时网站资料发生变化，旧站继续运行，请重试。');
-      const rehearsal = await checkWorkspace(home, root, work, candidate);
+      const rehearsal = cached?.rehearsal??await checkWorkspace(home, root, work, candidate);
+      let after:SeoSnapshot=cached?.after;
+      if(!cached){
       const probe = await probeServer(installation.node, candidate, work, config.environment, {
         WEAVA_INSTALLATION: home,
         WEAVA_SITE_ID: id,
         WEAVA_RESOURCE_ROOT: root,
         WEAVA_SITE_BUILDS_ROOT: join(root, 'site-builds'),
       });
-      let after: SeoSnapshot;
       try {
         after = await captureSeo({
           origin: probe.origin,
           domain: inventory.domain,
-          paths,
+          paths:unchangedRendering?criticalPaths:paths,
+          discovery,
           redirects: inventory.redirects,
           dynamicRedirects: inventory.dynamicRedirects,
           headers: probe.headers,
@@ -170,6 +205,7 @@ export async function protectedUpgrade(
         });
       } finally {
         await probe.stop();
+      }
       }
       atomic(join(work, 'seo-preflight.json'), after);
       const report = compareSeo(baseline, after),
@@ -185,6 +221,8 @@ export async function protectedUpgrade(
         );
       const reportFile = join(work, 'seo-report.json');
       atomic(reportFile, { ...report, approval, operation, stage: 'preflight' });
+      atomic(preflightFile,{version:1,work,stamp:originalStamp,target:candidate.manifestHash,buildHash:buildHash??null,routingHash,
+        approval,rehearsal,workStamp:siteStamp(work),outputHash:hash([baseline,after,rehearsal])});
       if (!report.passed && options.acceptSeo !== approval)
         throw Object.assign(new Error('SEO 对比未通过，尚未停止旧站。报告：' + reportFile), {
           details: { report: reportFile, approval, differences: report.differences.length },
@@ -242,21 +280,23 @@ export async function protectedUpgrade(
       const token = randomBytes(32).toString('hex');
       await requestHost(home, 'start', { id, validation: true, probeToken: token });
       await requestHost(home, 'initialize', { id });
+      const expected = activationSnapshot(after,criticalPaths,routes.map(route=>route.prefix));
       const actualStamp = siteStamp(root),
         actual = await captureSeo({
           origin,
           routes:routes.map(route=>({prefix:route.prefix,origin})),
           domain: inventory.domain,
-          paths,
+          paths:Object.keys(expected.pages),
           redirects: inventory.redirects,
           dynamicRedirects: inventory.dynamicRedirects,
           headers: { 'x-weava-upgrade-probe': token,...(routing?.proxyOrigin?proxyProbe:{}) },
-          seed: baseline,
+          seed: expected,
+          discovery:'selected',
         });
       atomic(join(work, 'seo-after.json'), actual);
-      const final = compareSeo(baseline, actual);
+      const final = compareSeo(expected, actual);
       atomic(join(work, 'seo-final-report.json'), { ...final, operation, stage: routing?.proxyOrigin?'public-proxy':'actual-service',origin });
-      if (JSON.stringify(final.differences) !== JSON.stringify(report.differences))
+      if (!final.passed)
         throw new Error(
           '实际网站的 SEO 输出与已演练结果不同，正在恢复。报告：' +
             join(work, 'seo-final-report.json'),
@@ -304,8 +344,10 @@ export async function protectedUpgrade(
       return {
         ...result,
         verified: true,
-        seo: { ...final, accepted: !report.passed, report: join(work, 'seo-final-report.json') },
+        seo: { ...final, accepted: !report.passed, preflight:reportFile, report: join(work, 'seo-final-report.json'),
+          scope:unchangedRendering?'unchanged-rendering':'full-output',preflightPages:Object.keys(after.pages).length,activationPages:Object.keys(actual.pages).length },
         proxyVerified: !!installation.sites[id]?.proxyOrigin,
+        reusedPreflight:!!cached,
         timings,
       };
     } catch (error) {

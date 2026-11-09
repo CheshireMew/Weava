@@ -12,7 +12,7 @@ import {
   sessionResult,
 } from '@weava/contracts/session-api';
 import { adminQueries } from './query-cache.ts';
-import { affectedQueries, jobDomains, mutationDomains } from './query-effects.ts';
+import { affectedQueries, jobDomains, submissionDomains } from './query-effects.ts';
 export { ApiClientError as ApiError } from '@weava/contracts/api-error';
 const unauthorized = () => {
   adminQueries.suspend();
@@ -66,10 +66,12 @@ async function perform(path: string, body: unknown, execute: () => Promise<any>)
   else if (authentication && mutation) adminQueries.invalidate(true);
   const end =
     mutation && !authentication
-      ? adminQueries.beginWrite(affectedQueries(mutationDomains(path, body)))
-      : () => {};
+      ? adminQueries.beginWrite(affectedQueries(submissionDomains(path, body)))
+      : (_matches?: (path:string)=>boolean) => {};
+  let completedDomains:ReturnType<typeof affectedQueries>|undefined;
   try {
     const value = await execute();
+    if(value?.status==='complete'&&value.operation)completedDomains=affectedQueries(jobDomains(value.operation));
     if (path === 'login' || path === 'account-access/complete') adminQueries.resume();
     if (path === 'logout') signedOut();
     return value;
@@ -86,7 +88,7 @@ async function perform(path: string, body: unknown, execute: () => Promise<any>)
     }
     throw error;
   } finally {
-    end();
+    end(completedDomains);
   }
 }
 async function request(path: string, body?: unknown): Promise<any> {

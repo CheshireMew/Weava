@@ -11,6 +11,19 @@ function localBytes(path:string):number {
   if(stat.isFile())return stat.size;
   return stat.isDirectory()?readdirSync(path).reduce((sum,name)=>sum+localBytes(join(path,name)),0):0;
 }
+/** Immediate metadata only. Historical references and directory trees are scanned separately. */
+export function storageOverview(site:Site){
+  const saved=site.store.state('storage-usage');
+  const snapshot=saved?JSON.parse(saved):null;
+  const physical=(name:string)=>['','-wal','-shm'].reduce((sum,ext)=>sum+(existsSync(join(site.root,name+ext))?statSync(join(site.root,name+ext)).size:0),0);
+  const versions=site.store.raw.prepare('SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM revisions INDEXED BY revision_data_bytes').get() as {count:number;bytes:number};
+  const releases=site.store.raw.prepare('SELECT COUNT(*) count,COALESCE(SUM(LENGTH(CAST(data AS BLOB))),0) bytes FROM releases INDEXED BY release_data_bytes').get() as {count:number;bytes:number};
+  const media=site.store.raw.prepare("SELECT COUNT(*) count,COALESCE(SUM(json_extract(data,'$.bytes')),0) bytes FROM media_list").get() as {count:number;bytes:number};
+  return {uploadsBytes:0,logsBytes:0,importsBytes:0,publicationObjects:[],unreferenced:{count:0,bytes:0,files:[]},backups:[],media,
+    ...snapshot?.usage,databaseBytes:physical('weava.sqlite'),analyticsBytes:physical('analytics.sqlite'),businessBytes:physical('business.sqlite'),versions,releases,
+    temporary:previewTemporaryCleanup(site),pendingUploads:site.store.raw.prepare("SELECT id,name,size,offset,status FROM media_uploads WHERE status NOT IN ('complete','purged') ORDER BY expires LIMIT 100").all(),
+    scan:{checkedAt:snapshot?.checkedAt??null}};
+}
 export function storageUsage(site: Site) {
   expireUploads(site);
   const refs = maintenanceReferences(site);

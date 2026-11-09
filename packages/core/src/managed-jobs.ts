@@ -1,0 +1,72 @@
+import {appendFileSync,existsSync,statSync} from 'node:fs';
+import {join} from 'node:path';
+import {WeavaError,type Job} from '@weava/contracts';
+import type {Site} from './site.ts';
+import type {ExtensionManager} from './extension-manager.ts';
+import {inside} from '../../runtime-common/src/paths.ts';
+
+/** Runs in a reusable child. The parent owns its deadline and can terminate a blocked job. */
+export async function executeManagedJob(site:Site,job:Job,content:()=>Promise<{manager:ExtensionManager}>) {
+  const previousId=process.env.WEAVA_JOB_ID,previousRoot=process.env.WEAVA_JOB_ROOT;
+  process.env.WEAVA_JOB_ID=job.id;process.env.WEAVA_JOB_ROOT=site.root;
+  const log=(value:unknown)=>{
+    const file=join(site.root,'logs',job.id+'.log');
+    try{if(!existsSync(file)||statSync(file).size<8*1024*1024)appendFileSync(file,typeof value==='string'?value+'\n':JSON.stringify(value)+'\n');}
+    catch(error){console.error('任务日志写入失败',error);}
+  };
+  try {
+    site.store.assertTask();
+    site.updateJob(job.id,{workerPid:process.pid,message:'正在执行…'});
+    log(new Date().toISOString()+' '+job.operation);
+    let result:unknown;
+    if(job.operation==='withdraw'||job.operation==='entry-delete'){
+      // Unpublished drafts need neither a renderer nor a publication candidate.
+      const published=site.release()?.entries.some(entry=>entry.id===job.payload.id);
+      const manager=published?(await content()).manager:undefined;
+      result=await(await import('./content-mutations.ts')).executeContentMutation(site,manager,job.operation,job.payload,job.id);
+    } else if(job.operation==='storage-scan'){
+      const usage=(await import('./maintenance.ts')).storageUsage(site),checkedAt=new Date().toISOString();
+      site.store.setState('storage-usage',JSON.stringify({checkedAt,usage}));result={checkedAt};
+    } else if(job.operation==='backup'){
+      result=await(await import('./backup.ts')).createBackup(site,job.payload.path??process.env.WEAVA_BACKUP_ROOT??'D:/Tools/weava/backups',job.payload.label);
+    } else if(job.operation==='verify'){
+      result=(await import('./backup.ts')).verifyBackup(job.payload.path);
+    } else if(job.operation==='import-json'){
+      result=(await import('./json-import.ts')).executeJsonImport(site,job.id,job.payload);
+    } else if(job.operation==='archive-history'){
+      result=await(await import('./history-archive.ts')).archiveHistory(site,job.payload.options,job.payload.review);
+    } else if(job.operation==='restore-history'){
+      result=(await import('./history-archive.ts')).restoreHistoryArchive(site,job.payload.id);
+    } else if(job.operation==='media'){
+      result=job.payload.uploadId
+        ?await(await import('./media-upload.ts')).completeMediaUpload(site,job.payload.uploadId,job.id)
+        :await(await import('./media.ts')).uploadMedia(site,inside(join(site.root,'media'),job.payload.path),job.payload.name);
+    } else if(job.operation==='seo-audit'){
+      const {manager}=await content();
+      const {preparePublication}=await import('./publication.ts');
+      const {auditBasis,auditRelease,auditStatus,fetchAuditResponses,storeAudit}=await import('./seo-audit.ts');
+      const target=job.payload.target==='draft'?'draft':'published';
+      if(job.payload.http&&target!=='published')throw new WeavaError('HTTP 检查只能读取已发布页面。');
+      site.updateJob(job.id,{message:'正在准备检查内容…'});
+      const basis=auditBasis(site,target),release=target==='draft'?preparePublication(site,job.payload.options??{}).release:site.release();
+      if(!release)throw new WeavaError('网站尚未发布，请选择工作稿检查。');
+      site.updateJob(job.id,{message:job.payload.http?'正在读取公开页面…':'正在检查页面…'});
+      const responses=job.payload.http?await fetchAuditResponses(release,job.payload.origin):undefined;
+      const report=await auditRelease(release,{target,basis,responses,blocks:manager.blocks,
+        render:(entry,release)=>manager.render(entry,release),metadata:(entry,release,url,options)=>manager.metadata(entry,release,url,options),
+        progress:(checked,total)=>site.updateJob(job.id,{message:`正在检查页面：${checked} / ${total}`})});
+      storeAudit(site,report);result=auditStatus(site,report);
+    } else throw new WeavaError('未知复用任务：'+job.operation);
+    if(site.job(job.id).status!=='complete'){
+      site.store.assertTask();site.updateJob(job.id,{status:'complete',message:'已完成。',result});
+    }
+    log({status:'complete',jobId:job.id,operation:job.operation});
+    return result;
+  } catch(error:any) {
+    log({status:'failed',jobId:job.id,message:String(error.stack??error.message).slice(-8192)});
+    throw error;
+  } finally {
+    if(previousId===undefined)delete process.env.WEAVA_JOB_ID;else process.env.WEAVA_JOB_ID=previousId;
+    if(previousRoot===undefined)delete process.env.WEAVA_JOB_ROOT;else process.env.WEAVA_JOB_ROOT=previousRoot;
+  }
+}

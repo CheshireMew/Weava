@@ -7,7 +7,8 @@ export function useScheduleUpdates(
   receiveSchedules: (rows: ContentState['schedules']) => void,
   setError: (message: string) => void,
 ) {
-  const pendingSchedule = schedules.some((row) => row.value.status === 'scheduled');
+  const dueAt=Math.min(...schedules.filter(row=>['scheduled','running'].includes(row.value.status)).map(row=>Date.parse(row.value.dueAt)));
+  const pendingSchedule=Number.isFinite(dueAt);
   useEffect(() => {
     if (!pendingSchedule) return;
     let active = true;
@@ -24,13 +25,13 @@ export function useScheduleUpdates(
       } catch (error: any) {
         if (active) setError(error.message);
       } finally {
-        if (active) timer = setTimeout(poll, 5000);
+        if (active) timer = setTimeout(poll,document.hidden?5000:Date.now()-dueAt<3000?250:3000);
       }
     };
-    timer = setTimeout(poll, 5000);
+    timer = setTimeout(poll,Math.min(5000,Math.max(0,dueAt-Date.now()+150)));
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [pendingSchedule]);
+  }, [pendingSchedule,dueAt]);
 }

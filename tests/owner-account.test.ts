@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import { Site } from '../packages/core/src/site.ts';
 import { totpCode,totpStep } from '../packages/core/src/two-factor.ts';
 import { createBackup,copyVerifiedBackup } from '../packages/core/src/backup.ts';
-const base='D:/Tools/cache/weava/tests/owner-'+Date.now();
+const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/owner-'+Date.now();
 const password='owner-password-for-test';
 function create(name:string){const site=new Site(join(base,name));site.setOwner(password);return site;}
 
@@ -21,7 +21,7 @@ it('changes the single owner identity and password only after proof, revoking ol
     const first=await site.login(password,'a',{userAgent:'browser-a'}),second=await site.login(password,'b');
     const account=site.auth.account(first);expect(account.username).toBe('owner');expect(account.sessions).toHaveLength(2);
     expect(JSON.stringify(account)).not.toContain(first);expect(JSON.stringify(account)).not.toContain(second);
-    await expect(site.auth.updateAccount('wrong','c',{username:'owner',displayName:'Name'})).rejects.toMatchObject({status:401});
+    await expect(site.auth.updateAccount('wrong','c',{username:'owner',displayName:'Name',newPassword:'attempted-owner-password'})).rejects.toMatchObject({status:401});
     expect(site.authenticate(first)).toBe(true);
     await site.auth.revokeSessions(password,'d','others',first);expect(site.authenticate(second)).toBe(false);expect(site.authenticate(first)).toBe(true);
     expect(await site.auth.updateAccount(password,'e',{username:'nico',displayName:'Nico',newPassword:'new-owner-password'})).toEqual({ok:true,loginRequired:true});
@@ -40,10 +40,18 @@ it('reports a username-only change as requiring a fresh login',async()=>{
 });
 it('bounds sensitive-operation attempts separately from login attempts',async()=>{
   const site=create('sensitive-limits');try{
-    for(let i=0;i<5;i++)await expect(site.auth.updateAccount('wrong','same-network',{username:'owner',displayName:'Owner'})).rejects.toMatchObject({status:401});
-    await expect(site.auth.updateAccount(password,'same-network',{username:'owner',displayName:'Owner'})).rejects.toMatchObject({status:429});
+    for(let i=0;i<5;i++)await expect(site.auth.updateAccount('wrong','same-network',{username:'changed-owner',displayName:'Owner'})).rejects.toMatchObject({status:401});
+    await expect(site.auth.updateAccount(password,'same-network',{username:'changed-owner',displayName:'Owner'})).rejects.toMatchObject({status:429});
     expect(site.authenticate(await site.login(password,'same-network'))).toBe(true);
   }finally{site.close();}
+});
+it('updates an ordinary display name without another password or revoking the authenticated session',async()=>{
+ const site=create('display-name');try{
+  const token=await site.login(password);
+  expect(await site.auth.updateAccount(undefined,'profile',{username:'owner',displayName:'New name'})).toEqual({ok:true,loginRequired:false});
+  expect(site.auth.account(token).displayName).toBe('New name');expect(site.authenticate(token)).toBe(true);
+  await expect(site.auth.updateAccount(undefined,'sensitive',{username:'renamed',displayName:'New name'})).rejects.toMatchObject({status:401});
+ }finally{site.close();}
 });
 it('confirms setup before enabling, prevents replay, consumes recovery once, and supports offline reset',async()=>{
   const site=create('totp'),clock=vi.spyOn(Date,'now').mockReturnValue(1800000000000);

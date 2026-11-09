@@ -1,8 +1,11 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { isIP } from 'node:net';
-import { gunzipSync } from 'node:zlib';
+import { gunzip } from 'node:zlib';
+import {promisify} from 'node:util';
+import {readFile,writeFile} from 'node:fs/promises';
 import { Reader, type CountryResponse } from 'maxmind';
+const unzip=promisify(gunzip);
 
 export class AnalyticsGeo {
   private reader?: Reader<CountryResponse>;
@@ -58,7 +61,7 @@ export class AnalyticsGeo {
       return '';
     }
   }
-  async update(force = true) {
+  async update(force = false) {
     if (this.stopped) throw new Error('地区库服务已关闭。');
     if (this.pending) return this.pending;
     const state = this.status();
@@ -70,8 +73,10 @@ export class AnalyticsGeo {
       try {
         const response = await fetch(
           `https://download.db-ip.com/free/dbip-country-lite-${month}.mmdb.gz`,
-          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]) },
+          { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(60000)]),headers:state.updatedAt?{'If-Modified-Since':new Date(state.updatedAt).toUTCString()}:{} },
         );
+        if(response.status===304){this.error='';}
+        else {
         if (!response.ok) throw new Error('地区库下载失败：HTTP ' + response.status);
         if (Number(response.headers.get('content-length')) > 30 * 1024 * 1024)
           throw new Error('地区库文件过大。');
@@ -82,19 +87,23 @@ export class AnalyticsGeo {
           if (size > 30 * 1024 * 1024) throw new Error('地区库文件过大。');
           chunks.push(chunk);
         }
-        const bytes = gunzipSync(Buffer.concat(chunks), { maxOutputLength: 64 * 1024 * 1024 });
+        const bytes = await unzip(Buffer.concat(chunks), { maxOutputLength: 64 * 1024 * 1024 });
+        const unchanged=existsSync(this.file)&&bytes.equals(await readFile(this.file));
+        if(!unchanged){
         const candidate = new Reader<CountryResponse>(bytes);
         if (this.stopped) throw new Error('地区库服务已关闭。');
         if (!candidate.metadata.databaseType.toLowerCase().includes('country'))
           throw new Error('不是有效的国家地区数据库。');
         mkdirSync(join(this.file, '..'), { recursive: true });
-        const staged = this.file + '.pending-' + crypto.randomUUID();
-        writeFileSync(staged, bytes);
-        if (existsSync(this.file)) renameSync(this.file, this.file + '.retained-' + Date.now());
+        const staged = this.file + '.pending';
+        await writeFile(staged, bytes);
+        if (existsSync(this.file)) renameSync(this.file, this.file + '.previous');
         renameSync(staged, this.file);
         this.reader = candidate;
         this.stamp = statSync(this.file).mtimeMs;
+        }
         this.error = '';
+        }
       } catch (error: any) {
         this.error = error.message;
         throw error;

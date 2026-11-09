@@ -6,11 +6,15 @@ import { normalizePath } from './paths.ts';
 import type { Site } from './site.ts';
 
 const paths = { about: ['/about/'], friends: ['/friendlink/', '/friends/', '/links/'] };
+const legacyInfo=new WeakMap<object,{key:string;value:SiteInfo}>();
 
 /** Read legacy information without rewriting entries or settings on a visit. */
 export function resolveSiteInfo(site: Pick<Site, 'store' | 'settings'>): SiteInfo {
   const configured = siteInfoSchema.parse(site.settings().value.siteInfo ?? {});
-  const candidates = site.store.raw.prepare("SELECT r.data FROM entry_list l JOIN records r ON r.scope='entry' AND r.id=l.id WHERE l.kind='page' AND json_extract(l.summary,'$.path') IN ('/about/','/friendlink/','/friends/','/links/')").all() as { data: string }[];
+  if(configured.about&&configured.friends)return configured;
+  const candidates = site.store.raw.prepare("SELECT r.id,r.revision,r.data FROM entry_list l JOIN records r ON r.scope='entry' AND r.id=l.id WHERE l.kind='page' AND json_extract(l.summary,'$.path') IN ('/about/','/friendlink/','/friends/','/links/')").all() as { id:string;revision:number;data: string }[];
+  const key=candidates.map(row=>row.id+':'+(row.revision??row.data)).join('|'),cached=legacyInfo.get(site.store);
+  if(cached?.key===key)return {about:configured.about??structuredClone(cached.value.about),friends:configured.friends??structuredClone(cached.value.friends)};
   const entries = candidates.map(row => JSON.parse(row.data) as Entry);
   const about = entries.find(entry => paths.about.includes(entry.path));
   const friends = entries.find(entry => paths.friends.includes(entry.path));
@@ -33,10 +37,11 @@ export function resolveSiteInfo(site: Pick<Site, 'store' | 'settings'>): SiteInf
   if (!links.length) friendDoc('h2,h3,h4,h5,h6').each((_index, node) => {
     const name = friendDoc(node).text().trim(); if (name) links.push({ name, url: '', description: '' });
   });
-  return {
-    about: configured.about ?? { enabled: about?.status === 'published' && about.visibility !== 'private', path: about?.path ?? '/about/', ...(about ? { entryId: about.id } : {}), text: aboutDoc.root().text().trim().replace(/\n{3,}/g, '\n\n') },
-    friends: configured.friends ?? { enabled: friends?.status === 'published' && friends.visibility !== 'private', path: friends?.path ?? '/friendlink/', ...(friends ? { entryId: friends.id } : {}), links },
+  const value:SiteInfo={
+    about: { enabled: about?.status === 'published' && about.visibility !== 'private', path: about?.path ?? '/about/', ...(about ? { entryId: about.id } : {}), text: aboutDoc.root().text().trim().replace(/\n{3,}/g, '\n\n') },
+    friends: { enabled: friends?.status === 'published' && friends.visibility !== 'private', path: friends?.path ?? '/friendlink/', ...(friends ? { entryId: friends.id } : {}), links },
   };
+  legacyInfo.set(site.store,{key,value});return {about:configured.about??structuredClone(value.about),friends:configured.friends??structuredClone(value.friends)};
 }
 
 /** Publish fixed information pages from settings; legacy records remain intact. */

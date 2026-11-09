@@ -3,6 +3,7 @@ import {contentSorts} from './content-query.ts';
 import { searchDatasetSchema } from './search-data.ts';
 import { analyticsReportSchema, analyticsRealtimeSchema, analyticsVisitorDetailSchema, geoStatusSchema } from './analytics.ts';
 import * as m from './api-models.ts';
+import {siteInfoSchema} from './site-info.ts';
 import * as z from 'zod';
 import {writingSnippetSchema} from './writing.ts';
 import { accountProof, sessionResult, loginBody, loginResult, logoutResult,accountAccessBody,accountAccessResult,completeAccountAccessBody,completeAccountAccessResult } from './session-api.ts';
@@ -41,7 +42,7 @@ export const adminApi = {
   accountAccess:post('account-access','检查本机发放的一次性账户设置链接',accountAccessBody,accountAccessResult),
   completeAccountAccess:post('account-access/complete','使用一次性链接设置账户，然后正常登录',completeAccountAccessBody,completeAccountAccessResult),
   account:get('account','读取站主资料和登录会话',account),
-  saveAccount:post('account','更新站主资料或密码',accountProof.extend({username:z.string().min(3).max(64),displayName:z.string().min(1).max(80),newPassword:z.string().max(1024).optional()}),z.object({ok:z.literal(true),loginRequired:z.boolean()})),
+  saveAccount:post('account','更新站主资料；更改账户名或密码时验证身份',accountProof.partial({password:true}).extend({username:z.string().min(3).max(64),displayName:z.string().min(1).max(80),newPassword:z.string().max(1024).optional()}),z.object({ok:z.literal(true),loginRequired:z.boolean()})),
   revokeSession:post('account/sessions/revoke','撤销登录会话',accountProof.extend({id:z.string().regex(/^(others|[a-f0-9]{64})$/)}),z.object({ok:z.literal(true)})),
   beginTwoFactor:post('account/two-factor/begin','准备两步验证',accountProof,z.object({secret:z.string(),uri:z.string()})),
   confirmTwoFactor:post('account/two-factor/confirm','确认两步验证并取得一次性恢复码',accountProof.extend({code:z.string().regex(/^\d{6}$/)}),z.object({recoveryCodes:z.array(z.string())})),
@@ -64,6 +65,7 @@ export const adminApi = {
   applyBulk:post('entries/bulk/apply','保存已预检的批量元信息',m.bulkInput.extend({ review:z.string() }),z.array(entryRecord)),
   queryReferences:get('references/query','查询允许引用的内容摘要',page(m.referenceRecord),z.object({ ...queryPage,types:optional,filters:optional,q:optional })),
   settings:get('settings','读取网站设置',record(settingsSchema)),
+  siteInfo:get('settings/site-info','按需读取已配置或旧页面中的网站介绍和友链',siteInfoSchema),
   saveSettings:post('settings','保存网站设置',z.object({ value:settingsSchema,revision }),record(settingsSchema)),
   types:get('types','列出内容类型',z.array(record(typeSchema))),
   saveType:post('types','保存内容类型',save(typeSchema),record(typeSchema)),
@@ -127,7 +129,8 @@ export const adminApi = {
   extensions:get('extensions','列出扩展诊断',z.array(m.extensionDiagnostic)),
   extensionUsage:get('extensions/usage','查询扩展引用',z.array(m.usage),byId),
   toggleExtension:post('extensions/toggle','切换扩展状态',z.object({ id,enabled:z.boolean(),revision:nullableRevision.optional() }),z.array(m.extensionDiagnostic)),
-  maintenance:get('maintenance','读取存储使用',z.object({ databaseBytes:z.number(),analyticsBytes:z.number(),businessBytes:z.number(),uploadsBytes:z.number(),logsBytes:z.number(),importsBytes:z.number(),temporary:temporaryCleanup,pendingUploads:z.array(z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string()})),versions:totals,releases:totals,publicationObjects:z.array(z.object({ kind:z.string(),count:z.number(),bytes:z.number().nullable() })),media:totals,unreferenced:totals.extend({ files:z.array(z.object({ path:z.string(),bytes:z.number() })) }),backups:z.array(z.object({ path:z.string(),bytes:z.number() })) })),
+  maintenance:get('maintenance','读取存储使用',z.object({ databaseBytes:z.number(),analyticsBytes:z.number(),businessBytes:z.number(),uploadsBytes:z.number(),logsBytes:z.number(),importsBytes:z.number(),temporary:temporaryCleanup,pendingUploads:z.array(z.object({id,name:z.string(),size:z.number(),offset:z.number(),status:z.string()})),versions:totals,releases:totals,publicationObjects:z.array(z.object({ kind:z.string(),count:z.number(),bytes:z.number().nullable() })),media:totals,unreferenced:totals.extend({ files:z.array(z.object({ path:z.string(),bytes:z.number() })) }),backups:z.array(z.object({ path:z.string(),bytes:z.number() })),scan:z.object({checkedAt:z.string().nullable()}).optional() })),
+  scanStorage:post('maintenance/scan','在后台扫描文件占用和历史媒体引用',empty,jobSchema,202),
   previewTemporaryCleanup:get('maintenance/temporary','预检已结束或过期的暂存文件',temporaryCleanup),
   cleanupTemporaryFiles:post('maintenance/temporary/cleanup','确认删除预检列出的暂存文件',z.object({review:z.string(),confirm:z.literal(true)}),z.object({files:z.number(),bytes:z.number()})),
   previewArchive:post('maintenance/preview','预检历史归档',m.retention,m.archivePreview),

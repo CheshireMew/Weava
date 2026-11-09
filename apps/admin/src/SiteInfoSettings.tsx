@@ -1,8 +1,14 @@
 import type { SiteInfo } from '../../../packages/contracts/src/site-info.ts';
+import {useAdminQuery} from './useAdminQuery.ts';
+import {LoadingState} from './LoadingState.tsx';
 
 export function SiteInfoSettings({ section, value, defaults, onChange }: {
   section: 'about' | 'friends'; value?: SiteInfo; defaults?: SiteInfo; onChange: (value: SiteInfo) => void;
 }) {
+  const needsDefaults=!value?.[section]&&!defaults?.[section];
+  const legacy=useAdminQuery<SiteInfo>(needsDefaults?'settings/site-info':null);
+  if(needsDefaults&&!legacy.data)return legacy.error?<section className="form-card"><p role="alert">{legacy.error}</p><button onClick={()=>void legacy.refresh().catch(()=>{})}>重新读取</button></section>:<LoadingState label={section==='about'?'读取网站介绍':'读取友情链接'}/>;
+  defaults={about:defaults?.about??legacy.data?.about,friends:defaults?.friends??legacy.data?.friends};
   if (section === 'about') {
     const about = value?.about ?? defaults?.about ?? { enabled: false, path: '/about/', text: '' };
     const set = (patch: Partial<typeof about>) => onChange({ ...value, about: { ...about, ...patch } });

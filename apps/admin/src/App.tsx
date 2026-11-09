@@ -9,6 +9,8 @@ import { useScheduleUpdates } from './useScheduleUpdates.ts';
 import { Check, Loader2, Menu } from 'lucide-react';
 
 import { api } from './api.ts';
+import {adminQueries} from './query-cache.ts';
+import {affectedQueries} from './query-effects.ts';
 
 import { FieldWidgetsProvider } from './Fields.tsx';
 
@@ -87,6 +89,7 @@ export function App({ authentication, error, setError }: AppProps) {
     compact,
     busy,
     isPublishing: publicationController.isPublishing,
+    publicationPhase:publicationController.publicationPhase,
     setError,
     notify,
     refresh: sync,
@@ -97,16 +100,20 @@ export function App({ authentication, error, setError }: AppProps) {
   useTransientMessage(error, () => setError(''), feedbackContext, 0);
   useTransientMessage(toast, () => setToast(''), feedbackContext, 3000);
   useSiteIcon(state?.siteIcon ?? state?.settings.value.logo);
-  const settingsApplication = useSettingsApplication(sync, () => notify('已保存并生效', 2600),setError);
+  const settingsApplication = useSettingsApplication(sync, () => notify('已保存并生效', 2600),setError,!state?.features||state.features.includes('content'));
   useEffect(() => {
     if (state?.settingsPending || state?.termsPending) settingsApplication.resumePending();
   }, [state?.settingsPending, state?.termsPending, settingsApplication]);
   const focusedWriting = tab === 'content' && record?.value.kind === 'content';
   async function saveSiteSettings(value: any, revision: number) {
-    const row = await api('settings', { value, revision });
-    settingsApplication.request();
-    void sync().catch(error=>setError('设置已保存，刷新页面数据失败：'+error.message));
-    return row;
+    // One revalidation after both saving and applying. Forms still receive their
+    // saved revision immediately, so newer edits can continue while it publishes.
+    const end=adminQueries.beginWrite(affectedQueries(['settings','publication']));
+    try{
+      const row=await api('settings',{value,revision});
+      settingsApplication.request();void settingsApplication.flush().then(()=>end(),()=>end());
+      return row;
+    }catch(error){end();throw error;}
   }
   useScheduleUpdates(
     state?.schedules ?? [],

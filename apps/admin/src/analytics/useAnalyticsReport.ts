@@ -18,13 +18,21 @@ export function useAnalyticsReport(initialQuery = '', realtime = true,section:An
   const [applied, setApplied] = useState(initialQuery),
     [geoBusy, setGeoBusy] = useState(false),
     [exportType, setExportType] = useState('pages');
+  useEffect(()=>{
+    const query=new URLSearchParams(initialQuery);setApplied(initialQuery);setStart(query.get('start')??'');setEnd(query.get('end')??'');setPath(query.get('path')??'');
+    setFilters(Object.fromEntries([...query].filter(([key])=>['channel','country','browser','os','device','model'].includes(key))));
+  },[initialQuery]);
   const [liveError, setLiveError] = useState(''),
     [geoError, setGeoError] = useState('');
   const retryLive = useRef<() => void>(() => {});
   const requestQuery=new URLSearchParams(applied);
   if(section!=='all')requestQuery.set('section',section);
   const report = useAdminQuery<AnalyticsReport>(`analytics?${requestQuery}`, 15000);
-  const data = report.data ?? null, loading = report.loading, error = report.error, loadedQuery = data ? applied : '';
+  const previous=useRef<{data:AnalyticsReport;query:string;section:string}|null>(null);
+  if(report.data)previous.current={data:report.data,query:applied,section};
+  const retained=previous.current?.section===section?previous.current:null;
+  const data=report.data??retained?.data??null,stale=!report.data&&!!data;
+  const loading=report.loading,error=report.error,loadedQuery=report.data?applied:retained?.query??'';
   const query = (changes: Record<string, string> = {}) =>
     new URLSearchParams({
       ...(start ? { start } : {}),
@@ -38,15 +46,15 @@ export function useAnalyticsReport(initialQuery = '', realtime = true,section:An
     else await report.refresh().catch(() => {});
   };
   useEffect(() => {
-    if (data) {
-      setLive(data.realtime);
+    if (report.data) {
+      setLive(report.data.realtime);
       setLiveError('');
-      setGeo(data.geo);
+      setGeo(report.data.geo);
       setGeoError('');
-      setStart(data.range.start);
-      setEnd(data.range.end);
+      setStart(report.data.range.start);
+      setEnd(report.data.range.end);
     }
-  }, [data]);
+  }, [report.data]);
   useEffect(() => {
     if (!realtime) return;
     const p = new URLSearchParams(loadedQuery);
@@ -135,7 +143,8 @@ export function useAnalyticsReport(initialQuery = '', realtime = true,section:An
     applied,
     loadedQuery,
     loading,
-    refreshing: report.refreshing,
+    stale,
+    refreshing: report.refreshing||stale&&!error,
     error,
     geoBusy,
     exportType,

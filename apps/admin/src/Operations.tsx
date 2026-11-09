@@ -7,6 +7,7 @@ import { operationLabels, jobStatusLabels } from './admin-labels.ts';
 import {RollbackDialog} from './RollbackDialog.tsx';
 import {TemporaryMaintenance} from './TemporaryMaintenance.tsx';
 import {LoadingState} from './LoadingState.tsx';
+import {startTask,awaitTask,useBackgroundTasks,taskPending} from './background-tasks.ts';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
 const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
@@ -24,6 +25,16 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
   const [dialog, setDialog] = useState<'location' | 'verify' | null>(null), [nextPath, setNextPath] = useState('');
   const [rollbackId,setRollbackId]=useState<string|null>(null);
+  const [readingUsage,setReadingUsage]=useState(false);
+  const scans=useBackgroundTasks('storage'),scan=scans.find(task=>taskPending(task));
+  async function inspectUsage(){
+    setReadingUsage(true);
+    try{
+      setUsage(await api('maintenance'));
+      const job=scan?.job??await startTask('maintenance/scan',{}, {scope:'storage',label:'扫描存储占用'});
+      void awaitTask(job.id).then(()=>api('maintenance').then(setUsage)).catch(error=>onError(error.message));
+    }catch(error:any){onError(error.message);}finally{setReadingUsage(false);}
+  }
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
   const contentEnabled = !state.features || state.features.includes('content');
   return <div className="panel operations-panel">
@@ -60,12 +71,13 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
       </section> },
       { id: 'maintenance', label: '维护', content: <>
         <section className="form-card"><h2>空间占用</h2>
-          <button onClick={() => api('maintenance').then(setUsage).catch(error => onError(error.message))}>检查占用</button>
+          <button disabled={readingUsage} onClick={()=>void inspectUsage()}>检查占用</button>
           {usage && <>
-            <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · 媒体 {size(usage.media.bytes)}</p>
+            <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · {usage.scan?.checkedAt?'媒体':'已登记媒体'} {size(usage.media.bytes)}</p>
+            {scan&&<p role="status">正在后台核对文件和历史引用，可继续使用网站。</p>}
             <TemporaryMaintenance usage={usage} refresh={()=>api('maintenance').then(setUsage)} onError={onError}/>
-            <p>{usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本 · {usage.backups.length} 份已记录备份</p>
-            <p>未被内容或历史引用的媒体：{usage.unreferenced.count} 个，{size(usage.unreferenced.bytes)}。文件继续保留。</p>
+            <p>{usage.versions.count} 个历史版本 · {usage.releases.count} 个发布版本{usage.scan?.checkedAt&&<> · {usage.backups.length} 份已记录备份</>}</p>
+            {usage.scan?.checkedAt?<p>未被内容或历史引用的媒体：{usage.unreferenced.count} 个，{size(usage.unreferenced.bytes)}。检查于 {new Date(usage.scan.checkedAt).toLocaleString()}，文件继续保留。</p>:<p>历史引用尚未完成核对。</p>}
             {!!usage.backups.length && <section className="backup-locations"><h3>备份位置</h3>{usage.backups.map((backup: any) => <p key={backup.path}>{backup.path} · {size(backup.bytes)}</p>)}</section>}
           </>}
         </section>
