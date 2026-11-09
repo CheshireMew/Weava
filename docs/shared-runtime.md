@@ -104,9 +104,13 @@ E:\WeavaRuntime\weava.cmd site update blog-blacknico --to 程序编号
 E:\WeavaRuntime\weava.cmd site deployment-info blog-blacknico --proxy-origin https://你的域名
 ```
 
-命令在安装目录的 `proxy/网站编号` 生成 `maintenance.conf`，并输出 include 和普通代理位置示例。维护标记由升级流程写入和撤销，不需要每次升级重载 nginx。维护期间返回 `503`、`Retry-After: 60`、`Cache-Control: no-store`；原 robots.txt 单独保留可访问，不用 `noindex`、`404` 或首页 `200` 替代维护状态。上游进程短暂不可用也返回维护 `503`。
+由 Nginx 直接提供的静态目录须登记到安装配置，线上和候选预检共用该映射。例如 Linux 服务器执行 `site deployment-info blog-blacknico --proxy-origin https://blog.blacknico.com --static-route /wp-content/uploads/=/var/www/blog/wp-content/uploads`。可在 `--static-route` 后提供多个映射；`--clear-static-routes` 清空映射。命令生成 `static.conf`，应以它替换原来手写的对应 `location`，并核对、重载 Nginx。候选文章仍访问隔离服务，配置内的静态路径则访问真实代理的静态层；已登记的静态文件先用 HEAD 核对状态、类型和跳转，HTML 仍读取正文，避免下载图片文件；不忽略整个图片路径。映射和代理入口也参与精确差异确认，配置变化须重新预检。
 
-登记 `--proxy-origin` 后，升级会实际探测该代理的维护响应和 robots.txt；尚未接入或配置错误时会在停止旧站前取消切换。未登记代理时只验证本机应用，结果中的 `proxyVerified` 为 false，不代表公网代理已接入。本次未更改真实公网 nginx、域名、证书或防火墙。
+切换后的完整 SEO 检查通过登记的真实 HTTPS 入口执行，包含代理和静态文件层。首次更新需加载新版 `maintenance.conf`：它使用安装目录保存的随机预检凭据，让升级检查穿过维护页；普通访客仍得到维护响应。应用进程另用本次升级的独立凭据验证请求。预检凭据只保存在本机配置，不写入公开报告。升级前会核对普通维护请求和专用预检请求；配置未加载时在停止旧站前取消。
+
+命令在安装目录的 `proxy/网站编号` 生成 `maintenance.conf` 和 `static.conf`，并输出 include 和普通代理位置示例。维护标记由升级流程写入和撤销，不需要每次升级重载 nginx。维护期间返回 `503`、`Retry-After: 60`、`Cache-Control: no-store`；原 robots.txt 单独保留可访问，不用 `noindex`、`404` 或首页 `200` 替代维护状态。上游进程短暂不可用也返回维护 `503`。
+
+登记 `--proxy-origin` 后，升级会实际探测该代理的维护响应和 robots.txt；尚未接入或配置错误时会在停止旧站前取消切换。未登记代理时只验证本机应用，结果中的 `proxyVerified` 为 false，不代表公网代理已接入。登记或调整映射后，按输出加载配置并核实 Nginx；普通升级复用已加载的配置。
 
 SEO 报告保留在该站恢复根目录的 `preflight-*` 下，恢复点仍是独立的 `update-*`。准备阶段不会复制大型媒体；隔离站只读原有媒体资源。框架减少的是升级引入的意外变化，不能保证 Google 必然收录或排名不变。
 

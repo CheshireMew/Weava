@@ -15,11 +15,16 @@ export const deploymentSchema = z.object({
   siteBuildId:z.string().optional(),siteBuildHash:z.string().optional(),selectedAt:z.string(),installationRoot:z.string().min(1),
 });
 export type Deployment = z.infer<typeof deploymentSchema>;
+export const staticRouteSchema = z.object({
+  prefix:z.string().regex(/^\/(?!\/)[^?#\\]*\/$/).refine(value=>new URL(value,'http://localhost').pathname===value,'静态路径不能包含相对目录。'),
+  directory:z.string().min(1),
+});
+export type StaticRoute = z.infer<typeof staticRouteSchema>;
 export const installationSchema = z.object({
   version:z.literal(1),id:z.string(),node:z.string(),sitesRoot:z.string(),backupRoot:z.string(),
   defaultProgramId:z.string().optional(),
   programs:z.record(z.string(),z.object({root:z.string(),manifestHash:z.string()})),
-  sites:z.record(z.string(),z.object({root:z.string(),autostart:z.boolean().default(false),proxyOrigin:z.url().optional()})),
+  sites:z.record(z.string(),z.object({root:z.string(),autostart:z.boolean().default(false),proxyOrigin:z.url().optional(),staticRoutes:z.array(staticRouteSchema).optional()})),
 });
 export type Installation = z.infer<typeof installationSchema>;
 export function validateFeatures(features:FeatureId[]) {

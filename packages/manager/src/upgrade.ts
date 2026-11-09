@@ -11,7 +11,7 @@ import {
   withLease,
 } from './operations.ts';
 import { probeServer } from './probe-server.ts';
-import { maintenance, prepareProxy, proxyDirectory, saveRobots } from './proxy.ts';
+import { maintenance, maintenanceProbeHeaders, prepareProxy, proxyDirectory, saveRobots } from './proxy.ts';
 import { publicInventory, siteStamp } from './public-inventory.ts';
 import { captureSeo, compareSeo, upgradeProbePath, type SeoSnapshot } from './seo-check.ts';
 import { checkService } from './service-check.ts';
@@ -45,7 +45,7 @@ export async function withUpgradeLock<T>(root: string, action: () => Promise<T>)
     lock.close();
   }
 }
-async function verifyMaintenance(origin: string, domain: string, baseline: SeoSnapshot) {
+async function verifyMaintenance(origin: string, domain: string, baseline: SeoSnapshot, probe:Record<string,string>) {
   const headers = { Host: new URL(domain).host, 'User-Agent': 'WeavaUpgradeCheck' };
   const r = await fetch(origin + '/', { headers, signal: AbortSignal.timeout(10000) });
   await r.body?.cancel();
@@ -68,6 +68,9 @@ async function verifyMaintenance(origin: string, domain: string, baseline: SeoSn
     (robots.status === 200 && text !== baseline.robots.text)
   )
     throw new Error('维护期间 robots.txt 未保留原规则，已取消切换。');
+  const accessible=await fetch(origin+'/',{headers:{...headers,...probe},signal:AbortSignal.timeout(10000)});
+  await accessible.body?.cancel();
+  if(accessible.status!==baseline.pages['/']?.status)throw new Error('反向代理未加载预检通道，请应用新版 site deployment-info 配置并重载代理；旧站未停止。');
 }
 export async function protectedUpgrade(
   home: string,
@@ -82,6 +85,10 @@ export async function protectedUpgrade(
       config = descriptor(root),
       candidate = programFor(installation, programId),
       prior = deployment(root);
+    const routing=installation.sites[id],routes=routing?.staticRoutes??[];
+    if(routes.length&&!routing?.proxyOrigin)throw new Error('静态目录映射需要登记实际反向代理入口。');
+    const routingHash=hash([routing?.proxyOrigin??null,routes]);
+    const assertRouting=()=>{const current=loadInstallation(home).sites[id];if(hash([current?.proxyOrigin??null,current?.staticRoutes??[]])!==routingHash)throw new Error('部署入口或静态目录映射已变化，请重新预检。');};
     if (candidate.manifest.upgradeProtocol !== 2)
       throw new Error('候选程序不支持匿名 SEO 升级检查，请准备包含 upgradeProtocol 2 的新版程序。');
     buildId ??= prior.siteBuildId;
@@ -133,6 +140,7 @@ export async function protectedUpgrade(
       ];
       const baseline = await captureSeo({
         origin,
+        routes:routes.map(route=>({prefix:route.prefix,origin})),
         domain: inventory.domain,
         paths,
         redirects: inventory.redirects,
@@ -157,6 +165,7 @@ export async function protectedUpgrade(
           redirects: inventory.redirects,
           dynamicRedirects: inventory.dynamicRedirects,
           headers: probe.headers,
+          routes:routes.map(route=>({prefix:route.prefix,origin})),
           seed: baseline,
         });
       } finally {
@@ -170,6 +179,7 @@ export async function protectedUpgrade(
             target: candidate.manifestHash,
             buildHash,
             domain: inventory.domain,
+            routingHash,
             differences: report.differences,
           }),
         );
@@ -192,7 +202,9 @@ export async function protectedUpgrade(
           approval,
           oldSiteStopped: false,
         };
-      prepareProxy(home, id, config.port);
+      assertRouting();
+      prepareProxy(home, id, config.port,routes);
+      const proxyProbe=maintenanceProbeHeaders(home,id);
       saveRobots(home, id, baseline.robots.status, baseline.robots.text);
       atomic(preparationFile, {
         version: 1,
@@ -209,7 +221,7 @@ export async function protectedUpgrade(
       marked = true;
       maintenanceStarted = Date.now();
       if (installation.sites[id]?.proxyOrigin)
-        await verifyMaintenance(origin, inventory.domain, baseline);
+        await verifyMaintenance(origin, inventory.domain, baseline,proxyProbe);
       await requestHost(home, 'stop', { id });
       stopped = true;
       atomic(preparationFile, {
@@ -232,17 +244,18 @@ export async function protectedUpgrade(
       await requestHost(home, 'initialize', { id });
       const actualStamp = siteStamp(root),
         actual = await captureSeo({
-          origin: backend,
+          origin,
+          routes:routes.map(route=>({prefix:route.prefix,origin})),
           domain: inventory.domain,
           paths,
           redirects: inventory.redirects,
           dynamicRedirects: inventory.dynamicRedirects,
-          headers: { 'x-weava-upgrade-probe': token },
+          headers: { 'x-weava-upgrade-probe': token,...(routing?.proxyOrigin?proxyProbe:{}) },
           seed: baseline,
         });
       atomic(join(work, 'seo-after.json'), actual);
       const final = compareSeo(baseline, actual);
-      atomic(join(work, 'seo-final-report.json'), { ...final, operation, stage: 'actual-service' });
+      atomic(join(work, 'seo-final-report.json'), { ...final, operation, stage: routing?.proxyOrigin?'public-proxy':'actual-service',origin });
       if (JSON.stringify(final.differences) !== JSON.stringify(report.differences))
         throw new Error(
           '实际网站的 SEO 输出与已演练结果不同，正在恢复。报告：' +
@@ -250,6 +263,7 @@ export async function protectedUpgrade(
         );
       if (siteStamp(root) !== actualStamp)
         throw new Error('升级检查期间出现意外数据写入，正在恢复。');
+      assertRouting();
       await checkService(root, { agent: 'WeavaUpgradeCheck' });
       // Persist the irreversible boundary before sending an activation whose reply may be lost.
       atomic(journalFile, {

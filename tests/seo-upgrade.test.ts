@@ -8,7 +8,7 @@ import {Site} from '../packages/core/src/site.ts';
 import {siteStamp,publicInventory} from '../packages/manager/src/public-inventory.ts';
 import {onlineWorkspace} from '../packages/manager/src/operations.ts';
 import {saveInstallation,hash} from '../packages/manager/src/state.ts';
-const base='D:/Tools/cache/weava/tasks/seo-upgrade-20261105';
+const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/seo-upgrade-20261105';
 const domain='https://blog.example';
 const html=(extra='')=>`<!doctype html><html><head><title>文章</title><meta name="description" content="摘要"><link rel="canonical" href="${domain}/post/"><meta name="robots" content="index,follow"><script type="application/ld+json">{"@type":"Article","headline":"文章"}</script>${extra}</head><body><main><h1>文章</h1><article>原始正文</article><a href="?page=2">下一页</a><img src="/media/cover.png"></main><section id="comments">会变化的评论</section></body></html>`;
 function snapshot(value:string){return {version:1,domain,createdAt:'now',pages:{'/post/':analyzePage(value,200,new Headers({'content-type':'text/html'}),domain,'/post/').page},sitemaps:{'/sitemap.xml':{status:200,urls:[domain+'/post/']}},robots:{status:200,text:'User-agent: *\nDisallow: /admin/'},resources:{'/media/cover.png':200}} as SeoSnapshot;}

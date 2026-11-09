@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { installationSchema, validateFeatures } from '../../contracts/src/installation.ts';
+import { installationSchema, staticRouteSchema, validateFeatures } from '../../contracts/src/installation.ts';
 import { ensureHost, requestHost, serveHost } from './host.ts';
 import { adoptSite, applyFeatures, createSite, restoreCheckpoint, run } from './operations.ts';
 import { prepareProxy } from './proxy.ts';
@@ -380,6 +380,8 @@ sites.command('logs [id]').action((id) => {
 sites
   .command('deployment-info [id]')
   .option('--proxy-origin <url>', '登记现有代理入口，升级时实际验证维护响应')
+  .option('--static-route <prefix=directory...>', '登记由反向代理提供的静态目录映射')
+  .option('--clear-static-routes', '清空静态目录映射')
   .action((id, opts) => {
     const s = pick(id, false),
       config = descriptor(s.root);
@@ -398,12 +400,25 @@ sites
         i.sites[s.id].proxyOrigin = url.origin;
       });
     }
+    if(opts.staticRoute&&opts.clearStaticRoutes)throw new Error('请选择登记或清空静态目录映射。');
+    if(opts.staticRoute||opts.clearStaticRoutes){
+      const routes=(opts.staticRoute??[]).map((value:string)=>{
+        const separator=value.indexOf('=');if(separator<1)throw new Error('静态目录格式为 /网址前缀/=目录绝对路径。');
+        const route=staticRouteSchema.parse({prefix:value.slice(0,separator),directory:resolve(value.slice(separator+1))});
+        if(!statSync(route.directory).isDirectory())throw new Error('静态目录不存在：'+route.directory);
+        return route;
+      });
+      if(new Set(routes.map((route:{prefix:string})=>route.prefix)).size!==routes.length)throw new Error('静态路径前缀不能重复。');
+      updateInstallation(home(),i=>{i.sites[s.id].staticRoutes=routes;});
+    }
+    const routes=loadInstallation(home()).sites[s.id]?.staticRoutes??[];
     output({
       id: s.id,
       origin: 'http://127.0.0.1:' + config.port,
       proxyOrigin: loadInstallation(home()).sites[s.id]?.proxyOrigin ?? null,
+      staticRoutes:routes,
       start: [join(home(), 'weava.cmd'), '--site', s.id, 'site', 'start'],
-      ...prepareProxy(home(), s.id, config.port),
+      ...prepareProxy(home(), s.id, config.port,routes),
     });
   });
 const hosts = cli.command('host');

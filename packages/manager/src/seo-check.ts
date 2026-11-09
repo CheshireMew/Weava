@@ -13,7 +13,7 @@ export interface SeoPage{
 export interface DynamicRedirect{status:number;targets:string[]}
 export interface SeoSnapshot{version:1;domain:string;createdAt:string;pages:Record<string,SeoPage>;sitemaps:Record<string,{status:number;urls:string[]}>;robots:{status:number;text:string};resources:Record<string,number>;resourcePaths?:Record<string,string[]>;dynamicRedirects?:Record<string,DynamicRedirect>}
 export interface SeoDifference{path:string;field:string;before:unknown;after:unknown}
-export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;signal?:AbortSignal}
+export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;routes?:{prefix:string;origin:string}[];paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;signal?:AbortSignal}
 function localPath(value:string,domain:string){try{const url=new URL(value,domain);if(url.origin!==new URL(domain).origin)return null;url.hash='';url.searchParams.sort();return url.pathname+url.search;}catch{return null;}}
 function logicalUrl(value:string,domain:string){try{return new URL(value,domain).href.replace(/\/_site\/[\w-]+\//g,'/_site/{build}/');}catch{return value;}}
 export function upgradeProbePath(stamp:string,target:string,build?:string){return '/__weava_upgrade_missing_'+digest([stamp,target,build??null]).slice(0,32);}
@@ -49,10 +49,12 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
  if(Object.keys(options.headers??{}).some(key=>['authorization','cookie'].includes(key.toLowerCase())))throw new Error('SEO 检查必须使用匿名访问，不能携带登录凭据。');
  const {domain}=options,max=options.maxUrls??50000,limit=options.concurrency??4;
  const snapshot:SeoSnapshot={version:1,domain,createdAt:new Date().toISOString(),pages:{},sitemaps:{},robots:{status:404,text:''},resources:{},resourcePaths:{},dynamicRedirects:options.dynamicRedirects??{}};
+ const routes=[...(options.routes??[])].sort((a,b)=>b.prefix.length-a.prefix.length);
  const request=async(path:string,method='GET')=>{
   if(!path.startsWith('/')||path.startsWith('//')||path.includes('\\'))throw new Error('SEO 检查路径无效。');
+  const route=routes.find(route=>new URL(path,options.domain).pathname.startsWith(route.prefix));
   for(let attempt=0;;attempt++){
-   const response=await fetch(new URL(path,options.origin),{method,redirect:'manual',headers:{Host:new URL(domain).host,'X-Forwarded-Proto':new URL(domain).protocol.slice(0,-1),'User-Agent':'WeavaUpgradeCheck',...options.headers},signal:AbortSignal.any([AbortSignal.timeout(20000),...(options.signal?[options.signal]:[])])});
+   const response=await fetch(new URL(path,route?.origin??options.origin),{method,redirect:'manual',headers:{Host:new URL(domain).host,'X-Forwarded-Proto':new URL(domain).protocol.slice(0,-1),'User-Agent':'WeavaUpgradeCheck',...(!route||route.origin===options.origin?options.headers:{})},signal:AbortSignal.any([AbortSignal.timeout(20000),...(options.signal?[options.signal]:[])])});
    // A resource may depend on an upstream redirect. Retry transient failures,
    // while still reporting a persistently unavailable resource as a regression.
    if(method!=='HEAD'||response.status<500||attempt>=2)return response;
@@ -74,7 +76,10 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
  const enqueue=(path:string)=>{const parsed=localPath(path,domain);if(!parsed||reserved.test(parsed)||queued.has(parsed))return;if(queued.size>=max)throw new Error('公开页面超过 SEO 检查上限，未使用抽样代替完整检查。');queued.add(parsed);frontier.push(parsed);};
  for(const path of initial)enqueue(path);enqueue('/');
  while(frontier.length){const batch=frontier.splice(0,limit);await Promise.all(batch.map(async path=>{
-   const response=await request(path);let text='';if(response.headers.get('content-type')?.includes('html'))text=await readBounded(response,4*1024*1024);else await response.body?.cancel();const result=analyzePage(text,response.status,response.headers,domain,path);
+   const staticPath=routes.some(route=>new URL(path,options.domain).pathname.startsWith(route.prefix));
+   let response=await request(path,staticPath?'HEAD':'GET');
+   if(staticPath&&response.status===200&&response.headers.get('content-type')?.includes('html')){await response.body?.cancel();response=await request(path);}
+   let text='';if(response.headers.get('content-type')?.includes('html'))text=await readBounded(response,4*1024*1024);else await response.body?.cancel();const result=analyzePage(text,response.status,response.headers,domain,path);
    const dynamic=options.dynamicRedirects?.[path];if(dynamic&&result.page.status===dynamic.status&&dynamic.targets.includes(result.page.location??''))result.page.location='dynamic:'+path;
    snapshot.pages[path]=result.page;result.discover.forEach(enqueue);result.resources.forEach(path=>resources.add(path));
   }));}
