@@ -20,6 +20,10 @@ describe('SEO protection during upgrades',()=>{
   p.manifest.files[0].hash='new renderer';expect(publicProgramFingerprint(p)).not.toBe(before);
   p.manifest.files[0].hash='page';p.manifest.schemaVersion++;expect(publicProgramFingerprint(p)).not.toBe(before);
  });
+ it('includes archive, paginated, author and feed route families in the activation gate',()=>{
+  const value=snapshot(html());value.pages=Object.fromEntries(['/','/category/a/','/category/b/','/category/a/page/2/','/author/a/','/rss.xml'].map(path=>[path,{status:200,type:path.endsWith('.xml')?'application/rss+xml':'text/html'}]));
+  const selected=activationSnapshot(value,[],[]);expect(Object.keys(selected.pages)).toEqual(expect.arrayContaining(['/category/a/','/category/a/page/2/','/author/a/','/rss.xml']));expect(selected.pages['/category/b/']).toBeUndefined();
+ });
  it('checks selected activation routes without crawling sitemap articles, and still detects missing images and redirects',async()=>{
   const visited:string[]=[];let broken=false;
   const server=createServer((req,res)=>{

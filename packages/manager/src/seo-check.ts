@@ -101,7 +101,14 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
 /** Full output comparison already ran while the old site was serving traffic.
  * The maintenance gate verifies each page template, redirects, and resource route. */
 export function activationSnapshot(snapshot:SeoSnapshot,paths:string[],prefixes:string[]):SeoSnapshot{
- const pages=Object.fromEntries(sorted(['/',...paths]).filter(path=>snapshot.pages[path]).map(path=>[path,snapshot.pages[path]]));
+ const selected=new Set(['/',...paths]),families=new Set<string>();
+ for(const path of Object.keys(snapshot.pages).sort()){
+  const page=snapshot.pages[path];if(page.status<200||page.status>=300)continue;
+  const url=new URL(path,snapshot.domain),segments=url.pathname.split('/').filter(Boolean);
+  const family=JSON.stringify([segments.length<2?'root':segments[0],page.type,/\/page\/\d+(?:\/|$)/.test(url.pathname)||url.searchParams.has('page')]);
+  if(!families.has(family)){families.add(family);selected.add(path);}
+ }
+ const pages=Object.fromEntries(sorted([...selected]).filter(path=>snapshot.pages[path]).map(path=>[path,snapshot.pages[path]]));
  const images=new Set(Object.values(pages).flatMap(page=>page.images??[]).map(value=>localPath(value,snapshot.domain)));
  const groups=new Set<string>(),resources:Record<string,number>={},resourcePaths:Record<string,string[]>={};
  for(const [key,status] of Object.entries(snapshot.resources??{})){
