@@ -24,7 +24,7 @@ export function RollbackDialog({id,onClose,onRestored,onError}:{id:string;onClos
       {review.removed.map(entry=><p key={entry.id}>撤下 · {entry.title}<small>{entry.path}</small></p>)}
       {review.id===review.baseReleaseId&&<p>这已经是当前公开版本。</p>}
     </>}
-    <div className="dialog-actions"><button disabled={restoring} onClick={onClose}>取消</button><button className="primary" disabled={loading||restoring||!!error||!review||review.id===review.baseReleaseId} onClick={async()=>{
+    <div className="dialog-actions"><button disabled={restoring} onClick={onClose}>取消</button><button className="primary async-action" disabled={loading||restoring||!!error||!review||review.id===review.baseReleaseId} onClick={async()=>{
       if(!review)return;setRestoring(true);setError('');
       try{await api('rollback',{id:review.id,baseReleaseId:review.baseReleaseId,review:review.review});onClose();void Promise.resolve().then(onRestored).catch(error=>onError('公开版本已恢复，读取列表失败：'+error.message));}
       catch(error:any){setError(error.message);}finally{setRestoring(false);}

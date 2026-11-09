@@ -9,6 +9,7 @@ export type PublicationSite = Pick<
   | 'terms'
   | 'fieldWidgets'
   | 'blockRenderers'
+  | 'extensionBlockDefinitions'
   | 'publicationValidators'
   | 'validateBlocks'
   | 'validateReleaseExtensions'

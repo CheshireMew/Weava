@@ -11,8 +11,9 @@ import {
   readSync,
   statSync,
   writeFileSync,
+  constants,
 } from 'node:fs';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, rename } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import sharp from 'sharp';
 import { digest, now } from '../../runtime-common/src/identity.ts';
@@ -24,6 +25,7 @@ import { imageDerivatives } from './media-images.ts';
 import { updateRevisionReferences } from './media-reference-index.ts';
 import { mediaIdentity } from './paths.ts';
 import { paginate } from './query.ts';
+import { indexRecord } from './record-indexes.ts';
 import type { Site } from './site.ts';
 const imageCaches = new WeakMap<
   object,
@@ -317,41 +319,44 @@ export async function cropMedia(site: Site, id: string, revision: number, crop: 
     crop.top + crop.height > 100
   )
     throw new WeavaError('裁切范围需要在图片范围内。');
-  const bytes = readFileSync(inside(site.root, original.value.url.slice(1)));
-  const rotated = await sharp(bytes, { limitInputPixels: 32000000 }).rotate().png().toBuffer();
-  const metadata = await sharp(rotated).metadata();
-  const left = Math.floor((metadata.width! * crop.left) / 100),
-    top = Math.floor((metadata.height! * crop.top) / 100);
+  const source = inside(site.root, original.value.url.slice(1));
+  const metadata = await sharp(source, { limitInputPixels: 32000000 }).metadata();
+  const dimensions = metadata.autoOrient ?? metadata;
+  const left = Math.floor((dimensions.width! * crop.left) / 100),
+    top = Math.floor((dimensions.height! * crop.top) / 100);
   const width = Math.min(
-    metadata.width! - left,
-    Math.max(1, Math.round((metadata.width! * crop.width) / 100)),
+    dimensions.width! - left,
+    Math.max(1, Math.round((dimensions.width! * crop.width) / 100)),
   );
   const height = Math.min(
-    metadata.height! - top,
-    Math.max(1, Math.round((metadata.height! * crop.height) / 100)),
+    dimensions.height! - top,
+    Math.max(1, Math.round((dimensions.height! * crop.height) / 100)),
   );
-  const cropped = await sharp(rotated).extract({ left, top, width, height }).png().toBuffer();
-  const saved = await uploadMedia(
+  const cropped = await sharp(source, { limitInputPixels: 32000000 }).rotate().extract({ left, top, width, height }).png().toBuffer();
+  const prepared = await prepareMedia(
     site,
     cropped,
     original.value.name.replace(/\.[^.]+$/, '') + '-crop.png',
+    { optimize: false },
   );
-  if (saved.id === original.id) return saved;
-  // Identical crops may already be in the library. Keep their existing lineage and metadata.
-  if (saved.value.parentId) return saved;
-  return site.store.put(
+  const existing = site.store.get('media', prepared.id);
+  if (existing) { queueMediaOptimization(site, existing.id); return existing; }
+  const saved = site.store.put(
     'media',
-    saved.id,
+    prepared.id,
     {
-      ...saved.value,
+      ...prepared.value,
       alt: original.value.alt ?? '',
       caption: original.value.caption ?? '',
       parentId: original.id,
       crop,
+      groupId: original.value.groupId ?? null,
     },
-    saved.revision,
+    null,
     '裁切副本',
   );
+  queueMediaOptimization(site, saved.id);
+  return saved;
 }
 export function imageAttributes(
   site: Site,
@@ -451,16 +456,22 @@ export function validateMediaFile(file: string, name: string) {
   }
   return size;
 }
-export async function prepareMedia(site: Site, data: Buffer | string, name: string) {
-  const size = typeof data === 'string' ? validateMediaFile(data, name) : data.length;
+export interface PrepareMediaOptions {
+  hash?: string;
+  validatedSize?: number;
+  move?: boolean;
+  optimize?: boolean;
+}
+export async function prepareMedia(site: Site, data: Buffer | string, name: string, options: PrepareMediaOptions = {}) {
+  const size = options.validatedSize ?? (typeof data === 'string' ? validateMediaFile(data, name) : data.length);
   if (!size || size > mediaUploadMaxBytes) throw new WeavaError('附件大小需要在 32 MB 以内。');
   if (typeof data !== 'string') validateMediaFormat(data, extname(name).toLowerCase());
-  const hash = typeof data === 'string' ? digestFile(data) : digest(data),
+  const hash = options.hash ?? (typeof data === 'string' ? digestFile(data) : digest(data)),
     id = hash.slice(0, 24);
   const existing = site.store.get('media', id);
   if (
     existing &&
-    [existing.value.url, ...(existing.value.derivatives ?? []).map((item: any) => item.url)].every(
+    [existing.value.url, ...(options.optimize === false ? [] : existing.value.derivatives ?? []).map((item: any) => item.url)].every(
       (url) => existsSync(inside(site.root, url.slice(1))),
     )
   )
@@ -473,8 +484,13 @@ export async function prepareMedia(site: Site, data: Buffer | string, name: stri
     destination = join(dir, file);
   mkdirSync(dir, { recursive: true });
   if (typeof data === 'string') {
-    if (data !== destination) await copyFile(data, destination);
-  } else writeFileSync(destination, data);
+    if(data!==destination&&!existsSync(destination)){
+      try{await (options.move?rename(data,destination):copyFile(data,destination,constants.COPYFILE_EXCL));}
+      catch(error:any){if(error.code!=='EEXIST')throw error;}
+    }
+  } else if(!existsSync(destination)) {
+    try{writeFileSync(destination,data,{flag:'wx'});}catch(error:any){if(error.code!=='EEXIST')throw error;}
+  }
   // Native image readers may retain file handles on Windows. Read the durable
   // copy so the upload's temporary file can be released before committing it.
   const imageInput = typeof data === 'string' ? destination : data;
@@ -484,7 +500,7 @@ export async function prepareMedia(site: Site, data: Buffer | string, name: stri
     if (!metadata.format || Math.max(metadata.width ?? 0, metadata.height ?? 0) > 12000)
       throw new WeavaError('图片格式或尺寸无效。');
   }
-  const derivatives = image
+  const derivatives = image && options.optimize !== false
     ? await imageDerivatives(site.root, imageInput, id, metadata, size)
     : [];
   return {
@@ -499,6 +515,7 @@ export async function prepareMedia(site: Site, data: Buffer | string, name: stri
       width: metadata.autoOrient?.width ?? metadata.width,
       height: metadata.autoOrient?.height ?? metadata.height,
       derivatives,
+      ...(image && options.optimize === false ? { optimization: { status: (metadata.pages ?? 1) > 1 ? 'skipped' : 'pending' } } : {}),
       createdAt: now(),
       ...(existing?.value ?? {}),
     },
@@ -508,6 +525,48 @@ export async function uploadMedia(site: Site, data: Buffer | string, name: strin
   const prepared = await prepareMedia(site, data, name);
   const existing = site.store.get('media', prepared.id);
   return site.store.put('media', prepared.id, prepared.value, existing?.revision ?? null, '上传');
+}
+
+/** Derived files never change the revision of the user's name, caption or group. */
+export function updateMediaOptimization(site: Site, id: string, update: Record<string, unknown>) {
+  return site.store.raw.transaction(() => {
+    const row = site.store.get('media', id);
+    if (!row) throw new WeavaError('媒体不存在。', 404);
+    const value = { ...row.value, ...update };
+    site.store.raw.prepare("UPDATE records SET data=? WHERE scope='media' AND id=?")
+      .run(JSON.stringify(value), id);
+    indexRecord(site.store.raw, 'media', id, value, row.revision, row.updatedAt);
+    site.store.setState('media-version', digest([id, value.derivatives, value.optimization, Date.now()]));
+    return { ...row, value };
+  }).immediate();
+}
+
+export function queueMediaOptimization(site: Site, id: string) {
+  return site.store.raw.transaction(() => {
+    const row = site.store.get('media', id);
+    if (!row || !isUploadFormat(row.value.url, true) || ['complete', 'skipped'].includes(row.value.optimization?.status)) return null;
+    const old = site.store.raw.prepare("SELECT data FROM jobs WHERE operation='media-optimize' AND json_extract(data,'$.payload.id')=? ORDER BY rowid DESC LIMIT 1").get(id) as { data: string } | undefined;
+    const previous = old ? JSON.parse(old.data) : null;
+    if (previous && ['queued', 'running'].includes(previous.status)) return previous;
+    updateMediaOptimization(site, id, { optimization: { status: 'pending' } });
+    const job = site.createJob('media-optimize', { id }, 'media-optimize:' + id + (previous ? ':' + previous.id : ''));
+    return site.updateJob(job.id, { managed: true });
+  }).immediate();
+}
+
+export async function optimizeMedia(site: Site, id: string, jobId?: string) {
+  const row = site.store.get('media', id);
+  if (!row) throw new WeavaError('媒体不存在。', 404);
+  try {
+    const file = inside(site.root, row.value.url.slice(1));
+    const metadata = await sharp(file, { limitInputPixels: 32000000 }).metadata();
+    const derivatives = await imageDerivatives(site.root, file, id, metadata, row.value.bytes, row.value.derivatives);
+    if (jobId && site.job(jobId).cancelRequestedAt) throw new WeavaError('图片优化已取消，原图仍可使用。');
+    return updateMediaOptimization(site, id, { derivatives, optimization: { status: (metadata.pages ?? 1) > 1 ? 'skipped' : 'complete' } });
+  } catch (error: any) {
+    updateMediaOptimization(site, id, { optimization: { status: 'failed', error: error.message } });
+    throw error;
+  }
 }
 
 export const mediaRecords = (site: Pick<Site, 'store'>) => site.store.list('media');

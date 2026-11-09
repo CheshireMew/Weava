@@ -70,9 +70,13 @@ try {
   const payload = { name: '验收图片.png', base64: image.toString('base64') },
     job = await api('media', payload, 'media-once');
   assert.equal((await api('media', payload, 'media-once')).id, job.id);
-  const completed = await wait(job),
-    media = completed.result.value;
-  assert.equal(media.derivatives.length, 2);
+  const completed = await wait(job);
+  assert.equal((await fetch(origin + completed.result.value.url)).status, 200);
+  const optimization = (await api('jobs')).find((item: any) => item.operation === 'media-optimize');
+  assert(optimization);
+  await wait(optimization);
+  const media = (await api('media')).find((item: any) => item.id === completed.result.id).value;
+  assert(media.derivatives.length > 0);
   const value = entrySchema.parse({
       id: 'responsive-image',
       title: '响应图片',

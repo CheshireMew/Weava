@@ -14,18 +14,27 @@ import ImportManager from '../apps/admin/src/ImportManager.tsx';
 import {TemporaryMaintenance} from '../apps/admin/src/TemporaryMaintenance.tsx';
 import { AnalyticsReportView } from '../apps/admin/src/AnalyticsReportView.tsx';
 import { ReportWorkspace } from '../apps/admin/src/analytics/report-workspace.ts';
+import {refreshBackgroundTasks} from '../apps/admin/src/background-tasks.ts';
 import { api, waitJob } from '../apps/admin/src/api.ts';
+import { uploadFile } from '../apps/admin/src/upload-file.ts';
+import { dismissMediaUpload, mediaUploadSnapshot } from '../apps/admin/src/media-uploads.tsx';
+import { adminQueries } from '../apps/admin/src/query-cache.ts';
+vi.mock('../apps/admin/src/upload-file.ts', () => ({ uploadFile: vi.fn() }));
 
-const mocks = vi.hoisted(() => ({ api: vi.fn(), waitJob: vi.fn() }));
+const mocks = vi.hoisted(() => ({ api: vi.fn(), waitJob: vi.fn(),submitJob:vi.fn() }));
 vi.mock('../apps/admin/src/api.ts', () => mocks);
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  mocks.api.mockReset(); mocks.waitJob.mockReset(); localStorage.clear();
+  window.dispatchEvent(new Event('weava-session-ended'));sessionStorage.clear();
+  mocks.api.mockReset(); mocks.waitJob.mockReset();mocks.submitJob.mockReset().mockImplementation((path,body)=>mocks.api(path,body));localStorage.clear();
+  vi.stubGlobal('XMLHttpRequest',class {status=200;responseText='';upload={};timeout=0;onload:any;open(){}setRequestHeader(){}send(file:File){this.responseText=JSON.stringify({id:'source-test',name:file.name,format:file.name.endsWith('.xml')?'wxr':'json',bytes:file.size,path:'uploads/request-test.json',sha256:'hash',expiresAt:new Date(Date.now()+86400000).toISOString()});queueMicrotask(()=>this.onload());}});
+  adminQueries.resume();
+  mediaUploadSnapshot().forEach(item => dismissMediaUpload(item.id)); vi.mocked(uploadFile).mockReset();
   mocks.api.mockImplementation(async (path: string) => path.includes('query?') ? { items: [], total: 0, pages: 0 } : []);
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear();window.dispatchEvent(new Event('weava-session-ended'));vi.unstubAllGlobals();vi.restoreAllMocks(); });
 async function render(node: React.ReactNode) { await act(async () => root.render(<EditSessionsProvider><SelectorsProvider>{node}</SelectorsProvider></EditSessionsProvider>)); }
 function button(text: string, scope: ParentNode = document) { const node = [...scope.querySelectorAll('button')].find(node => node.textContent === text || node.getAttribute('aria-label') === text); expect(node, text).toBeDefined(); return node!; }
 async function click(text: string, scope?: ParentNode) { await act(async () => button(text, scope).click()); }
@@ -44,25 +53,17 @@ it('copies exact code from sandboxed previews through the parent without enablin
   expect(frame.getAttribute('sandbox')).toBe('allow-same-origin'); expect(frame.getAttribute('src')).toContain('embedded=1');
 });
 
-it('explains invalid import files without sending them and accepts a corrected export afterward',async()=>{
+it('streams import files without reading them in the browser, reports server validation errors and accepts a corrected export',async()=>{
   await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
-  const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;
-  const choose=async(text:string)=>{
-    Object.defineProperty(field,'files',{configurable:true,value:[{name:'source.json',size:text.length,text:async()=>text}]});
-    await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
-    await click('预检导入');
-  };
-  await choose('{"version":2,"entries":[]}');
-  expect(host.textContent).toContain('版本暂不支持');expect(api).not.toHaveBeenCalled();
-  await choose('{"name":"weava","version":"0.2.0"}');
-  expect(host.textContent).toContain('这不是 Weava 导出的网站内容文件');expect(api).not.toHaveBeenCalled();
-  await choose('{invalid');
-  expect(host.textContent).toContain('不是有效的 JSON');expect(host.querySelector('[role="alert"] li')).toBeNull();expect(api).not.toHaveBeenCalled();
-  mocks.api.mockResolvedValue({id:'import-job',status:'queued'});
-  mocks.waitJob.mockResolvedValue({status:'complete',result:{dryRun:true,created:[],updated:[],unchanged:[]}});
-  await choose('{"version":1,"entries":[]}');
-  expect(api).toHaveBeenCalledWith('import',expect.objectContaining({value:{version:1,entries:[]},options:expect.objectContaining({dryRun:true})}));
-  expect(host.textContent).toContain('预检结果');expect(host.querySelector('[role="alert"]')).toBeNull();
+  const field=host.querySelector<HTMLInputElement>('input[type="file"]')!,read=vi.fn(()=>{throw new Error('must not read');});
+  const choose=async()=>{Object.defineProperty(field,'files',{configurable:true,value:[{name:'source.json',size:30,text:read}]});await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));};
+  await choose();mocks.submitJob.mockRejectedValueOnce(new Error('这个文件不是有效的 JSON。'));await click('预检导入');
+  expect(host.textContent).toContain('不是有效的 JSON');expect(read).not.toHaveBeenCalled();
+  mocks.submitJob.mockResolvedValueOnce({id:'valid-import',status:'queued',operation:'import-source'});
+  mocks.api.mockResolvedValue({id:'valid-import',status:'complete',operation:'import-source',result:{format:'json',dryRun:true,created:[],updated:[],unchanged:[]}});
+  await choose();await click('预检导入');await act(async()=>refreshBackgroundTasks());
+  expect(mocks.submitJob).toHaveBeenLastCalledWith('import/source',expect.objectContaining({sourceId:'source-test',options:expect.objectContaining({dryRun:true})}),expect.any(String));
+  expect(host.textContent).toContain('预检结果');expect(host.querySelector('[role="alert"]')).toBeNull();expect(read).not.toHaveBeenCalled();
 });
 it('shows the exact temporary cleanup preview and requires its explicit delete button',async()=>{
   const refresh=vi.fn(async()=>{}),onError=vi.fn();
@@ -98,6 +99,40 @@ it('uses a separate URL dialog, rejects invalid schemes, and preserves the media
   expect(selected).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com/image?id=4', kind: 'image' }));
   expect(dialog('选择媒体')).toBeNull();
   expect(mocks.api.mock.calls.every(([, input]: any[]) => input === undefined)).toBe(true);
+});
+
+it('keeps media selection and closing available during upload and offers the original before optimization',async()=>{
+  const selected=vi.fn(),existing={id:'existing',revision:1,value:{id:'existing',name:'existing.png',url:'/media/existing.png',bytes:4,createdAt:'2026-11-09'}};
+  mocks.api.mockImplementation(async(path:string)=>path.includes('query?')?{items:[existing],total:1,pages:1}:[]);
+  let resolve!: (value:any)=>void;vi.mocked(uploadFile).mockReturnValue(new Promise(done=>{resolve=done;}));
+  function Select(){const selectors=useSelectors();return <button onClick={async()=>selected(await selectors.media('image'))}>选图</button>;}
+  await render(<Select/>);await click('选图');
+  const field=dialog('选择媒体').querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(field,'files',{configurable:true,value:[new File(['image'],'upload.png',{type:'image/png'})]});
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  expect(button('上传文件',dialog('选择媒体')).disabled).toBe(false);expect(button('关闭',dialog('选择媒体')).disabled).toBe(false);
+  await click('关闭',dialog('选择媒体'));expect(selected).toHaveBeenLastCalledWith(null);
+  await click('选图');expect(dialog('选择媒体').textContent).toContain('upload.png');
+  await act(async()=>dialog('选择媒体').querySelector<HTMLButtonElement>('.selector-item')!.click());
+  expect(selected).toHaveBeenLastCalledWith(expect.objectContaining({url:'/media/existing.png'}));
+  await click('选图');
+  await act(async()=>resolve({id:'original',revision:2,updatedAt:'2026-11-09',value:{id:'original',name:'upload.png',url:'/media/original.png',bytes:5,createdAt:'2026-11-09',derivatives:[],optimization:{status:'pending'}}}));
+  await act(async()=>dialog('选择媒体').querySelector<HTMLButtonElement>('.media-upload-select')!.click());
+  expect(selected).toHaveBeenLastCalledWith(expect.objectContaining({url:'/media/original.png',kind:'image'}));
+  expect(waitJob).not.toHaveBeenCalled();expect(uploadFile).toHaveBeenCalledTimes(1);
+});
+it('retries a failed background upload without locking the picker',async()=>{
+  vi.mocked(uploadFile).mockRejectedValueOnce(new Error('网络中断')).mockResolvedValueOnce({id:'retried',revision:1,updatedAt:'2026-11-09',value:{name:'retry.png',url:'/media/retried.png',bytes:5,createdAt:'2026-11-09',optimization:{status:'pending'}}});
+  const selected=vi.fn();
+  function Select(){const selectors=useSelectors();return <button onClick={async()=>selected(await selectors.media('image'))}>选图</button>;}
+  await render(<Select/>);await click('选图');
+  const field=dialog('选择媒体').querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(field,'files',{configurable:true,value:[new File(['image'],'retry.png')]});
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  expect(dialog('选择媒体').textContent).toContain('网络中断');expect(button('关闭',dialog('选择媒体')).disabled).toBe(false);
+  await click('重试上传',dialog('选择媒体'));
+  await act(async()=>dialog('选择媒体').querySelector<HTMLButtonElement>('.media-upload-select')!.click());
+  expect(selected).toHaveBeenLastCalledWith(expect.objectContaining({url:'/media/retried.png'}));expect(uploadFile).toHaveBeenCalledTimes(2);
 });
 
 it('keeps simple repeat fields visible and edits complex items in a modal without changing their order', async () => {
@@ -161,18 +196,25 @@ it('cancels crop without saving and submits the selected crop once when confirme
   expect(dialog('裁切图片')).toBeNull(); expect(waitJob).toHaveBeenCalledTimes(1);
 });
 
-it('shows import problems immediately and opens long explanations without committing the import', async () => {
-  const report = { dryRun: true, content: 1, pages: 0, terms: 0, attachments: [], comments: 0, reviewRequired: [{ id: 'one', title: '旧文章', unresolved: ['需检查视频'] }], skipped: [], warnings: ['说明一', '说明二', '说明三', '说明四'], notes: [] };
-  mocks.api.mockResolvedValue(report);
-  await render(<ImportManager refresh={vi.fn(async () => {})} />);
-  const field = host.querySelector<HTMLInputElement>('input[type="file"]')!;
-  Object.defineProperty(field, 'files', { value: [{ name: 'source.xml', size: 100, text: async () => '<rss />' }] });
-  await act(async () => field.dispatchEvent(new Event('change', { bubbles: true })));
-  await click('预检导入'); expect(host.textContent).toContain('需检查视频'); expect(host.querySelector('details')).toBeNull();
-  await click('查看详情（4 条）'); expect(dialog('转换说明').textContent).toContain('说明四');
-  expect(api).toHaveBeenCalledTimes(1); expect(api).toHaveBeenCalledWith('import/wxr', expect.objectContaining({ options: expect.objectContaining({ dryRun: true }) }));
+it('retains an import preflight across page changes and opens long explanations without committing',async()=>{
+  const report={format:'wxr',dryRun:true,content:1,pages:0,terms:0,attachments:[],comments:0,reviewRequired:[{id:'one',title:'旧文章',unresolved:['需检查视频']}],skipped:[],warnings:['说明一','说明二','说明三','说明四'],notes:[]};
+  mocks.submitJob.mockResolvedValue({id:'wxr-preview',status:'queued',operation:'preflight-wxr'});
+  mocks.api.mockImplementation(async path=>path==='job/wxr-preview'?{id:'wxr-preview',status:'complete',operation:'preflight-wxr',result:report}:[]);
+  await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+  const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;Object.defineProperty(field,'files',{value:[new File(['<rss/>'],'source.xml')]});
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));await click('预检导入');
+  await render(<p>其它页面</p>);await act(async()=>refreshBackgroundTasks());await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+  expect(host.textContent).toContain('需检查视频');await click('查看详情（4 条）');expect(dialog('转换说明').textContent).toContain('说明四');
+  expect(mocks.submitJob).toHaveBeenCalledTimes(1);expect(mocks.submitJob).toHaveBeenCalledWith('import/source',expect.objectContaining({sourceId:'source-test',options:expect.objectContaining({dryRun:true})}),expect.any(String));
 });
-
+it('retains history task results after leaving the page and separates a completed archive from refresh errors',async()=>{
+ const refresh=vi.fn().mockRejectedValue(new Error('断线'));
+ mocks.api.mockImplementation(async(path:string)=>path==='maintenance/preview'?{options:{before:'2099-01-01',keepReleases:20,keepRevisions:20},releases:2,revisions:3,protectedReleases:20,protectedRevisions:20,review:'review'}:path==='job/history-job'?{id:'history-job',status:'complete',operation:'archive-history',result:{releases:2,revisions:3}}:[]);
+ mocks.submitJob.mockResolvedValue({id:'history-job',status:'queued',operation:'archive-history'});
+ await render(<HistoryMaintenance refresh={refresh}/>);await click('检查可整理的历史');await click('整理并保留恢复记录');
+ await render(<p>其它页面</p>);await act(async()=>refreshBackgroundTasks());await render(<HistoryMaintenance refresh={refresh}/>);
+ expect(host.textContent).toContain('已归档 2 个公开版本、3 个修订');expect(host.textContent).toContain('操作已完成，列表刷新失败');expect(button('检查可整理的历史').disabled).toBe(false);
+});
 it('keeps the overview focused and links to details without changing shared filters', async () => {
   const totals = { views: 1, visitors: 1, sessions: 1, clicks: 0 };
   const data: any = { ...totals, range: { start: '2026-11-03', end: '2026-11-04', timezone: 'Asia/Shanghai', previousStart: '2026-11-01', previousEnd: '2026-11-02' }, previous: totals, lifetime: totals, averageActiveMs: 10, overview: [], daily: [{ date: '2026-11-04', views: 1, visitors: 1, sessions: 1, clicks: 0, previousViews: 1, previousVisitors: 1 }], historicalViews: 0 };
@@ -190,7 +232,7 @@ it('keeps the overview focused and links to details without changing shared filt
 });
 
 it('views archive contents in a dialog without restoring or altering history', async () => {
-  mocks.api.mockImplementation(async (path: string) => path === 'maintenance/archives' ? [{ id: 'archive', createdAt: '2026-11-04T10:00:00Z', releases: 1, revisions: 2 }] : { releases: [{ id: 'release', createdAt: '2026-11-01T10:00:00Z' }], revisions: [{}, {}] });
+  mocks.api.mockImplementation(async (path: string) => path === 'maintenance/archives' ? [{ id: 'archive', createdAt: '2026-11-04T10:00:00Z', releases: 1, revisions: 2 }] : {id:'archive',page:1,pageSize:50,pages:1,totalReleases:1,totalRevisions:2,releases:[{id:'release',createdAt:'2026-11-01T10:00:00Z'}],revisions:[{revision:1,id:'one',createdAt:'2026-11-01T10:00:00Z'},{revision:2,id:'two',createdAt:'2026-11-01T10:00:00Z'}]});
   await render(<HistoryMaintenance refresh={vi.fn(async () => {})} />); await click('查看归档');
   expect(dialog('归档内容').textContent).toContain('公开版本 1 · 修订 2');
   await click('关闭', dialog('归档内容')); expect(dialog('归档内容')).toBeNull();

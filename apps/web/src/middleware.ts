@@ -178,7 +178,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (
     context.request.method === 'HEAD' || context.url.pathname.startsWith('/media/') ||
     response.status !== 200 ||
-    response.headers.has('content-encoding') ||
+    response.headers.has('content-encoding') || response.headers.get('X-Weava-Stream') === '1' ||
     !/(^text\/|application\/(json|javascript|xml)|image\/svg\+xml)/i.test(type)
   )
     return response;

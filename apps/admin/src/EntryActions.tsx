@@ -48,7 +48,7 @@ export function EntryActions({ row, model, disabled }: { row: any; model: EntryA
       {error && <p role="alert" className="error">{error}</p>}
       <div className="entry-delete-actions">
         <button data-autofocus disabled={pending} onClick={() => setConfirming(false)}>取消</button>
-        <button className="publication-delete-confirm" disabled={pending} onClick={remove}>{pending ? '正在删除…' : '删除'}</button>
+        <button className="publication-delete-confirm async-action" disabled={pending} onClick={remove}>{pending ? '正在删除…' : '删除'}</button>
       </div>
     </Dialog>}
   </>;

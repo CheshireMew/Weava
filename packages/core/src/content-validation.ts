@@ -3,6 +3,7 @@ import type { Site } from './site.ts';
 import { normalizePath } from './paths.ts';
 import { renderDocument } from './documents.ts';
 import { validateSeo } from './seo.ts';
+import { checkDocumentStructure } from './document-inspection.ts';
 
 export type EntryValidationSite = Pick<Site, 'store' | 'fieldWidgets' | 'settings' | 'validateBlocks'>;
 export interface EntryCheck { valid: boolean; errors: FieldIssue[]; value?: Entry }
@@ -35,7 +36,7 @@ export function checkEntry(site: EntryValidationSite, value: unknown, options: {
     }
   }
   run('seo', () => validateSeo(input, site.settings().value.domain));
-  run('document', () => { renderDocument(input.document); });
+  run('document', () => { if (options.required === false) checkDocumentStructure(input.document); else renderDocument(input.document); });
   run('blocks', () => {
     site.validateBlocks(input.blocks, options.required !== false);
     const body = (items: Entry['blocks']): boolean => items.some((block) => block.type === 'entry-body' || body(block.children ?? []));

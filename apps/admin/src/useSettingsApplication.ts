@@ -38,8 +38,8 @@ export class SettingsApplication {
   };
 }
 
-export function useSettingsApplication(refresh: () => Promise<any>, onApplied?: () => void) {
-  const latest = useRef({ refresh, onApplied }); latest.current = { refresh, onApplied };
+export function useSettingsApplication(refresh: () => Promise<any>, onApplied?: () => void,onRefreshError?:(message:string)=>void) {
+  const latest = useRef({ refresh, onApplied,onRefreshError }); latest.current = { refresh, onApplied,onRefreshError };
   const [, render] = useState(0), mounted = useRef(true);
   const controller = useRef<SettingsApplication | null>(null);
   if (!controller.current) controller.current = new SettingsApplication(async () => {
@@ -51,7 +51,7 @@ export function useSettingsApplication(refresh: () => Promise<any>, onApplied?: 
       try { await waitJob(await api('publish', { scope: 'settings' }), job => { progress = job; }); }
       catch (error: any) { throw Object.assign(error, { status: progress?.errorStatus ?? error.status }); }
     }
-    await latest.current.refresh();
+    void latest.current.refresh().catch(error=>latest.current.onRefreshError?.('设置已生效，刷新页面数据失败：'+error.message));
   }, () => { if (mounted.current) render(value => value + 1); }, () => { if (mounted.current) latest.current.onApplied?.(); });
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   return controller.current;

@@ -9,6 +9,7 @@ import Operations from '../apps/admin/src/Operations.tsx';
 import { CommentSettings } from '../apps/admin/src/SiteSettingControls.tsx';
 import { SearchDataPanel } from '../apps/admin/src/SearchDataPanel.tsx';
 import { AdminNavigation } from '../apps/admin/src/AdminNavigation.tsx';
+import {useTaxonomyEditor} from '../apps/admin/src/TaxonomyManager.tsx';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
@@ -33,6 +34,16 @@ function button(text: string) {
   const found = [...host.querySelectorAll('button')].find(button => button.textContent === text || button.getAttribute('aria-label') === text);
   expect(found, text).toBeDefined(); return found!;
 }
+it('confirms the saved taxonomy revision before a failed display refresh and keeps later edits saveable',async()=>{
+ let model!:ReturnType<typeof useTaxonomyEditor>;const refresh=vi.fn().mockRejectedValue(new Error('离线'));
+ function Taxonomy(){model=useTaxonomyEditor([],refresh);return null;}
+ mocks.api.mockImplementation(async(_path,body:any)=>({id:body.value.id,revision:(body.revision??0)+1,value:body.value}));
+ await render(<Taxonomy/>);
+ await act(async()=>model.select({id:'category-one',revision:null,value:{id:'category-one',kind:'category',label:'分类一',slug:'one'}}));
+ await act(async()=>model.save());expect(model.record?.revision).toBe(1);expect(model.refreshError).toContain('已保存');expect(model.autoSave.phase).toBe('saved');
+ await act(async()=>model.update({label:'分类二'}));await act(async()=>model.save());
+ expect(mocks.api).toHaveBeenLastCalledWith('terms',expect.objectContaining({revision:1,value:expect.objectContaining({label:'分类二'})}));expect(model.record?.revision).toBe(2);
+});
 async function click(text: string) { await act(async () => button(text).click()); }
 function field(text: string) {
   const named = [...host.querySelectorAll<HTMLInputElement>('input')].find(input => input.getAttribute('aria-label') === text);

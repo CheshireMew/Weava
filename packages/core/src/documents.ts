@@ -6,6 +6,7 @@ import { fieldIssues, WeavaError } from '@weava/contracts';
 import { createHash } from 'node:crypto';
 import { renderCode } from './code-blocks.ts';
 import { BoundedCache } from './cache.ts';
+import {writingStyles} from '../../runtime-common/src/writing-format.ts';
 const documentCache=new BoundedCache<string,string>(256,16*1024*1024);
 const outlineCache=new BoundedCache<string,{html:string;items:{id:string;title:string;level:number}[]}>(256,16*1024*1024);
 export const escape = (v: any) =>
@@ -69,12 +70,14 @@ export function sanitize(html: string) {
     },
   });
 }
-function lexicalNode(n: any): string {
-  const html = lexicalMarkup(n), anchor = n.$?.weavaAnchor;
+type Footnotes = Map<string, {source: string; number: number; count: number}>;
+function lexicalNode(n: any, notes: Footnotes): string {
+  let html = lexicalMarkup(n, notes); const anchor = n.$?.weavaAnchor;
+  if (['center','right','justify'].includes(n.format)) html = html.replace(/^<(\w+)/, `<$1 class="weava-align-${n.format}"`);
   return typeof anchor === 'string' && anchor ? html.replace(/^<(\w+)/, `<$1 id="${escape(anchor)}"`) : html;
 }
-function lexicalMarkup(n: any): string {
-  const inner = (n.children ?? []).map(lexicalNode).join('');
+function lexicalMarkup(n: any, notes: Footnotes): string {
+  const inner = (n.children ?? []).map((child: any) => lexicalNode(child, notes)).join('');
   if (n.type === 'text') {
     let s = escape(n.text);
     const f = Number(n.format ?? 0);
@@ -84,12 +87,24 @@ function lexicalMarkup(n: any): string {
       [4, 's'],
       [8, 'u'],
       [16, 'code'],
-      [32, 'sub'], [64, 'sup'], [128, 'mark'],
+      [32, 'sub'], [64, 'sup'],
     ] as const)
       if (f & flag) s = `<${tag}>${s}</${tag}>`;
+    const styles = writingStyles(n.style);
+    if (styles.color) s = `<span class="weava-color-${styles.color}">${s}</span>`;
+    if (f & 128) s = `<mark class="weava-highlight-${styles.highlight ?? 'yellow'}">${s}</mark>`;
     return s;
   }
   switch (n.type) {
+    case 'writing-details':
+      return `<details class="weava-details"><summary>${escape(n.title)}</summary>${inner}</details>`;
+    case 'writing-button':
+      return `<a class="weava-link-button" href="${escape(n.url)}">${inner}</a>`;
+    case 'writing-footnote': {
+      const note = notes.get(n.label) ?? {source: n.source, number: notes.size + 1, count: 0};
+      notes.set(n.label, note); const suffix = note.count++ ? ':' + (note.count - 1) : '';
+      return `<sup class="footnote-ref"><a href="#fn${note.number}" id="fnref${note.number}${suffix}">[${note.number}]</a></sup>`;
+    }
     case 'root':
       return inner;
     case 'paragraph':
@@ -135,15 +150,21 @@ function lexicalMarkup(n: any): string {
 }
 export function renderDocument(document: Document): string {
   const key=createHash('sha256').update(JSON.stringify(document)).digest('hex'),cached=documentCache.get(key);if(cached!==undefined)return cached;
+  const notes: Footnotes = new Map();
+  let rendered = document.format === 'markdown' ? md.render(document.source) : document.format === 'html' ? document.source : lexicalNode(document.source.root, notes);
+  if (notes.size) rendered += '<hr class="footnotes-sep"><section class="footnotes"><ol class="footnotes-list">' + [...notes.values()].map(note => `<li id="fn${note.number}" class="footnote-item">${md.render(note.source)}${Array.from({length: note.count}, (_, index) => `<a href="#fnref${note.number}${index ? ':' + index : ''}" class="footnote-backref">↩</a>`).join('')}</li>`).join('') + '</ol></section>';
   const html = sanitize(
-    document.format === 'markdown'
-      ? md.render(document.source)
-      : document.format === 'html'
-        ? document.source
-        : lexicalNode(document.source.root),
+    rendered,
   );
   const $ = load(html, null, false),
     counts = new Map<string, number>();
+  // Several notes can share a timeline; their footnote targets must remain local.
+  const noteIds = new Map<string, string>();
+  $('.footnote-ref a[id],.footnote-item[id]').each((_, element) => {
+    const old = $(element).attr('id')!, id = 'note-' + key.slice(0, 12) + '-' + old;
+    noteIds.set(old, id); $(element).attr('id', id);
+  });
+  $('a[href^="#"]').each((_, element) => {const id = noteIds.get($(element).attr('href')!.slice(1)); if (id) $(element).attr('href', '#' + id);});
   $('h2,h3').each((_i, el) => {
     const h = $(el);
     if (h.attr('id')) return;

@@ -65,6 +65,10 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
     observer.observe(input.parentElement!);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, [record?.id, record?.value.title]);
+  const saveStatus = record && (record.revision > 0 || dirty || saving) ? <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
+    {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
+    {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
+  </span> : null;
   return (
     <section ref={editorRoot} className={'editing-area' + (article ? ' article-editor' : ' website-page-editor')} aria-label="内容编辑">
       {!record ? (
@@ -101,10 +105,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
               <ArrowLeft size={16} />
               <span>返回列表</span>
             </button>
-            {(record.revision > 0 || dirty || saving) && <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
-              {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
-              {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
-            </span>}
+            {article ? <div className="editor-save-slot">{saveStatus}</div> : saveStatus}
             {article && <EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} />}
             <div className="editor-actions">
               <div className="editor-tools">
@@ -159,7 +160,7 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                 } catch (error: any) { setError(error.message); }
               }}>预览</button>
               <button
-                className="primary"
+                className="primary async-action"
                 disabled={busy || saving}
                 onClick={() => publish().catch((error) => setError(error.message))}
               >

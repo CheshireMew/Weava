@@ -21,6 +21,13 @@ afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
 const noteModel=(model:any)=>({...model,author:{name:model.state?.settings.value.name??'',logo:model.state?.siteIcon??model.state?.settings.value.logo??''},recovery:{record:null}});
 const entry=entrySchema.parse({id:'existing-note',kind:'content',type:'wordpress-moment',status:'published',title:'原有笔记',path:'/moments/133.html',document:{version:1,format:'html',source:'<div style="color:white!important"><p>正常正文<a href="https://example.com/">参考链接</a></p><img src="/media/a.png"></div>'}});
 const row={id:entry.id,value:entry,revision:10,updatedAt:'2026-11-05T00:00:00Z'};
+it('lets a note close after saving while its submitted version is publishing',async()=>{
+ const persist=vi.fn(async()=>row),clear=vi.fn();const model:any={record:row,saving:false,busy:true,editorEpoch:0,persist,clear,setError:vi.fn(),update:vi.fn(),publish:vi.fn(),recovery:{record:null},author:{name:'作者'}};
+ await act(async()=>root.render(<NoteEditor model={model}/>));
+ const close=host.querySelector<HTMLButtonElement>('[aria-label="关闭笔记窗口"]')!;expect(close.disabled).toBe(false);
+ expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='正在发布…')?.disabled).toBe(true);
+ await act(async()=>close.click());expect(persist).toHaveBeenCalledTimes(1);expect(clear).toHaveBeenCalledTimes(1);
+});
 it('keeps late edits when a durable delete finishes and does not close a different selected editor',async()=>{
  let workspace:any,finish:(value:any)=>void;const notify=vi.fn(),state={types:[]};
  vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path==='entries/delete'?{id:'delete-job'}:path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);

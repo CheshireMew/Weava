@@ -16,12 +16,14 @@ import { validateFields } from './documents.ts';
 import { entrySummary, validateEditorial } from './editorial.ts';
 import { validateLayouts } from './layouts.ts';
 import type { PublicationSite } from './publication-context.ts';
-import { validatedReferences, validationRuntimeIdentity } from './publication-validation.ts';
+import { validatedReferences, validationRuntimeIdentity,immutableDigest } from './publication-validation.ts';
+import {BoundedCache} from './cache.ts';
 import { invalidateReleaseIndex } from './release-index.ts';
 import { publishedHasBlocks, publishedObjectKey } from './release-reader.ts';
 import { renderBlocks, renderNavigation, resolveContentLinks } from './render.ts';
 import { validateSeo } from './seo.ts';
 import { siteRoutes } from './site-routes.ts';
+const checkedEntries=new WeakMap<object,BoundedCache<string,boolean>>();
 
 export function validatePublicationEntries(
   site: PublicationSite,
@@ -30,9 +32,13 @@ export function validatePublicationEntries(
   types: Release['types'],
 ) {
   const paths = new Map<string, string>();
+  const environment=digest([validationRuntimeIdentity,settings.domain,types,site.fieldWidgets,site.extensionBlockDefinitions]);
+  let cache=checkedEntries.get(site.store);if(!cache){cache=new BoundedCache(20000,4*1024*1024);checkedEntries.set(site.store,cache);}
   for (const entry of entries.values()) {
     if (paths.has(entry.path)) throw new WeavaError('网址重复：' + entry.path);
     paths.set(entry.path, entry.id);
+    const checkKey=immutableDigest(entry)+':'+environment;
+    if(cache.get(checkKey))continue;
     if (!publishedObjectKey(entry)) entrySchema.parse(entry);
     validateSeo(entry, settings.domain);
     const entryBlocks = publishedHasBlocks(entry) ? entry.blocks : [];
@@ -47,6 +53,7 @@ export function validatePublicationEntries(
       if (blocked.length)
         throw new WeavaError(blocked.map((issue) => issue.message).join('；'), 400, blocked);
     }
+    cache.set(checkKey,true,checkKey.length*2+32);
   }
   return paths;
 }

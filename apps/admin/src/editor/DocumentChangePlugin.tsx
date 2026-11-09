@@ -1,9 +1,8 @@
 import {useEffect, useRef, type RefObject} from 'react';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {$convertToMarkdownString} from '@lexical/markdown';
 import type {EditorState} from 'lexical';
 import type {Document} from '@weava/contracts';
-import {transformers} from './transformers.tsx';
+import {exportMarkdown} from './transformers.tsx';
 
 /** Focus, selection and normalization do not create authored revisions. */
 export function DocumentChangePlugin({value, editing, outputFormat, onChange}: {
@@ -14,7 +13,7 @@ export function DocumentChangePlugin({value, editing, outputFormat, onChange}: {
   useEffect(() => {
     const original = latest.current.value;
     const read = (state: EditorState): Document => outputFormat === 'markdown'
-      ? state.read(() => ({version: 1, format: 'markdown', source: $convertToMarkdownString(transformers)}))
+      ? state.read(() => ({version: 1, format: 'markdown', source: exportMarkdown()}))
       : {version: 1, format: 'lexical', source: state.toJSON() as any};
     let baseline = JSON.stringify(read(editor.getEditorState())), previous = baseline;
     return editor.registerUpdateListener(({editorState, dirtyElements, dirtyLeaves}) => {

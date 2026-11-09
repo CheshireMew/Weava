@@ -4,9 +4,10 @@ import { searchDatasetSchema } from './search-data.ts';
 import { analyticsReportSchema, analyticsRealtimeSchema, analyticsVisitorDetailSchema, geoStatusSchema } from './analytics.ts';
 import * as m from './api-models.ts';
 import * as z from 'zod';
+import {writingSnippetSchema} from './writing.ts';
 import { accountProof, sessionResult, loginBody, loginResult, logoutResult,accountAccessBody,accountAccessResult,completeAccountAccessBody,completeAccountAccessResult } from './session-api.ts';
 const { id,revision,nullableRevision,empty,jsonObject,record,save,page,entrySchema,entryRecord,entrySummaryRecord,typeSchema,settingsSchema,termSchema,layoutSchema,contentViewSchema,creationTemplateSchema,mediaGroupSchema,imagePresetSchema,mediaRecord,jobSchema } = m;
-export interface ApiDefinition { method:'GET'|'POST'; path:string; summary:string; params:z.ZodType; query:z.ZodType; body:z.ZodType; response:z.ZodType; status:number; format:'json'|'csv'|'schema';binary?:boolean }
+export interface ApiDefinition { method:'GET'|'POST'; path:string; summary:string; params:z.ZodType; query:z.ZodType; body:z.ZodType; response:z.ZodType; status:number; format:'json'|'csv'|'schema';binary?:boolean;stream?:boolean }
 const get = <P extends string,R extends z.ZodType,Q extends z.ZodType=typeof empty,A extends z.ZodType=typeof empty>(path:P,summary:string,response:R,query:Q=empty as unknown as Q,params:A=empty as unknown as A) => ({ method:'GET' as const,path,summary,params,query,body:z.undefined(),response,status:200,format:'json' as 'json'|'csv'|'schema' });
 const post = <P extends string,B extends z.ZodType,R extends z.ZodType>(path:P,summary:string,body:B,response:R,status=200) => ({ method:'POST' as const,path,summary,params:empty,query:empty,body,response,status,format:'json' as 'json'|'csv'|'schema' });
 const byId=z.object({ id }), byVersion=byId.extend({ revision }), pathId=z.object({ id });
@@ -25,7 +26,7 @@ const imageVariant=z.object({ id,revision,presetId:id.optional(),spec:m.imageSpe
 const redirectRecords=z.array(z.object({ id,revision:nullableRevision,updatedAt:z.string(),value:m.redirectSchema }));
 const exportSchema=z.object({ version:z.number(),schemas:jsonObject,types:z.array(z.object({ id,revision,definition:typeSchema,schema:jsonObject })),rules:z.record(z.string(),z.string()) });
 const schemaResult=z.union([exportSchema,z.looseObject({ openapi:z.literal('3.1.0'),info:jsonObject,servers:z.array(jsonObject),security:z.array(jsonObject),components:jsonObject,paths:jsonObject }),z.string()]);
-const archiveContents=z.object({ id,releases:z.array(z.object({ id,createdAt:z.string() })),revisions:z.array(z.object({ revision,id,scope:z.string(),createdAt:z.string(),label:z.string() })) });
+const archiveContents=z.object({ id,page:z.number(),pageSize:z.number(),pages:z.number(),totalReleases:z.number(),totalRevisions:z.number(),releases:z.array(z.object({ id,createdAt:z.string() })),revisions:z.array(z.object({ revision,id,scope:z.string(),createdAt:z.string(),label:z.string() })) });
 const account=z.object({ username:z.string(),displayName:z.string(),adminPath:z.string(),twoFactorEnabled:z.boolean(),recoveryCodesRemaining:z.number(),events:z.array(z.object({id:z.number(),createdAt:z.string(),event:z.string(),source:z.string()})),sessions:z.array(z.object({ id:z.string(),createdAt:z.string().nullable(),lastSeen:z.string().nullable(),expiresAt:z.string(),browser:z.string(),os:z.string(),userAgent:z.string(),current:z.boolean() })) });
 
 /** This registry is consumed by HTTP validation, the typed client, and OpenAPI.
@@ -74,6 +75,8 @@ export const adminApi = {
   saveView:post('authoring/views','保存常用筛选',save(contentViewSchema),record(contentViewSchema)),
   templates:get('authoring/templates','列出新建模板',z.array(record(creationTemplateSchema))),
   saveTemplate:post('authoring/templates','保存新建模板',save(creationTemplateSchema),record(creationTemplateSchema)),
+  snippets:get('authoring/snippets','列出常用内容',z.array(record(writingSnippetSchema))),
+  saveSnippet:post('authoring/snippets','保存或归档常用内容',save(writingSnippetSchema),record(writingSnippetSchema)),
   publication:post('publication','预检冻结的发布内容',m.publishOptions,m.publicationReview),
   publish:post('publish','执行发布任务',m.publishOptions,jobSchema,202),
   withdraw:post('withdraw','撤下内容或归档',byVersion.extend({ archive:z.boolean().optional() }),jobSchema,202),
@@ -99,6 +102,8 @@ export const adminApi = {
   saveMerge:post('entry/merge/save','保存已解决冲突的合并',m.mergeInput.extend({ currentRevision:revision }),entryRecord),
   restore:post('restore','恢复历史修订为新工作稿',byVersion.extend({ version:revision }),entryRecord),
   media:get('media','列出媒体',z.array(mediaRecord)),
+  uploadMediaFile:{...post('media/file','流式上传原文件并立即返回可用媒体；图片优化在后台执行',z.unknown(),mediaRecord),query:z.object({name:z.string().min(1).max(300),groupId:id.optional()}),binary:true},
+  optimizeMedia:post('media/optimize','重试后台图片优化，原图保持可用',byId,jobSchema.nullable(),202),
   uploadMedia:post('media','处理完整上传，兼容旧版 base64 上传',z.union([z.object({uploadId:id}),z.object({ name:z.string(),base64:z.string() })]),jobSchema,202),
   beginUpload:post('media/uploads','创建经过内容校验的可续传上传',z.object({name:z.string().min(1).max(300),size:z.number().int().min(1).max(mediaUploadMaxBytes),sha256:z.string().regex(/^[a-f0-9]{64}$/)}),uploadState),
   uploadStatus:get('media/uploads/{id}','读取上传位置和处理任务',uploadState,empty,pathId),
@@ -129,17 +134,20 @@ export const adminApi = {
   archiveHistory:post('maintenance/archive','执行已预检的历史归档',z.object({ options:m.retention,review:z.string() }),jobSchema,202),
   restoreArchive:post('maintenance/restore','恢复已归档历史',byId,jobSchema,202),
   archives:get('maintenance/archives','列出历史归档',z.array(m.archiveInfo)),
-  archiveContents:get('maintenance/archive','读取归档清单',archiveContents,byId),
+  archiveContents:get('maintenance/archive','分页读取归档目录',archiveContents,byId.extend(queryPage)),
   jobs:get('jobs','列出后台任务',z.array(jobSchema)),
   job:get('job/{id}','读取任务进度',jobSchema,empty,pathId),
   cancelJob:post('jobs/cancel','取消等待或正在执行的任务',byId,jobSchema),
   logs:get('logs','按 UTF-8 字节页读取任务日志',z.object({ text:z.string(),start:z.number(),end:z.number(),total:z.number(),truncated:z.boolean(),unit:z.literal('bytes') }),byId.extend({ offset:z.coerce.number<string|number>().int().nonnegative().optional() })),
   backup:post('backup','创建完整站点备份',z.object({ path:z.string() }),jobSchema,202),
   verify:post('verify','校验站点备份',z.object({ path:z.string() }),jobSchema,202),
-  export:get('export','导出内容交换文件',m.exchange),
+  export:{...get('export','流式导出内容交换文件',m.exchange),stream:true},
+  exportFile:{...get('export/file','直接下载内容交换文件',m.exchange),stream:true},
+  stageImportSource:{...post('import/file','上传一次导入来源，预检和导入复用来源编号',z.unknown(),z.object({id,name:z.string(),format:z.enum(['json','wxr']),bytes:z.number(),path:z.string(),sha256:z.string(),expiresAt:z.string()})),query:z.object({name:z.string().min(1).max(300)}),binary:true},
   import:post('import','后台预检或导入内容交换文件',m.importRequestSchema,jobSchema,202),
+  runImportSource:post('import/source','后台预检或导入已上传来源',z.object({sourceId:id,options:m.wxrOptions.optional()}),jobSchema,202),
   importRevisions:get('import/revisions','读取可合并对象的修订',z.record(z.string(),revision)),
-  importWxr:post('import/wxr','预检或后台导入 WordPress',z.object({ xml:z.string(),options:m.wxrOptions.optional() }),z.union([m.wxrReport,jobSchema]),202),
+  importWxr:post('import/wxr','后台预检或导入 WordPress，返回任务编号',z.union([z.object({xml:z.string(),options:m.wxrOptions.optional()}),z.object({sourceId:id,options:m.wxrOptions.optional()})]),jobSchema,202),
   seoAudit:post('seo/audit','创建公开或候选页面检查任务；完成后 result 为 SEO 报告',z.object({ target:z.enum(['draft','published']).optional(),http:z.boolean().optional(),options:m.publishOptions.optional() }),jobSchema,202),
   seoAudits:get('seo/audits','列出 SEO 检查报告',z.array(m.seoAudit)),
   seoMetadata:get('seo/metadata','读取最终页面元信息',m.metadata,byId.extend({ path:optional })),
@@ -154,7 +162,7 @@ export const adminApi = {
 } as const;
 export type AdminApi = typeof adminApi;
 export type ApiOperation = keyof AdminApi;
-export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','beginUpload','cropMedia','imageVariant','backup','verify','importWxr','deleteEntry','withdraw','schedule','savePlan','import','seoAudit'];
+export const idempotentOperations:readonly ApiOperation[]=['publish','runPlan','uploadMedia','beginUpload','cropMedia','imageVariant','backup','verify','importWxr','runImportSource','archiveHistory','restoreArchive','deleteEntry','withdraw','schedule','savePlan','import','seoAudit'];
 export type ApiInput<K extends ApiOperation> = { params:z.input<AdminApi[K]['params']>;query:z.input<AdminApi[K]['query']>;body:z.input<AdminApi[K]['body']> };
 export type ApiOutput<K extends ApiOperation> = z.output<AdminApi[K]['response']>;
 export type ContractMatch = { operation:ApiOperation; definition:ApiDefinition; params:Record<string,string> };

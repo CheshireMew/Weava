@@ -1,94 +1,47 @@
-import { mediaUploadMaxBytes } from '@weava/contracts';
+import { isUploadFormat, mediaUploadMaxBytes } from '@weava/contracts';
 import { adminApi } from '@weava/contracts/api';
-import { api, waitJob } from './api.ts';
-/** The browser sends bounded Blob slices; neither FileReader nor a base64 copy is needed. */
+import { adminQueries } from './query-cache.ts';
+import { affectedQueries } from './query-effects.ts';
+/** A File is sent directly; no whole-file browser hash, base64 copy or processing-job wait. */
 export async function uploadFile(
   file: File,
   onProgress: (message: string) => void,
-  onJob: (job: any) => void = () => {},
+  options: { groupId?: string } = {},
 ) {
   if (file.size < 1 || file.size > mediaUploadMaxBytes)
     throw new Error('附件大小需要在 32 MB 以内。');
-  onProgress('正在校验文件…');
-  const sha256 = Array.from(
-    new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer())),
-    (byte) => byte.toString(16).padStart(2, '0'),
-  ).join('');
-  const key = 'weava-upload:' + sha256 + ':' + file.name;
-  let id = '';
-  try {
-    id = sessionStorage.getItem(key) ?? '';
-  } catch {}
-  let state;
-  if (id) {
-    try {
-      state = await api(`media/uploads/${encodeURIComponent(id)}`);
-      if (
-        state.size !== file.size ||
-        state.sha256 !== sha256 ||
-        !['receiving', 'processing', 'complete'].includes(state.status) ||
-        Date.parse(state.expiresAt) <= Date.now()
-      )
-        state = undefined;
-    } catch {
-      state = undefined;
-    }
-  }
-  if (!state) {
-    state = await api('media/uploads', { name: file.name, size: file.size, sha256 });
-    try {
-      sessionStorage.setItem(key, state.id);
-    } catch {}
-  }
-  while (state.offset < file.size) {
-    const offset = state.offset,
-      end = Math.min(file.size, offset + state.chunkBytes),
-      id: string = state.id;
-    try {
-      state = await new Promise<any>((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open(
-          'POST',
-          `/api/admin/v1/media/uploads/${encodeURIComponent(id)}?offset=${offset}`,
-        );
-        request.setRequestHeader('Content-Type', 'application/octet-stream');
-        request.timeout = 120000;
-        request.upload.onprogress = (event) =>
-          onProgress(`上传 ${Math.round(((offset + event.loaded) / file.size) * 100)}%`);
-        request.onerror = () => reject(new Error('上传连接中断，请重新选择同一文件继续。'));
-        request.ontimeout = () => reject(new Error('上传超时，请重新选择同一文件继续。'));
-        request.onload = () => {
-          try {
-            const value = JSON.parse(request.responseText);
-            if (request.status >= 400) {
-              if (request.status === 401) window.dispatchEvent(new Event('weava-session-expired'));
-              reject(new Error(value.error ?? '上传失败。'));
-            } else resolve(adminApi.uploadStatus.response.parse(value));
-          } catch {
-            reject(new Error('上传响应无效，请重试。'));
-          }
-        };
-        request.send(file.slice(offset, end));
+  if (!isUploadFormat(file.name)) throw new Error('不支持这个文件格式。');
+  onProgress('上传 0%');
+  const row = await new Promise<ReturnType<typeof adminApi.uploadMediaFile.response.parse>>(
+    (resolve, reject) => {
+      const request = new XMLHttpRequest();
+      const query = new URLSearchParams({
+        name: file.name,
+        ...(options.groupId ? { groupId: options.groupId } : {}),
       });
-    } catch (error) {
-      const current: Awaited<ReturnType<typeof readStatus>> | null = await readStatus(id).catch(
-        () => null,
-      );
-      if (current && current.offset > offset) {
-        state = current;
-        continue;
-      }
-      throw error;
-    }
-  }
-  onProgress('正在处理文件…');
-  const complete = await waitJob(await api('media', { uploadId: state.id }), (job) => {
-    onProgress(job.message);
-    onJob(job);
-  });
-  try {
-    sessionStorage.removeItem(key);
-  } catch {}
-  return complete.result;
+      request.open('POST', `/api/admin/v1/media/file?${query}`);
+      request.setRequestHeader('Content-Type', 'application/octet-stream');
+      request.timeout = 120000;
+      request.upload.onprogress = (event) =>
+        onProgress(event.loaded >= file.size
+          ? '正在保存原文件…'
+          : `上传 ${Math.round((event.loaded / file.size) * 100)}%`);
+      request.onerror = () => reject(new Error('上传连接中断，请重试。'));
+      request.ontimeout = () => reject(new Error('上传超时，请重试。'));
+      request.onload = () => {
+        try {
+          const value = JSON.parse(request.responseText);
+          if (request.status >= 400) {
+            if (request.status === 401) window.dispatchEvent(new Event('weava-session-expired'));
+            reject(new Error(value.error ?? '上传失败。'));
+          } else resolve(adminApi.uploadMediaFile.response.parse(value));
+        } catch {
+          reject(new Error('上传响应无效，请重试。'));
+        }
+      };
+      request.send(file);
+    },
+  );
+  adminQueries.invalidate(false, affectedQueries(['media', 'operations']));
+  return row;
 }
-const readStatus = (id: string) => api(`media/uploads/${encodeURIComponent(id)}`);

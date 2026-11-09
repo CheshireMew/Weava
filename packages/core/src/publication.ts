@@ -23,6 +23,7 @@ import {
   validationRuntimeIdentity,
 } from './publication-validation.ts';
 import { projectSettingTerms } from './taxonomy.ts';
+import {BoundedCache} from './cache.ts';
 export { RetryablePublicationConflict, type PublicationSite } from './publication-context.ts';
 
 export function preparePublication(site: PublicationSite, options: PublishOptions = {}) {
@@ -98,6 +99,16 @@ function buildPublication(site: PublicationSite, options: PublishOptions) {
 }
 
 export type PreparedPublication = ReturnType<typeof preparePublication>;
+const candidateStorage=new WeakMap<object,BoundedCache<string,ReturnType<typeof prepareReleaseStorage>>>();
+function storageCache(site:PublicationSite){let cache=candidateStorage.get(site.store);if(!cache){cache=new BoundedCache(16,16*1024*1024);candidateStorage.set(site.store,cache);}return cache;}
+/** Prime immutable published data once per execution process, before accepting editor work. */
+export function primePublication(site:PublicationSite){
+  const current=site.release();if(!current)return;
+  const release={...current,entries:[...current.entries]},entries=new Map(release.entries.map(entry=>[entry.id,entry]));
+  const paths=validatePublicationEntries(site,entries,release.settings,release.types);
+  validatePublicationRelease(site,release,entries,paths);
+  prepareReleaseStorage(site.store.raw,release);
+}
 function candidateOptions(options: PublishOptions) {
   const { candidateId, jobId, failAt, ...value } = options;
   return digest(canonicalJson(value));
@@ -164,6 +175,7 @@ export function savePublicationReview(
     runtimeKey: publicationRuntimeKey(site),
   };
   const data = JSON.stringify(payload);
+  const storage=prepareReleaseStorage(site.store.raw,prepared.release);
   site.store.raw
     .transaction(() => {
       assertPublicationCurrent(site, prepared);
@@ -178,6 +190,8 @@ export function savePublicationReview(
         .run(id, data, Date.now() + 10 * 60000);
     })
     .immediate();
+  const weight=[...storage.objects.values()].reduce((sum,object)=>sum+object.data.length*2,storage.manifest.length*2+data.length*2);
+  storageCache(site).set(id,storage,weight);
   return { ...prepared.changes, options: reviewed };
 }
 export function readPublicationCandidate(
@@ -236,7 +250,8 @@ export function commitPublication(
 ) {
   const { release, changes } = prepared;
   assertPublicationCurrent(site, prepared);
-  const storage = prepareReleaseStorage(site.store.raw, release);
+  const cached=options.candidateId?storageCache(site).get(options.candidateId):undefined;
+  const storage = cached?.release.id===release.id?cached:prepareReleaseStorage(site.store.raw, release);
   site.store.raw
     .transaction(() => {
       assertPublicationCurrent(site, prepared);
@@ -245,13 +260,13 @@ export function commitPublication(
       writeReleaseStorage(site.store.raw, storage);
       if (options.failAt === 'commit') throw new WeavaError('测试：发布提交失败。');
       site.store.setState('release', release.id);
+      complete?.(release);
       if (options.jobId)
         site.updateJob(options.jobId, {
           status: 'complete',
           message: '发布已完成。',
           result: { releaseId: release.id, entries: release.entries.length, changes },
         });
-      complete?.(release);
     })
     .immediate();
   return release;

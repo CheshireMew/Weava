@@ -3,6 +3,7 @@ import { FileText, Monitor, Smartphone } from 'lucide-react';
 import { Dialog } from './Dialog.tsx';
 import { PreviewFrame } from './PreviewFrame.tsx';
 import type { PublicationController } from './usePublication.ts';
+import {awaitTask} from './background-tasks.ts';
 
 export function PublicationDialog({ model, error, onPublished }: {
   model: PublicationController;
@@ -62,9 +63,9 @@ export function PublicationDialog({ model, error, onPublished }: {
     </div>
     <div className="publication-review-footer">
       <button disabled={busy} onClick={() => setPublication(null)}>返回编辑</button>
-      <button className="primary" disabled={busy || !changed} onClick={async () => {
-        const result = await task('publish', publication.options, true);
-        if (result) { setPublication(null); await onPublished(); }
+      <button className="primary async-action" disabled={busy || !changed} onClick={async () => {
+        const result = await model.submit('publish', publication.options);
+        if (result&&!['failed','cancelled'].includes(result.status)) { setPublication(null); void awaitTask(result.id).then(onPublished).catch(()=>{}); }
       }}>{busy ? '正在发布…' : '确认发布'}</button>
     </div>
   </Dialog>;

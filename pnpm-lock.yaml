@@ -199,6 +199,9 @@ importers:
       '@lexical/rich-text':
         specifier: 0.52.0
         version: 0.52.0(typescript@7.0.2)
+      '@lexical/selection':
+        specifier: 0.52.0
+        version: 0.52.0(typescript@7.0.2)
       '@lexical/table':
         specifier: 0.52.0
         version: 0.52.0(typescript@7.0.2)
@@ -235,6 +238,9 @@ importers:
       markdown-it:
         specifier: 14.3.3
         version: 14.3.3
+      markdown-it-footnote:
+        specifier: 4.0.0
+        version: 4.0.0
       maxmind:
         specifier: 5.0.7
         version: 5.0.7
@@ -278,6 +284,9 @@ importers:
       '@types/markdown-it':
         specifier: 14.1.2
         version: 14.1.2
+      '@types/markdown-it-footnote':
+        specifier: 3.0.4
+        version: 3.0.4
       '@types/node':
         specifier: 24.10.1
         version: 24.10.1
@@ -1378,6 +1387,9 @@ packages:
   '@types/linkify-it@5.0.0':
     resolution: {integrity: sha512-sVDA58zAw4eWAffKOaQH5/5j3XeayukzDk+ewSsnv3p4yJEZHCCzMDiZM8e0OUrRvmpGZ85jf4yDHkHsgBNr9Q==}
 
+  '@types/markdown-it-footnote@3.0.4':
+    resolution: {integrity: sha512-XJ6n+v+2u+2gmYLSHcxyoNT/YrgrKvHuDJQlykFjuxCQCr86P2/fx1V6/0lcKxv5cSIlCaJ6sUcNS3zDI7I+LA==}
+
   '@types/markdown-it@14.1.2':
     resolution: {integrity: sha512-promo4eFwuiW+TfGxhi+0x3czqTYJkG8qB17ZUJiVF10Xm7NLVRSLUsfRTU/6h1e24VvRnXCx+hG7li58lkzog==}
 
@@ -2206,6 +2218,9 @@ packages:
 
   magicast@0.5.5:
     resolution: {integrity: sha512-UicdXN8zQ3JHlxVq+28afMXPr1z7WNY6+7EJnzTdQWkTAlMLF5fNCCKxJHBQwGaNGR11581EiQmQzx73+MvszA==}
+
+  markdown-it-footnote@4.0.0:
+    resolution: {integrity: sha512-WYJ7urf+khJYl3DqofQpYfEYkZKbmXmwxQV8c8mO/hGIhgZ1wOe7R4HLFNwqx7TjILbnC98fuyeSsin19JdFcQ==}
 
   markdown-it@14.3.3:
     resolution: {integrity: sha512-L//tDAkjTjJCU6pBUSBTgs3Kg4InVaZuUZog/b6V12UKhcDQ7S78877ibbCanRExwPuYP1CZD7Gd2dxSy1GXRg==}
@@ -3754,6 +3769,10 @@ snapshots:
 
   '@types/linkify-it@5.0.0': {}
 
+  '@types/markdown-it-footnote@3.0.4':
+    dependencies:
+      '@types/markdown-it': 14.1.2
+
   '@types/markdown-it@14.1.2':
     dependencies:
       '@types/linkify-it': 5.0.0
@@ -4477,6 +4496,8 @@ snapshots:
       '@babel/parser': 7.29.11
       '@babel/types': 7.29.11
       source-map-js: 1.2.2
+
+  markdown-it-footnote@4.0.0: {}
 
   markdown-it@14.3.3:
     dependencies:

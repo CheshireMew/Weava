@@ -53,6 +53,7 @@ export function createAdminDispatcher(services: ApiServices) {
     // A runtime-selected key retains the same K for its parsed input and its handler.
     const handler = handlers[operation] as AdminHandler<K>;
     const value = await handler(input, context);
+    if ('stream' in definition && definition.stream && value instanceof Response) return value;
     const checked = definition.response.safeParse(value);
     if (!checked.success) {
       console.error('API response contract mismatch', operation, checked.error.issues);

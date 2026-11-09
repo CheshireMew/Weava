@@ -61,7 +61,7 @@ export function createAdminClient(options: ApiClientOptions = {}): AdminClient {
     return requestApi(path, body, match.definition.response, options, {
       binary: match.definition.binary,
       timeoutMs:
-        match.definition.path.startsWith('analytics') ||
+        match.operation === 'uploadMediaFile' ? 120000 : match.definition.path.startsWith('analytics') ||
         ['importWxr', 'import'].includes(match.operation)
           ? 140000
           : 30000,

@@ -13,6 +13,8 @@ import {
   contentViews,
   createContent,
   creationTemplates,
+  writingSnippets,
+  saveWritingSnippet,
   duplicateContent,
   saveContentView,
   saveCreationTemplate,
@@ -95,6 +97,8 @@ export function contentHandlers(
     saveTemplate: async ({ body: data }) => {
       return saveCreationTemplate(site, data.value, data.revision ?? null);
     },
+    snippets: async () => writingSnippets(site),
+    saveSnippet: async ({body: data}) => saveWritingSnippet(site, data.value, data.revision ?? null),
     history: async ({}, context) => {
       const { url } = context;
       return site.history(url.searchParams.get('id') ?? '');
@@ -142,6 +146,8 @@ export function contentHandlers(
     | 'saveView'
     | 'templates'
     | 'saveTemplate'
+    | 'snippets'
+    | 'saveSnippet'
     | 'history'
     | 'revision'
     | 'compareRevisions'

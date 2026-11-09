@@ -11,6 +11,7 @@ import {loadRelease,storeRelease} from './publication-store.ts';
 
 import {digestFile,jsonLines} from './file-io.ts';
 import {indexRevisionMedia} from './media-reference-index.ts';
+import {historyDirectory} from './history-directory.ts';
 
 export interface HistoryRetention { before: string; keepReleases?: number; keepRevisions?: number }
 interface Plan { options: Required<HistoryRetention>; releaseIds: string[]; revisions: number[]; privateMedia: string[]; protectedReleases: number; protectedRevisions: number; review: string }
@@ -48,15 +49,19 @@ function writeRows(path: string, rows: Iterable<unknown>,index?:(row:any,offset:
   return { count, hash: digestFile(path) };
 }
 export function historyArchives(site: Site) { return site.store.list('history-archive').map((row) => ({id:row.id,...row.value,revision:row.revision})); }
-export function verifyHistoryArchive(site: Site, id: string) {
+function historyManifest(site: Site, id: string) {
   const row = site.store.get('history-archive',id); if (!row) throw new WeavaError('历史归档不存在。',404);
   const folder = inside(join(site.root,'archives','history'),id), manifestPath = join(folder,'manifest.json');
   const bytes = readFileSync(manifestPath);
   if (digest(bytes) !== row.value.manifestHash) throw new WeavaError('归档清单校验失败。');
   const manifest = JSON.parse(bytes.toString('utf8'));
   if (manifest.version !== 1 || manifest.schemaVersion > SCHEMA_VERSION) throw new WeavaError('归档格式与当前程序不兼容。');
-  for (const file of manifest.files) if (digestFile(inside(folder,file.name)) !== file.hash) throw new WeavaError('归档校验失败：'+file.name);
   return {folder,manifest};
+}
+export function verifyHistoryArchive(site: Site, id: string) {
+  const result=historyManifest(site,id);
+  for (const file of result.manifest.files) if (digestFile(inside(result.folder,file.name)) !== file.hash) throw new WeavaError('归档校验失败：'+file.name);
+  return result;
 }
 export async function archiveHistory(site: Site, options: HistoryRetention, review: string) {
   const plan = planHistoryArchive(site,options); if (plan.review !== review) throw new WeavaError('历史或工作稿已经变化，请重新预检归档。',409);
@@ -71,7 +76,17 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
     ['releases.jsonl',releases],['revisions.jsonl',revisions],['objects.jsonl',(function*(){for(const key of keys) yield getObject.get(key);})()],
   ] as const;
   const objectLocations:{key:string;offset:number;bytes:number}[]=[];
-  const manifests = files.map(([name,rows]) => ({name,...writeRows(join(folder,name),rows,name==='objects.jsonl'?(row,offset,bytes)=>objectLocations.push({key:row.key,offset,bytes}):undefined)}));
+  const directoryPath=join(folder,'directory.jsonl'),directory=openSync(directoryPath,'wx');let directoryCount=0;
+  let manifests:{name:string;count:number;hash:string}[];
+  try{
+    manifests=files.map(([name,rows])=>({name,...writeRows(join(folder,name),rows,(row,offset,bytes)=>{
+      if(name==='objects.jsonl'){objectLocations.push({key:row.key,offset,bytes});return;}
+      const kind=name==='releases.jsonl'?'releases':'revisions';
+      const summary=kind==='releases'?{id:row.id,createdAt:row.created_at}:{revision:row.revision,id:row.id,scope:row.scope,createdAt:row.created_at,label:row.label};
+      const line=Buffer.from(JSON.stringify({kind,...summary})+'\n');let written=0;while(written<line.length)written+=writeSync(directory,line,written,line.length-written);directoryCount++;
+    })}));
+  }finally{closeSync(directory);}
+  manifests.push({name:'directory.jsonl',count:directoryCount,hash:digestFile(directoryPath)});
   const manifest = {version:1,schemaVersion:SCHEMA_VERSION,id,createdAt:now(),options:plan.options,files:manifests,review};
   atomicJson(join(folder,'manifest.json'),manifest);
   for (const file of manifests) if (digestFile(join(folder,file.name)) !== file.hash) throw new WeavaError('归档写入校验失败。');
@@ -90,9 +105,9 @@ export async function archiveHistory(site: Site, options: HistoryRetention, revi
   }).immediate();
   return {archived:true,id,path:folder,releases:plan.releaseIds.length,revisions:plan.revisions.length};
 }
-export function historyArchiveContents(site: Site,id: string) {
-  const {folder} = verifyHistoryArchive(site,id);
-  return {id,releases:Array.from(readLines(join(folder,'releases.jsonl')),row=>({id:row.id,createdAt:row.created_at})),revisions:Array.from(readLines(join(folder,'revisions.jsonl')),row=>({revision:row.revision,id:row.id,scope:row.scope,createdAt:row.created_at,label:row.label}))};
+export function historyArchiveContents(site: Site,id: string, options: {page?:number;pageSize?:number}={}) {
+  const {folder,manifest} = historyManifest(site,id);
+  return historyDirectory(site,id,folder,digest(manifest),options);
 }
 export function restoreHistoryArchive(site: Site,id: string) {
   const {folder} = verifyHistoryArchive(site,id), releases = readLines(join(folder,'releases.jsonl')), revisions = readLines(join(folder,'revisions.jsonl')), objects = readLines(join(folder,'objects.jsonl'));

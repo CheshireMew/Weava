@@ -4,6 +4,8 @@ import {Dialog} from '../Dialog.tsx';
 import {useSelectors, type SelectedMedia} from '../Selectors.tsx';
 import {allowFileDrop} from '../file-drop.tsx';
 import {FormattingToolbar, ToolbarOutlet, type FormatAction} from './FormattingToolbar.tsx';
+import {SnippetsDialog, WritingInsertDialog, type WritingInsert} from './WritingDialogs.tsx';
+import {escapeWritingHtml, inlineCode} from '../../../../packages/runtime-common/src/writing-format.ts';
 
 interface Selection {start: number; end: number}
 interface Snapshot extends Selection {source: string}
@@ -21,10 +23,10 @@ function fenceAt(source: string, position: number) {
   return opened && position >= opened.start ? {...opened, end: source.length, bodyEnd: source.length} : undefined;
 }
 
-export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, uploading, onError}: {
+export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, snippets, uploading, onError}: {
   source: string; onChange: (source: string) => void; onMode: () => void;
   onMedia: () => Promise<SelectedMedia | null>; onDrop: (event: DragEvent<HTMLTextAreaElement>) => void;
-  target?: HTMLElement | null; compact: boolean; uploading: boolean; onError: (message: string) => void;
+  target?: HTMLElement | null; compact: boolean; snippets: boolean; uploading: boolean; onError: (message: string) => void;
 }) {
   const selectors = useSelectors(), field = useRef<HTMLTextAreaElement>(null);
   const current = useRef(source), selection = useRef<Selection>({start: 0, end: 0});
@@ -32,6 +34,7 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
   const history = useRef<{undo: Snapshot[]; redo: Snapshot[]}>({undo: [], redo: []});
   const [range, setRange] = useState<Selection>(selection.current);
   const [link, setLink] = useState<{kind: 'link' | 'video'; selection: Selection} | null>(null), [url, setUrl] = useState('');
+  const [insert, setInsert] = useState<{kind: WritingInsert | 'snippets'; selection: Selection} | null>(null);
   // An asynchronous upload can replace the source from outside this component.
   // Do not let an older undo snapshot overwrite that external update.
   if (current.current !== source) {current.current = source; history.current = {undo: [], redo: []};}
@@ -93,7 +96,7 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     const last = at.end > at.start && value[at.end - 1] === '\n' ? at.end - 1 : at.end;
     const nextLine = value.indexOf('\n', last), end = nextLine < 0 ? value.length : nextLine;
     const lines = value.slice(start, end).split('\n');
-    const prefix = type === 'h2' ? '## ' : type === 'quote' ? '> ' : type === 'bullet' ? '- ' : '';
+    const prefix = /^h[1-6]$/.test(type) ? '#'.repeat(Number(type.slice(1))) + ' ' : type === 'quote' ? '> ' : type === 'bullet' ? '- ' : '';
     const already = type !== 'paragraph' && lines.every(line => !line.trim() || (type === 'ordered' ? /^\d+\. /.test(line) : line.startsWith(prefix)));
     const result = lines.map((line, index) => {
       const content = line.replace(/^(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, '');
@@ -107,34 +110,56 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     const after = at.end < value.length && !value.slice(at.end).startsWith('\n\n') ? (value[at.end] === '\n' ? '\n' : '\n\n') : '';
     replace(before + text + after, at, before.length, before.length + text.length);
   }
+  function wrapHtml(tag: string, className?: string) {
+    const at = capture(), selected = current.current.slice(at.start, at.end) || '文字';
+    replace(selected.split(/(\n[ \t]*\n)/).map((part, index) => {
+      if (index % 2 || !part.trim()) return part;
+      const content = part.trim(), prefix = part.slice(0, part.indexOf(content)), suffix = part.slice(part.indexOf(content) + content.length);
+      return prefix + `<${tag}${className ? ' class="' + className + '"' : ''}>${content}</${tag}>` + suffix;
+    }).join(''), at);
+  }
   function action(command: FormatAction) {
     selection.current = capture();
     if (command === 'undo' || command === 'redo') {
       const from = history.current[command], next = from.pop(); if (!next) return;
       history.current[command === 'undo' ? 'redo' : 'undo'].push({source: current.current, ...capture()}); emit(next);
     } else if (command === 'bold' || command === 'italic') wrap(command === 'bold' ? '**' : '*');
+    else if (command === 'strikethrough') wrap('~~');
+    else if (command === 'inline-code') {const at = capture(); replace((current.current.slice(at.start, at.end) || '代码').split('\n').map(line => line ? inlineCode(line) : '').join('\n'), at);}
+    else if (['underline','superscript','subscript'].includes(command)) {
+      const tag = {underline: 'u', superscript: 'sup', subscript: 'sub'}[command as 'underline'];
+      wrapHtml(tag);
+    }
+    else if (command.startsWith('color:') || command.startsWith('highlight:')) {
+      const at = capture(), text = current.current.slice(at.start, at.end) || '文字', [kind, value] = command.split(':');
+      if (value === 'none') replace(text.replace(kind === 'color' ? /<span class="weava-color-[^"]*">([\s\S]*?)<\/span>/g : /<mark(?: class="weava-highlight-[^"]*")?>([\s\S]*?)<\/mark>/g, '$1'), at);
+      else wrapHtml(kind === 'color' ? 'span' : 'mark', `weava-${kind}-${value}`);
+    }
+    else if (command.startsWith('align:')) {const alignment = command.slice(6), at = capture(), text = current.current.slice(at.start, at.end) || '正文'; insertBlock(alignment === 'left' ? text.replace(/^<div class="weava-align-[^"]*">\s*([\s\S]*?)\s*<\/div>$/, '$1') : `<div class="weava-align-${alignment}">\n\n${text}\n\n</div>`, at);}
     else if (['quote','bullet','ordered','code'].includes(command)) block(command);
     else if (command === 'link' || command === 'video') {setUrl(''); setLink({kind: command, selection: capture()});}
     else if (command === 'table') insertBlock('| 标题 | 标题 | 标题 |\n| --- | --- | --- |\n| 内容 | 内容 | 内容 |\n| 内容 | 内容 | 内容 |');
+    else if (command === 'divider') insertBlock('---');
+    else if (['button','footnote','details','snippets'].includes(command)) setInsert({kind: command as WritingInsert | 'snippets', selection: capture()});
     else if (command === 'media') {
       const at = capture();
       void onMedia().then(media => {if (!media) return;
-        const text = (media.kind === 'image' ? '!' : '') + '[' + label(media.alt || media.name || ({video:'视频',audio:'音频',file:'下载附件',image:'图片'}[media.kind])) + '](' + destination(media.url) + ')' + (media.caption ? '\n\n' + media.caption : '');
+        const text = media.kind === 'video' || media.kind === 'audio' ? `<figure><${media.kind} src="${escapeWritingHtml(media.url)}" controls preload="metadata"></${media.kind}>${media.caption ? '<figcaption>' + escapeWritingHtml(media.caption) + '</figcaption>' : ''}</figure>` : (media.kind === 'image' ? '!' : '') + '[' + label(media.alt || media.name || '下载附件') + '](' + destination(media.url) + ')' + (media.caption ? '\n\n' + media.caption : '');
         insertBlock(text, at);
       }).catch(error => onError(error.message));
     }
   }
   const fence = fenceAt(source, range.start);
   const line = source.slice(range.start === 0 ? 0 : source.lastIndexOf('\n', range.start - 1) + 1, range.start);
-  const blockType = fence ? 'code' : /^#{1,6} /.test(line) ? 'h2' : /^>/.test(line) ? 'quote' : 'paragraph';
+  const blockType = fence ? 'code' : /^#{1,6} /.test(line) ? 'h' + /^#+/.exec(line)![0].length : /^>/.test(line) ? 'quote' : 'paragraph';
   function insertLink(address: string) {
     if (!link || !address.trim()) return;
     const text = current.current.slice(link.selection.start, link.selection.end) || (link.kind === 'video' ? '视频' : '链接文字');
-    const prefix = '[' + label(text) + '](', result = prefix + destination(address.trim()) + ')';
-    replace(result, link.selection, 1, 1 + label(text).length); setLink(null);
+    if (link.kind === 'video') insertBlock(`<figure><video src="${escapeWritingHtml(address.trim())}" controls preload="metadata"></video></figure>`, link.selection);
+    else {const prefix = '[' + label(text) + '](', result = prefix + destination(address.trim()) + ')'; replace(result, link.selection, 1, 1 + label(text).length);} setLink(null);
   }
   return <>
-    <ToolbarOutlet target={target}><FormattingToolbar mode="source" onMode={onMode} compact={compact} uploading={uploading} onAction={action}
+    <ToolbarOutlet target={target}><FormattingToolbar mode="source" onMode={onMode} compact={compact} snippets={snippets} uploading={uploading} onAction={action}
       blockType={blockType} onBlock={block} codeLanguage={fence?.language ?? 'text'} onLanguage={language => {
         if (!fence) return;
         const prefix = fence.marker + language + '\n', difference = prefix.length - (fence.body - fence.start);
@@ -156,5 +181,13 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
           <button type="button" onClick={() => setLink(null)}>取消</button><button type="submit" className="primary">{link.kind === 'video' ? '插入视频' : '插入链接'}</button></div>
       </form>
     </Dialog>, document.body)}
+    {insert?.kind === 'snippets' && <SnippetsDialog onClose={() => setInsert(null)} onInsert={value => insertBlock(value, insert.selection)}/>}
+    {insert && insert.kind !== 'snippets' && <WritingInsertDialog kind={insert.kind} selected={source.slice(insert.selection.start, insert.selection.end)} onClose={() => setInsert(null)} onInsert={value => {
+      const at = insert.selection;
+      if (insert.kind === 'button') replace(`<a class="weava-link-button" href="${escapeWritingHtml(value.url)}">${escapeWritingHtml(value.title)}</a>`, at);
+      else if (insert.kind === 'details') insertBlock(`<details class="weava-details"><summary>${escapeWritingHtml(value.title)}</summary>\n\n${current.current.slice(at.start, at.end) || '补充内容'}\n\n</details>`, at);
+      else {const label = 'note-' + crypto.randomUUID().slice(0, 8), ref = `[^${label}]`, body = current.current; commit({source: body.slice(0, at.start) + ref + body.slice(at.end) + `\n\n[^${label}]: ` + value.source.split('\n').join('\n    '), start: at.start + ref.length, end: at.start + ref.length});}
+      setInsert(null);
+    }}/>}
   </>;
 }

@@ -13,6 +13,7 @@ import type {ApiServices,AdminContext} from '../apps/web/src/api/types.ts';
 import MediaManager from '../apps/admin/src/MediaManager.tsx';
 import {EditSessionsProvider,useEditSessions} from '../apps/admin/src/EditSessions.tsx';
 import {adminQueries} from '../apps/admin/src/query-cache.ts';
+import {mediaUploadSnapshot} from '../apps/admin/src/media-uploads.tsx';
 
 it('WVA-03 preserves metadata through grouped duplicate upload and still saves explicit edits and clears',async()=>{
   const directory=join(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests','media-manager-'+Date.now());
@@ -64,7 +65,8 @@ it('WVA-03 preserves metadata through grouped duplicate upload and still saves e
       input.dispatchEvent(new Event('change',{bubbles:true}));
     });
     await act(async()=>manager!.prepare());
-    await until(()=>!host.querySelector('.file-upload-status'));
+    await until(()=>mediaUploadSnapshot().every(item=>!['queued','uploading'].includes(item.status)));
+    expect(mediaUploadSnapshot().filter(item=>item.status==='failed')).toEqual([]);
   }
   try{
     saveMediaGroup(site,{id:'first',label:'第一组'},null);saveMediaGroup(site,{id:'second',label:'第二组'},null);

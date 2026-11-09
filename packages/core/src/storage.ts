@@ -5,7 +5,7 @@ import {eq,and} from 'drizzle-orm';
 import {mkdirSync,existsSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {WeavaError} from '@weava/contracts';
-import {acquireInstanceWriter,withInstanceMaintenance,type InstanceWriter} from './instance-access.ts';
+import {acquireInstanceWriter,withInstanceMaintenance,processAlive,type InstanceWriter} from './instance-access.ts';
 import {SCHEMA_VERSION} from './schema-version.ts';
 export {SCHEMA_VERSION} from './schema-version.ts';
 import {migrateStorage} from './storage-migrations.ts';
@@ -137,7 +137,7 @@ export class Storage {
     if(!process.env.WEAVA_JOB_ID||process.env.WEAVA_JOB_ROOT!==this.root)return;
     const row=this.raw.prepare('SELECT data FROM jobs WHERE id=?').get(process.env.WEAVA_JOB_ID) as {data:string}|undefined;
     const job=row?JSON.parse(row.data):null;
-    if(!job||job.cancelRequestedAt||job.deadlineAt&&Date.now()>=job.deadlineAt)throw new WeavaError('任务已取消或超过执行期限。',409);
+    if(!job||job.status!=='running'||job.cancelRequestedAt||job.workerPid&&!processAlive(job.workerPid)||job.deadlineAt&&Date.now()>=job.deadlineAt)throw new WeavaError('任务已取消或超过执行期限。',409);
   }
   close() {
     if (this.raw.open) this.raw.close();

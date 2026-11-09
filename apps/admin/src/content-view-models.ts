@@ -33,8 +33,9 @@ export function contentViewModels({
   duplicateEntry,
   deleteEntry,
 }: ViewOptions) {
-  const { state, busy, tab, setError, refresh, notify } = options;
-  const commands = contentCommands({ editor, library, refresh, notify });
+  const { state, tab, setError, refresh, notify } = options;
+  const busy=options.isPublishing?options.isPublishing(editor.record?.id):options.busy;
+  const commands = contentCommands({ editor, library, refresh, notify,onError:setError });
   const catalog: ContentCatalog = {
     types: state?.types ?? [],
     terms: state?.terms ?? [],
@@ -128,7 +129,7 @@ export function contentViewModels({
     record,
     state: { types: catalog.types, contentViews: state?.contentViews ?? [] },
     tab,
-    busy,
+    busy:false,
     libraryLoading,
     filter,
     setFilter,

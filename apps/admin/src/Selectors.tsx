@@ -1,12 +1,12 @@
 import type { FieldDefinition } from '@weava/contracts';
 import { mediaKind } from '@weava/contracts';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
-import { uploadFile } from './upload-file.ts';
+import { MediaUploadList, startMediaUploads, useMediaUploads } from './media-uploads.tsx';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { LoadingState } from './LoadingState.tsx';
+import { useMediaOptimizationRefresh } from './useMediaLibrary.ts';
 
 export interface SelectedMedia {
   id: string;
@@ -44,12 +44,11 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
   const [picker, setPicker] = useState<Picker | null>(null),
     [q, setQ] = useState(''),
     [page, setPage] = useState(1);
-  const [error, setError] = useState(''),
-    [progress, setProgress] = useState('');
+  const [error, setError] = useState('');
+  const uploads = useMediaUploads();
   const [addressOpen, setAddressOpen] = useState(false),
     [address, setAddress] = useState(''),
     [addressError, setAddressError] = useState('');
-  const [epoch, setEpoch] = useState(0);
   const searchTerm = useDebouncedValue(q);
   const [group, setGroup] = useState('');
   const groupQuery = useAdminQuery<any[]>(picker?.type === 'media' ? 'media/groups' : null);
@@ -101,29 +100,12 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
     });
   const query = useAdminQuery<any>(picker ? `${picker.type === 'media' ? 'media/query?' : picker.reference ? 'references/query?' : 'entries/query?'}${params()}` : null);
   const result = query.data ?? { items: [], total: 0, pages: 0 }, loading = query.loading;
-  useEffect(() => { if (epoch) void query.refresh().catch(() => {}); }, [epoch]);
+  useMediaOptimizationRefresh(result.items, query.refresh);
   useEffect(() => { setError(query.error || groupQuery.error); }, [query.error, groupQuery.error]);
-  async function upload(file: File) {
-    setError('');
-    setProgress('读取文件…');
-    try {
-      const result = await uploadFile(file, setProgress);
-      if (group && group !== '__ungrouped__')
-        await api('media/info', {
-          id: result.id,
-          revision: result.revision,
-          value: { ...result.value, groupId: group },
-        });
-      setQ('');
-      setPage(1);
-      setEpoch((value) => value + 1);
-    } catch (error: any) {
-      setError(error.message ?? '上传失败，请重试。');
-    } finally {
-      setProgress('');
-      if (fileInput.current) fileInput.current.value = '';
-    }
-  }
+  const uploadItems = uploads.filter(item => (!picker?.kind || mediaKind(item.name) === picker.kind)
+    && (!group || (group === '__ungrouped__' ? !item.groupId : item.groupId === group))
+    && item.name.toLowerCase().includes(searchTerm.toLowerCase())
+    && (item.status !== 'complete' || page === 1 && !result.items.some((row: any) => row.id === item.row?.id)));
   const title = picker?.type === 'media' ? '选择媒体' : '选择内容';
   return (
     <Context.Provider
@@ -138,14 +120,12 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
           className="asset-dialog"
           label={title}
           onClose={() => finish(null)}
-          dismissible={!progress}
         >
           <div className="modal-title">
             <h2>{title}</h2>
             <div className="dialog-actions">
               {picker.type === 'media' && (
                 <button
-                  disabled={!!progress}
                   onClick={() => {
                     setAddress('');
                     setAddressError('');
@@ -155,7 +135,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
                   粘贴网址
                 </button>
               )}
-              <button disabled={!!progress} onClick={() => finish(null)}>
+              <button onClick={() => finish(null)}>
                 关闭
               </button>
             </div>
@@ -163,16 +143,18 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
           <div className="selector-toolbar">
             {picker.type === 'media' && (
               <>
-                <button disabled={!!progress} onClick={() => fileInput.current?.click()}>
+                <button onClick={() => fileInput.current?.click()}>
                   上传文件
                 </button>
                 <input
                   ref={fileInput}
                   type="file"
                   hidden
+                  multiple
                   accept={picker.kind === 'image' ? 'image/*' : undefined}
                   onChange={(event) => {
-                    if (event.target.files?.[0]) void upload(event.target.files[0]);
+                    startMediaUploads(Array.from(event.target.files ?? []), group && group !== '__ungrouped__' ? group : undefined);
+                    event.target.value = '';
                   }}
                 />
               </>
@@ -208,12 +190,13 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
               </select>
             )}
           </div>
+          <div className="selector-results">
           {error && (
             <p className="error" role="alert">
               {error}
             </p>
           )}
-          {progress && <p role="status">{progress}</p>}
+          {picker.type === 'media' && <MediaUploadList items={uploadItems} select={row => finish({ ...row.value, id: row.id, kind: kindOf(row.value.url) })} />}
           {loading && <LoadingState label="读取可选内容" />}
           <div
             className={picker.type === 'media' ? 'selector-media' : 'selector-content'}
@@ -223,7 +206,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
               <button
                 key={row.id}
                 className="selector-item"
-                disabled={!!progress || loading}
+                disabled={loading}
                 onClick={async () => {
                   if (picker.type !== 'media') {
                     finish({ id: row.id, title: row.value.title, path: row.value.path });
@@ -234,8 +217,6 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
                     finish({ ...row.value, url, kind: kindOf(url) });
                   } catch (error: any) {
                     setError(error.message);
-                  } finally {
-                    setProgress('');
                   }
                 }}
               >
@@ -262,6 +243,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
                   : '还没有可以引用的内容。'}
             </p>
           )}
+          </div>
           {result.pages > 1 && (
             <nav className="library-pagination" aria-label={title + '分页'}>
               <button disabled={loading || page <= 1} onClick={() => setPage((page) => page - 1)}>

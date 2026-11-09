@@ -9,9 +9,8 @@ export default function RedirectManager({ onError, publish }: { onError: (messag
   const managed = useManagedRecord<any>(blank(), async snapshot => {
     const batch = items(snapshot), checked = await api('redirects/preview',{items:batch});
     const saved = await api('redirects/save',{items:batch,review:checked.review});
-    await refresh(); setPreview(null);
     return {...snapshot,revision:snapshot.value.batch.trim()?null:saved[0].revision,value:{...snapshot.value,batch:snapshot.value.batch.trim()?JSON.stringify(batch.map((item:any)=>({...item,revision:saved.find((row:any)=>row.id===item.source)?.revision??item.revision})),null,2):''}};
-  }, '网址别名');
+  }, '网址别名',{saved:()=>{setPreview(null);void refresh().catch(error=>onError('别名已保存，列表刷新失败：'+error.message));}});
   const record = managed.record!,{source,target,disabled,batch}=record.value;
   const set = (patch:any) => { managed.setRecord((row:any)=>({...row,value:{...row.value,...patch}})); setPreview(null); };
   const select = async (row:any) => { try { await managed.session.save(); managed.session.adopt(row); setPreview(null); } catch(error:any) { onError(error.message); } };

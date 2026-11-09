@@ -3,6 +3,14 @@ import { useEffect, useState } from 'react';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 import { adminQueries } from './query-cache.ts';
+export function useMediaOptimizationRefresh(items: { value: { optimization?: { status: string } } }[], refresh: () => Promise<unknown>) {
+  const pending = items.some(row => row.value.optimization?.status === 'pending');
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => { if (document.visibilityState !== 'hidden') void refresh().catch(() => {}); }, 2000);
+    return () => clearInterval(timer);
+  }, [pending, refresh]);
+}
 export function useMediaLibrary(onError: (message: string) => void) {
   const [query, setQuery] = useState(''),
     [kind, setKind] = useState(''),
@@ -19,6 +27,7 @@ export function useMediaLibrary(onError: (message: string) => void) {
   const queryResult = useAdminQuery<ApiOutput<'mediaQuery'>>(path);
   const result = queryResult.data ?? { items: [], pages: 0, total: 0 },
     loading = queryResult.loading;
+  useMediaOptimizationRefresh(result.items, queryResult.refresh);
   const refresh = () => setEpoch((value) => value + 1);
   useEffect(() => { setChecked([]); }, [path]);
   useEffect(() => {

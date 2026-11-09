@@ -11,13 +11,14 @@ const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
 const HistoryMaintenance = lazy(() => import('./HistoryMaintenance.tsx'));
 
-export default function Operations({ state, task, refresh, onError, openLogs, busy = false }: {
+export default function Operations({ state, task, refresh, onError, openLogs, busy = false, pending=()=>false }: {
   state: any;
   task: (op: 'publish' | 'backup' | 'verify', p?: any) => any;
   openLogs: (id: string) => void;
   refresh: () => any;
   onError: (s: string) => void;
   busy?: boolean;
+  pending?: (operation:string)=>boolean;
 }) {
   const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
   const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
@@ -31,15 +32,15 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
       { id: 'backup', label: '备份', content: <section className="form-card settings-form">
         <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
         <div className="backup-location"><span>保存位置：{path}</span><button onClick={() => { setNextPath(path); setDialog('location'); }}>更改位置</button></div>
-        <div className="inline"><button className="primary" disabled={busy || !path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
-        <button disabled={busy} onClick={() => setDialog('verify')}>检查已有备份</button>
+        <div className="inline"><button className="primary" disabled={pending('backup') || !path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
+        <button disabled={pending('verify')} onClick={() => setDialog('verify')}>检查已有备份</button>
         </div>
       </section> },
       ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<LoadingState label="载入导入工具" />}><ImportManager refresh={refresh} /></Suspense> },
       { id: 'publication', label: '发布记录', content: <>
         <section className="form-card"><h2>网站更新</h2>
           <p>一次发布已有公开内容和网站设置的修改。新文章请在编辑页发布。</p>
-          <button disabled={busy} onClick={() => task('publish', {})}>发布全站工作稿</button>
+          <button disabled={busy||pending('publish')} onClick={() => task('publish', {})}>发布全站工作稿</button>
         </section>
         <section className="form-card"><h2>已发布的版本</h2>
           {!state.releases.length && <p className="muted">网站尚未发布。</p>}

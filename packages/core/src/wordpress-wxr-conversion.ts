@@ -23,7 +23,17 @@ import {
   titleText,
   type Item,
   type WxrInput,
+  type Xml,
 } from './wordpress-wxr-xml.ts';
+export interface ParsedWxr { items: Item[]; channel: Xml }
+export function parseWxrSource(xml: WxrInput, workspace?: EntryWorkspace): ParsedWxr {
+  const items: Item[] = [];
+  const channel = parseXml(xml, node => {
+    const item = itemFromXml(node);
+    items.push(workspace ? workspace.record('item', item, ['body','excerpt','meta','comments']) : item);
+  });
+  return { items, channel };
+}
 export interface WxrTarget {
   fingerprint: string;
   known?: { attachments?: { url: string; local?: string | null }[] };
@@ -40,6 +50,7 @@ export function convertWxr(
   options: WxrOptions = {},
   mediaMap: Record<string, string> = {},
   workspace?: EntryWorkspace,
+  parsed?: ParsedWxr,
 ) {
   const { fingerprint, known } = target;
   mediaMap = {
@@ -53,13 +64,8 @@ export function convertWxr(
     ),
     ...mediaMap,
   };
-  const items: Item[] = [];
-  const channel = parseXml(xml, (node) => {
-      const item = itemFromXml(node);
-      items.push(
-        workspace ? workspace.record('item', item, ['body', 'excerpt', 'meta', 'comments']) : item,
-      );
-    }),
+  const {items,channel} = parsed ?? parseWxrSource(xml, workspace);
+  const
     sourceUrl = text(channel, 'wp:base_blog_url') || text(channel, 'link');
   let origin: URL;
   try {

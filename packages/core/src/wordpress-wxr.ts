@@ -6,9 +6,10 @@ import { importSite } from './exchange.ts';
 import type { Site } from './site.ts';
 import { EntryWorkspace } from './staged-entries.ts';
 import { prepareWxrAttachments } from './wordpress-wxr-assets.ts';
-import { convertWxr } from './wordpress-wxr-conversion.ts';
+import { convertWxr, type ParsedWxr } from './wordpress-wxr-conversion.ts';
 import { optionKey, type WxrOptions } from './wordpress-wxr-options.ts';
 import { wxrDigest, type WxrInput } from './wordpress-wxr-xml.ts';
+import { queueMediaOptimization } from './media.ts';
 export type { WxrOptions } from './wordpress-wxr-options.ts';
 export type { WxrInput } from './wordpress-wxr-xml.ts';
 const revision = (site: Site) =>
@@ -20,6 +21,7 @@ export function convertWordPressWxr(
   options: WxrOptions = {},
   mediaMap: Record<string, string> = {},
   workspace?: EntryWorkspace,
+  parsed?: ParsedWxr,
 ) {
   const fingerprint = wxrDigest(xml);
   return convertWxr(
@@ -39,6 +41,7 @@ export function convertWordPressWxr(
     options,
     mediaMap,
     workspace,
+    parsed,
   );
 }
 export async function importWordPressWxr(
@@ -60,8 +63,10 @@ async function importWxr(
   options: WxrOptions,
   progress: (message: string) => void,
   workspace: EntryWorkspace,
+  prepared?: PreparedWxr,
+  committed?: (result:any)=>void,
 ) {
-  const initial = convertWordPressWxr(site, xml, options, {}, workspace);
+  const initial = prepared?.converted ?? convertWordPressWxr(site, xml, options, {}, workspace, prepared?.parsed);
   const checkReview = () => {
     if (
       options.review &&
@@ -74,7 +79,8 @@ async function importWxr(
   };
   checkReview();
   if (options.comments !== false) checkWxrComments(site, initial.comments);
-  const preview = importSite(site, initial.value, { ...options, dryRun: true });
+  const preview = prepared?.preview ?? importSite(site, initial.value, { ...options, dryRun: true });
+  if(prepared){prepared.converted=initial;prepared.preview=preview;}
   if (options.dryRun)
     return {
       ...initial.report,
@@ -84,7 +90,7 @@ async function importWxr(
       importedComments: 0,
       sourcePath: null,
     };
-  const { prepared, mediaMap, reusedMedia } = await prepareWxrAttachments(
+  const { prepared: attachments, mediaMap, reusedMedia } = await prepareWxrAttachments(
     site,
     initial,
     options,
@@ -93,10 +99,10 @@ async function importWxr(
   if (Object.keys(mediaMap).length) {
     initial.value.entries = [];
     initial.comments.length = 0;
-    workspace.reset();
+    workspace.reset('entry');
   }
   const converted = Object.keys(mediaMap).length
-    ? convertWordPressWxr(site, xml, options, mediaMap, workspace)
+    ? convertWordPressWxr(site, xml, options, mediaMap, workspace, prepared?.parsed)
     : initial;
   const archive = join(site.root, 'imports', 'wordpress-wxr', initial.report.fingerprint);
   mkdirSync(archive, { recursive: true });
@@ -109,15 +115,17 @@ async function importWxr(
     .transaction(() => {
       checkReview();
       const exchange = importSite(site, converted.value, { ...options, dryRun: false });
-      for (const row of prepared)
+      for (const row of attachments) {
         if (!site.store.get('media', row.id))
           site.store.put('media', row.id, row.value, null, 'WordPress 附件');
+        queueMediaOptimization(site, row.id);
+      }
       const comments = options.comments === false ? 0 : writeWxrComments(site, converted.comments);
       const result = {
         ...converted.report,
         exchange,
         dryRun: false,
-        downloaded: prepared.length,
+        downloaded: attachments.length,
         reusedMedia,
         importedComments: comments,
         sourcePath,
@@ -130,8 +138,14 @@ async function importWxr(
         old?.revision ?? null,
         'WordPress WXR 导入',
       );
+      committed?.(result);
       return result;
     })
     .immediate();
   return result;
+}
+
+export interface PreparedWxr { workspace: EntryWorkspace; parsed: ParsedWxr; converted?: ReturnType<typeof convertWordPressWxr>; preview?: ReturnType<typeof importSite> }
+export function importPreparedWordPress(site: Site, xml: WxrInput, options: WxrOptions, progress: (message: string) => void, prepared: PreparedWxr, committed?:(result:any)=>void) {
+  return importWxr(site, xml, options, progress, prepared.workspace, prepared, committed);
 }

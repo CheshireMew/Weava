@@ -5,9 +5,16 @@ import {prepareEntryCandidate} from './content-validation.ts';
 import {uuid} from '../../runtime-common/src/identity.ts';
 import {renderDocument} from './documents.ts';
 import {normalizePath} from './paths.ts';
+import {writingSnippetSchema} from '@weava/contracts';
 
 export const contentViews = (site: Site) => site.store.list('content-view');
 export const creationTemplates = (site: Site) => site.store.list('creation-template');
+export const writingSnippets = (site: Site) => site.store.list('writing-snippet');
+export function saveWritingSnippet(site: Site, input: unknown, revision: number | null) {
+  const value = writingSnippetSchema.parse(input);
+  renderDocument({version: 1, format: 'markdown', source: value.source});
+  return site.store.put('writing-snippet', value.id, value, revision);
+}
 export function structuredBody(value: unknown) {
   const entry = entrySchema.parse(value);
   if (entry.blocks.length) return entry.blocks;

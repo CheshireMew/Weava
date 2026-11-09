@@ -1,10 +1,11 @@
 import { imagePresetSchema, imageSpecSchema, WeavaError } from '@weava/contracts';
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { digest, now } from '../../runtime-common/src/identity.ts';
 import { inside } from '../../runtime-common/src/paths.ts';
 import type { Site } from './site.ts';
+import { digestFileAsync } from './file-io.ts';
 export const imagePresets = (site: Site) => site.store.list('image-preset');
 export function saveImagePreset(site: Site, value: unknown, revision: number | null) {
   const preset = imagePresetSchema.parse(value);
@@ -21,9 +22,9 @@ export async function imageVariant(
   if (input.presetId && (!preset || preset.archived))
     throw new WeavaError('图片规格不存在或已归档。');
   const spec = imageSpecSchema.parse(input.presetId ? preset.spec : input.spec);
-  const bytes = readFileSync(inside(site.root, media.value.url.slice(1)));
+  const source = inside(site.root, media.value.url.slice(1));
   const key = digest({
-    source: digest(bytes),
+    source: media.value.hash ?? await digestFileAsync(source),
     spec,
     focalPoint: media.value.focalPoint ?? { x: 50, y: 50 },
     version: 1,
@@ -32,10 +33,10 @@ export async function imageVariant(
     path = inside(site.root, url.slice(1));
   const current = site.store.get('media-variant', key);
   if (current && existsSync(path)) return current;
-  const rotated = await sharp(bytes, { limitInputPixels: 32000000 }).rotate().png().toBuffer();
-  const metadata = await sharp(rotated).metadata();
+  const rawMetadata = await sharp(source, { limitInputPixels: 32000000 }).metadata();
+  const metadata = rawMetadata.autoOrient ?? rawMetadata;
   if (!metadata.width || !metadata.height) throw new WeavaError('只能为图片生成规格。');
-  let image = sharp(rotated);
+  let image = sharp(source, { limitInputPixels: 32000000 }).rotate();
   if (spec.fit === 'cover' && spec.height) {
     const ratio = spec.width / spec.height;
     const width = Math.min(metadata.width, Math.max(1, Math.round(metadata.height * ratio)));

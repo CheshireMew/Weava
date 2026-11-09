@@ -1,6 +1,11 @@
-import { openSync, closeSync, readSync } from 'node:fs';
+import { openSync, closeSync, readSync, createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+export async function digestFileAsync(file: string) {
+  const hash = createHash('sha256');
+  for await (const bytes of createReadStream(file)) hash.update(bytes);
+  return hash.digest('hex');
+}
 /** File size does not determine the memory used to verify it. */
 export function digestFile(file:string){
   const fd=openSync(file,'r'),buffer=Buffer.allocUnsafe(1024*1024),hash=createHash('sha256');

@@ -1,7 +1,7 @@
 import { load } from 'cheerio';
 import { createHash } from 'node:crypto';
 import {isNoteType,type ContentType,type Block,type Entry,type PublishedEntry} from '@weava/contracts';
-import { renderDocument } from './documents.ts';
+import { firstDocumentImage } from './document-inspection.ts';
 
 function firstImage(html: string) {
   return load(html, null, false)('img[src]').first().attr('src') ?? '';
@@ -16,7 +16,7 @@ function defaultArticleCover(entry: Entry) {
 
 function firstBodyImage(entry: Entry | PublishedEntry): string {
   if ('html' in entry) return firstImage(entry.html);
-  if (!entry.blocks?.length) return firstImage(renderDocument(entry.document));
+  if (!entry.blocks?.length) return firstDocumentImage(entry.document);
   const visit = (blocks: Block[]): string => {
     for (const block of blocks) {
       const p = block.props;
@@ -26,7 +26,7 @@ function firstBodyImage(entry: Entry | PublishedEntry): string {
       else if (block.type === 'gallery') {
         const image = p.images?.[0];
         src = typeof image === 'string' ? image : image?.src ?? '';
-      } else if (['text', 'richtext'].includes(block.type)) src = firstImage(renderDocument({ version: 1, format: 'markdown', source: String(p.text ?? '') }));
+      } else if (['text', 'richtext'].includes(block.type)) src = firstDocumentImage({ version: 1, format: 'markdown', source: String(p.text ?? '') });
       else if (block.type === 'compatibility') src = firstImage(String(p.html ?? ''));
       if (src) return src;
       const child = visit(block.children ?? []);

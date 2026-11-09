@@ -1,6 +1,6 @@
-import { useRef, useState } from 'react';
-import { api } from './api.ts';
-import { allowFileDrop, hasDroppedFiles, UploadStatus, useFileUploads } from './file-drop.tsx';
+import { useEffect, useRef, useState } from 'react';
+import { allowFileDrop, hasDroppedFiles } from './file-drop.tsx';
+import { MediaUploadList, startMediaUploads, useMediaUploads } from './media-uploads.tsx';
 import { MediaDetails } from './MediaDetails.tsx';
 import { MediaLibrary } from './MediaLibrary.tsx';
 import { useMediaEditor } from './useMediaEditor.ts';
@@ -17,28 +17,16 @@ export default function MediaManager({
     editor = useMediaEditor(library.refresh, onError);
   const [busy, setBusy] = useState(false),
     [dragging, setDragging] = useState(false);
-  const uploads = useFileUploads(false),
+  const uploads = useMediaUploads(),
     fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    for (const item of uploads) if (item.row) editor.receiveUpload(item.row);
+    const current = library.result.items.find(row => row.id === editor.selected?.id);
+    if (current && current.revision >= (editor.selected?.revision ?? 0)) editor.receive(current);
+  }, [uploads, library.result.items, editor.selected]);
   function uploadFiles(files: File[]) {
-    if (busy) {
-      onError('请等待当前裁切完成后上传。');
-      return;
-    }
     const destination = library.group;
-    uploads.upload(
-      files,
-      async (row) => {
-        if (destination && destination !== '__ungrouped__') {
-          const [moved] = await api('media/move', {
-            items: [{ id: row.id, revision: row.revision }],
-            groupId: destination,
-          });
-          editor.receive(moved);
-        }
-        library.refresh();
-      },
-      editor.flush,
-    );
+    startMediaUploads(files, destination && destination !== '__ungrouped__' ? destination : undefined);
   }
   return (
     <div
@@ -65,7 +53,6 @@ export default function MediaManager({
         <h1>媒体</h1>
         <button
           className="primary"
-          disabled={busy || uploads.busy}
           onClick={() => fileInput.current?.click()}
         >
           上传文件
@@ -82,7 +69,7 @@ export default function MediaManager({
           }}
         />
       </div>
-      <UploadStatus uploads={uploads} omitLabel="取消这些上传" />
+      <MediaUploadList items={uploads.filter(item => item.status !== 'complete')} />
       <MediaLibrary library={library} editor={editor} busy={busy} onError={onError}>
         <MediaDetails
           editor={editor}

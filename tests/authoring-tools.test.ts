@@ -1,10 +1,29 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import * as storage from '../packages/core/src/storage.ts';
+import * as storage from '../packages/runtime-common/src/identity.ts';
 import { Site, createContent, saveContentView, contentViews, saveCreationTemplate, creationTemplates, exportSite, importSite, queryDrafts } from '@weava/core';
-const sites: Site[] = [], root = 'D:/Tools/cache/weava/tasks/random-permalinks-20261105/authoring-' + Date.now(); let sequence = 0;
+import {saveWritingSnippet, writingSnippets, renderDocument} from '@weava/core';
+import {exchange} from '../packages/contracts/src/api-models.ts';
+const sites: Site[] = [], root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/random-permalinks-20261105')+'/authoring-' + Date.now(); let sequence = 0;
 const create = () => { const site = new Site(root + '/' + sequence++); sites.push(site); site.saveType({ id: 'note', label: '笔记', pathPrefix: '/notes/', template: 'article', fields: [{ key: 'topic', label: '主题', type: 'select', options: ['写作', '代码'], filterable: true, defaultValue: '写作' }] }, null); return site; };
 afterEach(() => {vi.restoreAllMocks();sites.splice(0).forEach((site) => site.close());});
 describe('saved authoring tools', () => {
+  it('saves reusable rich content independently and retains it in JSON exchange and conflict checks', () => {
+    const source = create(), target = create(), body = '<mark class="weava-highlight-yellow">签名</mark>\n\n<a class="weava-link-button" href="https://example.com">阅读更多</a>\n\n说明[^source]\n\n[^source]: 来源。';
+    const snippet = saveWritingSnippet(source, {id: 'signature', name: '文章结尾', source: body}, null);
+    const draft = createContent(source, {kind: 'content', type: 'note'});
+    source.saveEntry({...draft.value, document: {version: 1, format: 'markdown', source: snippet.value.source}}, draft.revision);
+    const changed = saveWritingSnippet(source, {...snippet.value, source: '新的签名'}, snippet.revision);
+    expect(source.store.get('entry', draft.id)!.value.document.source).toBe(body);
+    expect(() => saveWritingSnippet(source, {...snippet.value, source: '旧版本覆盖'}, snippet.revision)).toThrow();
+    saveWritingSnippet(source, {...changed.value, archived: true}, changed.revision);
+    const data = exchange.parse(JSON.parse(JSON.stringify(exportSite(source))));
+    expect(importSite(target, data, {dryRun: true}).created).toContain('writing-snippet:signature');
+    expect(writingSnippets(target)).toEqual([]);
+    importSite(target, data);
+    expect(writingSnippets(target)[0].value).toMatchObject({source: '新的签名', archived: true});
+    expect(renderDocument(target.store.get('entry', draft.id)!.value.document)).toContain('class="weava-link-button"');
+    expect(importSite(target, data).updated).toEqual([]);
+  });
   it('keeps eight hexadecimal characters and retries a collision with another draft',()=>{
     const site=create(),first=createContent(site,{kind:'content',type:'note'});expect(first.value.path).toBe('/notes/'+first.id.slice(0,8)+'/');
     const random=vi.spyOn(storage,'uuid').mockReturnValueOnce((first.id.slice(0,8)+'-aaaa-4aaa-aaaa-aaaaaaaaaaaa') as ReturnType<typeof storage.uuid>).mockReturnValueOnce('abcdef12-bbbb-4bbb-bbbb-bbbbbbbbbbbb');

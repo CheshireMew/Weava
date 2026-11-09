@@ -7,9 +7,9 @@ export const operationLabels: Record<string, string> = {
   publish: '发布网站', backup: '创建备份', verify: '检查备份', import: '导入内容',
   'import-wxr': '导入 WordPress', 'maintenance-archive': '归档历史', 'maintenance-restore': '恢复历史',
   'archive-history': '归档历史', 'restore-history': '恢复历史', 'preflight-wxr': '检查 WordPress 导入',
-  media: '上传媒体', 'media-edit': '裁切图片', 'media-variant': '生成图片规格',
+  media: '上传媒体', 'media-edit': '裁切图片', 'media-variant': '生成图片规格', 'media-optimize': '优化图片',
   'schedule-create':'安排定时发布','plan-save':'保存发布计划','withdraw':'撤下内容','entry-delete':'删除内容',
-  'import-json':'导入 JSON', 'seo-audit':'检查网站页面',
+  'import-json':'导入 JSON','import-source':'处理导入文件', 'seo-audit':'检查网站页面',
 };
 export const jobStatusLabels: Record<string, string> = {
   queued: '等待处理', running: '处理中', complete: '已完成', failed: '失败', cancelled: '已取消',

@@ -24,8 +24,7 @@ export async function prepareWxrAttachments(
   const prepared: Awaited<ReturnType<typeof prepareMedia>>[] = [],
     mediaMap: Record<string, string> = {};
   let reusedMedia = 0;
-  if (options.downloadMedia || options.mediaDirectory)
-    for (const [index, asset] of initial.attachments.entries()) {
+  const prepare = async (asset: typeof initial.attachments[number], index: number) => {
       progress(`正在导入附件 ${index + 1} / ${initial.attachments.length}：${asset.name}`);
       const url = new URL(asset.url, initial.report.source);
       if (!['http:', 'https:'].includes(url.protocol))
@@ -35,12 +34,12 @@ export async function prepareWxrAttachments(
         mediaMap[asset.url] = existing;
         mediaMap[url.pathname] = existing;
         reusedMedia++;
-        continue;
+        return;
       }
       const bytes = options.mediaDirectory
         ? localAttachment(options.mediaDirectory, url)
         : await attachmentBytes(url.href);
-      const row = await prepareMedia(site, bytes, asset.name);
+      const row = await prepareMedia(site, bytes, asset.name, { optimize: false });
       prepared.push({
         ...row,
         value: {
@@ -52,6 +51,13 @@ export async function prepareWxrAttachments(
       mediaMap[asset.url] = row.value.url;
       mediaMap[url.href] = row.value.url;
       mediaMap[url.pathname] = row.value.url;
-    }
+  };
+  if (options.downloadMedia || options.mediaDirectory) {
+    let next = 0, failure: unknown;
+    await Promise.all(Array.from({ length: Math.min(3, initial.attachments.length) }, async () => {
+      for (;;) { const index = next++; if (failure || index >= initial.attachments.length) return; try { await prepare(initial.attachments[index], index); } catch (error) { failure = error; return; } }
+    }));
+    if(failure)throw failure;
+  }
   return { prepared, mediaMap, reusedMedia };
 }

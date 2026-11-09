@@ -3,17 +3,24 @@ import {CodeNode} from '@lexical/code';
 import {$generateNodesFromDOM} from '@lexical/html';
 import {$isTableCellNode} from '@lexical/table';
 import type {Document} from '@weava/contracts';
-import {createMarkdownParser} from '../../../../packages/runtime-common/src/markdown.ts';
+import {createMarkdownParser, markdownFootnotes} from '../../../../packages/runtime-common/src/markdown.ts';
+import {FootnoteNode, writingDescendants} from './WritingNodes.tsx';
 
 const parser = createMarkdownParser();
 export const codeMetadata = createState('weavaCodeMetadata', {parse: value => typeof value === 'string' ? value : ''});
+export const footnoteOrphans = createState('weavaFootnoteOrphans', {parse: (value): Record<string, string> => value && typeof value === 'object' && !Array.isArray(value)
+  ? Object.fromEntries(Object.entries(value).filter(([, source]) => typeof source === 'string')) as Record<string, string> : {}});
+
+const inlineHTML = /^(?:<\/?(?:strong|em|s|u|sub|sup|mark|code)>|<mark class="weava-highlight-(?:yellow|green|blue|pink)">|<span class="weava-color-(?:accent|red|blue|green|muted)">|<\/span>|<a(?: class="weava-link-button")? href="[^"]*">|<\/a>|<br\s*\/?>)$/i;
+const blockHTML = /^(?:<details(?: class="weava-details")?>\s*<summary>[^<]*<\/summary>|<\/details>|<div class="weava-align-(?:center|right|justify)">|<\/div>)\s*$/i;
+const mediaHTML = /^(?:<figure><(video|audio) src="[^"]*" controls preload="metadata"><\/\1>(?:<figcaption>[^<]*<\/figcaption>)?<\/figure>|<iframe src="[^"]*" title="[^"]*"(?: width="[^"]*")?(?: height="[^"]*")? allowfullscreen><\/iframe>)\s*$/i;
 
 export function supportsVisualEditing(document: Document) {
   if (document.format === 'lexical') return true;
   if (document.format !== 'markdown') return false;
   const supported = (tokens: ReturnType<typeof parser.parse>): boolean => tokens.every(token =>
-    token.type !== 'html_block' && !(token.type === 'html_inline' && !/^<br\s*\/?>$/i.test(token.content)) &&
-    !(token.type === 'text' && /(?:^::|\$\$|\[\^)/m.test(token.content)) && (!token.children || supported(token.children)));
+    !(token.type === 'html_block' && !blockHTML.test(token.content.trim()) && !mediaHTML.test(token.content.trim())) && !(token.type === 'html_inline' && !inlineHTML.test(token.content)) &&
+    !(token.type === 'text' && /(?:^::|\$\$)/m.test(token.content)) && (!token.children || supported(token.children)));
   // The checkboxes are generated from Markdown, rather than authored HTML.
   const tokens = parser.parse(document.source, {});
   tokens.forEach(token => { if (token.children) token.children = token.children.filter(child => !child.meta?.weavaTask); });
@@ -21,8 +28,28 @@ export function supportsVisualEditing(document: Document) {
 }
 
 export function importMarkdown(editor: LexicalEditor, source: string) {
-  const tokens = parser.parse(source, {}), codeBlocks = tokens.filter(token => token.type === 'fence' || token.type === 'code_block');
-  const document = new DOMParser().parseFromString(parser.renderer.render(tokens, parser.options, {}), 'text/html');
+  const root = $getRoot(); root.clear(); $setState(root, footnoteOrphans, {});
+  root.append(...markdownNodes(editor, source));
+}
+
+export function markdownNodes(editor: LexicalEditor, source: string) {
+  const env: any = {}, tokens = parser.parse(source, env), codeBlocks = tokens.filter(token => token.type === 'fence' || token.type === 'code_block');
+  const document = new DOMParser().parseFromString(parser.renderer.render(tokens, parser.options, env), 'text/html');
+  const notes = markdownFootnotes(env), existing = new Map(writingDescendants().filter(node => node instanceof FootnoteNode).map(node => [(node as FootnoteNode).getLabel(), (node as FootnoteNode).getSource()]));
+  const labels = notes.map(note => {
+    let label = note.label, suffix = 1;
+    while (existing.has(label) && existing.get(label) !== note.source) label = note.label + '-' + ++suffix;
+    existing.set(label, note.source); return label;
+  });
+  document.querySelectorAll('sup.footnote-ref').forEach(reference => {
+    const number = Number(/#fn(\d+)/.exec(reference.querySelector('a')?.getAttribute('href') ?? '')?.[1]) - 1;
+    if (!notes[number]) return;
+    const marker = document.createElement('span'); marker.setAttribute('data-weava-footnote', labels[number]); marker.setAttribute('data-weava-footnote-source', notes[number].source); reference.replaceWith(marker);
+  });
+  document.querySelectorAll('.footnotes,.footnotes-sep').forEach(element => element.remove());
+  const referenced = new Set(notes.map(note => note.label));
+  const orphaned = Object.fromEntries(Object.entries(env.weavaFootnoteSources ?? {}).filter(([label]) => !referenced.has(label)));
+  if (Object.keys(orphaned).length) $setState($getRoot(), footnoteOrphans, previous => ({...previous, ...orphaned as Record<string, string>}));
   document.querySelectorAll('pre').forEach(block => {
     const code = block.querySelector('code');
     const language = /(?:^|\s)language-([^\s]+)/.exec(code?.className ?? '')?.[1];
@@ -53,7 +80,7 @@ export function importMarkdown(editor: LexicalEditor, source: string) {
     const input = item.querySelector('input[type="checkbox"]');
     if (input) { item.setAttribute('aria-checked', String(input.hasAttribute('checked'))); input.remove(); }
   });
-  const root = $getRoot(); root.clear(); root.append(...$generateNodesFromDOM(editor, document));
+  const nodes = $generateNodesFromDOM(editor, document);
   const cells = [...document.querySelectorAll<HTMLTableCellElement>('td,th')]; let cell = 0, code = 0;
   const align = (node: LexicalNode) => {
     if (node instanceof CodeNode) {
@@ -66,5 +93,6 @@ export function importMarkdown(editor: LexicalEditor, source: string) {
     }
     if ($isElementNode(node)) node.getChildren().forEach(align);
   };
-  align(root);
+  nodes.forEach(align);
+  return nodes;
 }

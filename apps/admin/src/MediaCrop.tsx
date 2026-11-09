@@ -109,7 +109,7 @@ export function MediaCrop({
             onPointerCancel={() => setAnchor(null)}
             onLostPointerCapture={() => setAnchor(null)}
           >
-            <img src={selected.value.url} alt="裁切预览" draggable={false} />
+            <img src={selected.value.url} width={selected.value.width} height={selected.value.height} alt="裁切预览" draggable={false} />
             <span
               style={{
                 left: crop.left + '%',

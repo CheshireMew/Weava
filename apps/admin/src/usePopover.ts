@@ -35,7 +35,7 @@ export function usePopover({
   const close = useCallback(
     (restore = false) => {
       latest.current();
-      if (restore) trigger.current?.focus();
+      if (restore) trigger.current?.focus({ preventScroll: true });
     },
     [trigger],
   );

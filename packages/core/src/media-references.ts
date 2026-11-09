@@ -2,7 +2,7 @@ import type { Entry, Release } from '@weava/contracts';
 import { mediaIdentity } from './paths.ts';
 import { referencedLayouts } from './layouts.ts';
 import { load } from 'cheerio';
-import { renderDocument } from './documents.ts';
+import { visitMarkdown } from './document-inspection.ts';
 
 /** One file identity for authored URLs, rendered HTML, history and usage reports. */
 export function mediaReferencesIn(value: unknown): Set<string> {
@@ -43,8 +43,14 @@ export function mediaReferencesIn(value: unknown): Set<string> {
       if (/[<&]/.test(item)) {
         // HTML entities belong to the HTML parser, not decodeURIComponent.
         html(item);
-      } else if(item.includes('](')||item.includes(']:')) html(renderDocument({version:1,format:'markdown',source:item}));
-      else scan(item);
+      }
+      if(item.includes('](')||item.includes(']:')) visitMarkdown(item, token => {
+        // Markdown-it also uses numeric attributes, such as an ordered list's start.
+        for (const [, value] of token.attrs ?? []) if(typeof value==='string')scan(value);
+        if (token.type === 'html_inline' || token.type === 'html_block') html(token.content);
+        else if (!token.children?.length) scan(token.content);
+      });
+      scan(item);
     } else if (Array.isArray(item)) item.forEach(visit);
     else if (item && typeof item === 'object') Object.values(item).forEach(visit);
   };
@@ -59,7 +65,6 @@ export function entryMediaReferences(
   return mediaReferencesIn([
     entry.cover,
     entry.blocks?.length ? null : entry.document,
-    !entry.blocks?.length && entry.document ? renderDocument(entry.document) : null,
     entry.blocks,
     entry.fields,
     catalog ? referencedLayouts(entry, catalog) : [],

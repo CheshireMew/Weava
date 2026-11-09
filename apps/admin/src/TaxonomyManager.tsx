@@ -10,15 +10,15 @@ import { useManagedRecord } from './EditSessions.tsx';
 type TermRecord = { id: string; revision: number | null; value: Term };
 export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any>, apply?: () => void) {
   const [busy, setBusy] = useState(false);
+  const [refreshError,setRefreshError]=useState('');
+  const reload=()=>refresh().then(()=>setRefreshError(''),error=>setRefreshError('分类与标签已保存，列表刷新失败：'+error.message));
   const managed = useManagedRecord<TermRecord>(null, async record => {
     const label = record.value.label.trim();
     if (!label) throw new Error('请填写分类或标签名称。');
     const slug = record.value.slug.trim() || label.replace(/[/?#\\\s]+/g, '-');
     const saved = await api('terms', { value: { ...record.value, label, slug }, revision: record.revision });
-    apply?.();
-    await refresh();
     return saved;
-  }, '分类与标签', { autosave: { ready: record => !!record.value.label.trim() && !!(record.value.slug.trim() || record.value.label.replace(/[/?#\\\s]+/g, '-')) } });
+  }, '分类与标签', { saved:()=>{apply?.();void reload();},autosave: { ready: record => !!record.value.label.trim() && !!(record.value.slug.trim() || record.value.label.replace(/[/?#\\\s]+/g, '-')) } });
   useEffect(() => {
     const current = managed.session.record;
     if (current?.revision != null) {
@@ -37,7 +37,7 @@ export function useTaxonomyEditor(rows: TermRecord[], refresh: () => Promise<any
     if (record?.revision === null) managed.setRecord(record);
   }
   return {
-    rows, catalog: rows.map(row => row.value), record: managed.record, busy, autoSave: managed.autoSave,
+    rows, catalog: rows.map(row => row.value), record: managed.record, busy, autoSave: managed.autoSave,refreshError,reload,
     save, select,
     update: (patch: Partial<Term>) => managed.setRecord(record => record && ({ ...record, value: { ...record.value, ...patch } })),
     cancel: () => { managed.session.discard(); managed.session.adopt(null); },
@@ -70,6 +70,7 @@ export default function TaxonomyManager({ model, onError }: {
   </div>;
   return <section className="form-card taxonomy-settings" aria-label="分类与标签管理">
     <h2>分类与标签</h2>
+    {model.refreshError&&<p role="alert">{model.refreshError}<button onClick={()=>void model.reload()}>重新刷新列表</button></p>}
     <div className="taxonomy-controls"><div className="taxonomy-kinds" role="group" aria-label="分类种类">
       {(['category', 'tag'] as const).map(next => <button key={next} type="button" disabled={busy} aria-pressed={kind === next} onClick={() => run(async () => { await model.select(null); setKind(next); setQuery(''); })}>{next === 'category' ? '分类' : '标签'}</button>)}
     </div><button type="button" disabled={busy} onClick={() => run(async () => {

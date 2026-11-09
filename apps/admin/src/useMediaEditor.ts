@@ -56,6 +56,16 @@ export function useMediaEditor(refresh: () => void, onError: (message: string) =
   const receive = (row: MediaRecord) => {
     if (managed.session.record?.id === row.id) managed.session.receive(row);
   };
+  const receiveUpload = (row: MediaRecord) => {
+    const current = managed.session.record;
+    if (!current || current.id !== row.id || current.revision >= row.revision || managed.session.saving) return;
+    const dirty = managed.session.dirty;
+    managed.session.adopt(row);
+    if (dirty) {
+      const { name, alt, caption, focalPoint } = current.value;
+      managed.session.change({ ...row, value: { ...row.value, name, alt, caption, focalPoint } });
+    }
+  };
   async function mutateSelection(rows: MediaRecord[], write: (items: {id:string;revision:number}[]) => Promise<MediaRecord[]>) {
     if (pending.current) throw new Error('媒体操作尚未完成，请稍候。');
     const work = (async () => {
@@ -76,6 +86,7 @@ export function useMediaEditor(refresh: () => void, onError: (message: string) =
     choose,
     accept,
     receive,
+    receiveUpload,
     mutateSelection,
     autoSave: managed.autoSave,
   };

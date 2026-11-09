@@ -1,0 +1,22 @@
+.weava-color-accent { color: #d63d0b; }
+.weava-color-red { color: #b42318; }
+.weava-color-blue { color: #175cd3; }
+.weava-color-green { color: #027a48; }
+.weava-color-muted { color: #667085; }
+.weava-highlight-yellow { background-color: #fff0a8; color: inherit; }
+.weava-highlight-green { background-color: #d5f2d1; color: inherit; }
+.weava-highlight-blue { background-color: #d9eaff; color: inherit; }
+.weava-highlight-pink { background-color: #fce0ee; color: inherit; }
+.weava-align-center { text-align: center; }
+.weava-align-right { text-align: right; }
+.weava-align-justify { text-align: justify; }
+a.weava-link-button, .prose a.weava-link-button, .newsletter .nl-prose a.weava-link-button { display: inline-block; padding: .65em 1.1em; border-radius: 6px; background: var(--accent, #d63d0b); color: #fff; font-family: system-ui, sans-serif; font-size: .9em; font-weight: 600; text-decoration: none; line-height: 1.4; }
+a.weava-link-button:hover, .prose a.weava-link-button:hover, .newsletter .nl-prose a.weava-link-button:hover { opacity: .88; color: #fff; }
+.weava-details { margin-block: 1.5em; border-block: 1px solid #e4e4e4; padding: 1em 0; }
+.weava-details > summary { cursor: pointer; font-weight: 600; }
+.weava-details[open] > summary { margin-bottom: 1em; }
+.footnote-ref { font-size: .75em; vertical-align: super; line-height: 0; }
+.footnotes { font-size: .88em; margin-block: 1.5em; }
+.footnotes li { margin-block: .6em; }
+.footnotes :target { background: #fff0a8; }
+.footnote-backref { margin-left: .3em; text-decoration: none; }

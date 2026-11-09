@@ -14,7 +14,7 @@ export function apiReferenceMarkdown(){
   for(const [key,def] of Object.entries(adminApi)){
     const params=[['路径',def.params],['查询',def.query]] as const;
     const inputs=params.filter(([,schema])=>Object.keys((z.toJSONSchema(schema,{io:'input',unrepresentable:'any'}) as JsonSchema).properties??{}).length).map(([name,schema])=>name+' '+describe(schema)).join('; ')||'—';
-    lines.push('| `'+key+'` · '+def.summary+' | `'+def.method+' /api/admin/v1/'+def.path+'` | '+inputs+' | '+('binary' in def?'application/octet-stream · ≤1 MiB':def.method==='POST'?describe(def.body):'—')+' | '+def.status+' · '+describe(def.response)+' |');
+    lines.push('| `'+key+'` · '+def.summary+' | `'+def.method+' /api/admin/v1/'+def.path+'` | '+inputs+' | '+('binary' in def?'application/octet-stream · '+(key==='uploadMediaFile'?'≤32 MiB':key==='stageImportSource'?'≤128 MiB':'≤1 MiB'):def.method==='POST'?describe(def.body):'—')+' | '+def.status+' · '+describe(def.response)+' |');
   }
   return lines.join('\n')+'\n';
 }

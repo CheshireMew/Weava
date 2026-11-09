@@ -1,45 +1,39 @@
 import {createPortal} from 'react-dom';
 import type {ReactNode} from 'react';
-import {FileCode2, FileText, Bold, Italic, Quote, List, ListOrdered, Code, ImagePlus, Link, Table, Undo2, Redo2, Video} from 'lucide-react';
+import {FileCode2, FileText, Bold, Italic, Link, Undo2, Redo2, ImagePlus, ChevronDown} from 'lucide-react';
+import {Popover} from '../Popover.tsx';
+import {textColors, highlightColors} from '../../../../packages/runtime-common/src/writing-format.ts';
 
-export type FormatAction = 'undo' | 'redo' | 'bold' | 'italic' | 'quote' | 'bullet' | 'ordered' | 'code' | 'link' | 'video' | 'table' | 'media';
-
-export function ToolbarOutlet({target, children}: {target?: HTMLElement | null; children: ReactNode}) {
-  return target ? createPortal(children, target) : children;
-}
-
-/** Both editing modes use the same controls and geometry. */
-export function FormattingToolbar({mode, onMode, onAction, onBlock, onCaptureBlock, blockType = 'paragraph', codeLanguage = 'text', onLanguage, onCaptureLanguage, compact = false, uploading = false, linkActive = false, onEdit = () => {}}: {
+export type FormatAction = 'undo' | 'redo' | 'bold' | 'italic' | 'strikethrough' | 'inline-code' | 'underline' | 'subscript' | 'superscript' | 'quote' | 'bullet' | 'ordered' | 'code' | 'link' | 'video' | 'table' | 'media' | 'divider' | 'button' | 'footnote' | 'details' | 'snippets' | `color:${string}` | `highlight:${string}` | `align:${string}`;
+export function ToolbarOutlet({target, children}: {target?: HTMLElement | null; children: ReactNode}) {return target ? createPortal(children, target) : children;}
+export function FormattingToolbar({mode, onMode, onAction, onBlock, onCaptureBlock, onCapture, blockType = 'paragraph', codeLanguage = 'text', onLanguage, onCaptureLanguage, compact = false, snippets = true, uploading = false, linkActive = false, onEdit = () => {}}: {
   mode: 'visual' | 'source'; onMode: () => void; onAction: (action: FormatAction) => void;
-  onBlock: (type: string) => void; onCaptureBlock?: () => void; blockType?: string;
+  onBlock: (type: string) => void; onCaptureBlock?: () => void; onCapture?: () => void; blockType?: string;
   codeLanguage?: string; onLanguage: (language: string) => void; onCaptureLanguage?: () => void;
-  compact?: boolean; uploading?: boolean; linkActive?: boolean; onEdit?: () => void;
+  compact?: boolean; snippets?: boolean; uploading?: boolean; linkActive?: boolean; onEdit?: () => void;
 }) {
-  const button = (label: string, icon: ReactNode, action: FormatAction) => <button type="button" title={label} aria-label={label} aria-pressed={action === 'link' ? linkActive : undefined} onMouseDown={event => event.preventDefault()} onClick={() => onAction(action)}>{icon}</button>;
-  return <div className={'format-toolbar' + (mode === 'source' ? ' source-toolbar' : '')} role="toolbar" aria-label="正文格式"
-    onClickCapture={event => {if (!(event.target as Element).closest('.editor-mode-toggle')) onEdit();}} onChangeCapture={onEdit}>
-    <button type="button" className="editor-mode-toggle" disabled={uploading} title={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} aria-label={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} onMouseDown={event => event.preventDefault()} onClick={onMode}>
-      {mode === 'visual' ? <FileCode2 size={18} aria-hidden="true"/> : <FileText size={18} aria-hidden="true"/>}
-    </button>
-    <span className="toolbar-divider" aria-hidden="true"/>
-    {button('撤销', <Undo2 size={16}/>, 'undo')}{button('重做', <Redo2 size={16}/>, 'redo')}
-    <span className="toolbar-divider" aria-hidden="true"/>
-    {!compact && <select aria-label="段落格式" value={blockType} onMouseDown={onCaptureBlock} onChange={event => onBlock(event.target.value)}>
-      <option value="paragraph">正文</option><option value="h2">标题</option><option value="quote">引用</option><option value="code">代码</option>
-    </select>}
-    <span className="toolbar-divider" aria-hidden="true"/>
-    {button('加粗', <Bold size={16}/>, 'bold')}{button('斜体', <Italic size={16}/>, 'italic')}
-    <span className="toolbar-divider" aria-hidden="true"/>
-    {!compact && button('引用', <Quote size={16}/>, 'quote')}
-    {button('无序列表', <List size={17}/>, 'bullet')}
-    {!compact && button('有序列表', <ListOrdered size={17}/>, 'ordered')}
-    {!compact && button('代码', <Code size={17}/>, 'code')}
-    {blockType === 'code' && <select aria-label="代码语言" value={codeLanguage} onMouseDown={onCaptureLanguage} onChange={event => onLanguage(event.target.value)}>
-      {['text','typescript','javascript','python','json','html','css','bash','sql','yaml'].map(language => <option key={language}>{language}</option>)}
-    </select>}
+  const action = (command: FormatAction) => {onEdit(); onAction(command);};
+  const item = (label: string, command: FormatAction) => <button type="button" key={command} aria-label={label} onClick={() => action(command)}>{label}</button>;
+  const button = (label: string, icon: ReactNode, command: FormatAction) => <button type="button" title={label} aria-label={label} aria-pressed={command === 'link' ? linkActive : undefined} onMouseDown={event => event.preventDefault()} onClick={() => action(command)}>{icon}</button>;
+  const menuLabel = (label: string) => <span className="toolbar-menu-label">{label}<ChevronDown size={12}/></span>;
+  return <div className={'format-toolbar grouped-toolbar' + (mode === 'source' ? ' source-toolbar' : '')} role="toolbar" aria-label="正文格式" onMouseDownCapture={onCapture}>
+    <button type="button" className="editor-mode-toggle" disabled={uploading} title={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} aria-label={mode === 'visual' ? '切换为 Markdown' : '切换为富文本'} onMouseDown={event => event.preventDefault()} onClick={onMode}>{mode === 'visual' ? <FileCode2 size={18}/> : <FileText size={18}/>}</button>
+    <span className="toolbar-divider"/>{button('撤销', <Undo2 size={16}/>, 'undo')}{button('重做', <Redo2 size={16}/>, 'redo')}
+    {!compact && <select aria-label="段落格式" value={blockType} onMouseDown={onCaptureBlock} onChange={event => {onEdit(); onBlock(event.target.value);}}><option value="paragraph">正文</option>{[1,2,3,4,5,6].map(level => <option key={level} value={'h' + level}>{level} 级标题</option>)}<option value="quote">引用</option><option value="code">代码</option></select>}
+    <span className="toolbar-divider"/>{button('加粗', <Bold size={16}/>, 'bold')}{button('斜体', <Italic size={16}/>, 'italic')}
+    <Popover label="更多格式" trigger={menuLabel('格式')} className="writing-format-menu" menu align="start">
+      {item('删除线', 'strikethrough')}{item('行内代码', 'inline-code')}{item('下划线', 'underline')}{item('上标', 'superscript')}{item('下标', 'subscript')}
+      <div className="writing-palette" aria-label="高亮颜色">{Object.entries(highlightColors).map(([id, color]) => <button type="button" key={id} aria-label={'高亮：' + color.label} title={'高亮：' + color.label} style={{background: color.value}} onClick={() => action(`highlight:${id}`)}/>)}{item('取消高亮', 'highlight:none')}</div>
+      <div className="writing-palette" aria-label="文字颜色">{Object.entries(textColors).map(([id, color]) => <button type="button" key={id} aria-label={'文字颜色：' + color.label} title={'文字颜色：' + color.label} style={{color: color.value}} onClick={() => action(`color:${id}`)}>A</button>)}{item('默认颜色', 'color:none')}</div>
+      {!compact && <div className="writing-menu-section">{item('左对齐', 'align:left')}{item('居中对齐', 'align:center')}{item('右对齐', 'align:right')}{item('两端对齐', 'align:justify')}</div>}
+    </Popover>
     {button('链接', <Link size={16}/>, 'link')}
-    {!compact && button('插入视频', <Video size={17}/>, 'video')}
-    {!compact && button('表格', <Table size={16}/>, 'table')}
-    {button('插入媒体', <ImagePlus size={17}/>, 'media')}
+    <Popover label="插入内容" trigger={menuLabel('插入')} className="writing-format-menu" menu align="start">
+      {item('引用', 'quote')}{item('无序列表', 'bullet')}{item('有序列表', 'ordered')}{item('分割线', 'divider')}{item('代码块', 'code')}
+      {blockType === 'code' && <label>代码语言<select aria-label="代码语言" value={codeLanguage} onMouseDown={onCaptureLanguage} onChange={event => {onEdit(); onLanguage(event.target.value);}}>{['text','typescript','javascript','python','json','html','css','bash','sql','yaml'].map(language => <option key={language}>{language}</option>)}</select></label>}
+      {!compact && <>{item('表格', 'table')}{item('链接按钮', 'button')}{item('脚注', 'footnote')}{item('折叠内容', 'details')}</>}
+    </Popover>
+    <Popover label="插入媒体" trigger={<ImagePlus size={17}/>} className="writing-format-menu" menu align="start">{item('从媒体库选择', 'media')}{item('插入视频', 'video')}</Popover>
+    {snippets && !compact && <button type="button" aria-label="常用内容" onClick={() => action('snippets')}>常用内容</button>}
   </div>;
 }

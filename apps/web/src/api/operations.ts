@@ -45,18 +45,17 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     previewArchive: async ({ body: data }) => {
       return jobs.query('archive-plan', data);
     },
-    archiveHistory: async ({ body: data }) => {
-      return await execute('archive-history', data);
+    archiveHistory: async ({ body: data },context) => {
+      return await execute('archive-history', data,context.request.headers.get('Idempotency-Key')??undefined);
     },
-    restoreArchive: async ({ body: data }) => {
-      return await execute('restore-history', data);
+    restoreArchive: async ({ body: data },context) => {
+      return await execute('restore-history', data,context.request.headers.get('Idempotency-Key')??undefined);
     },
     archives: async () => {
       return historyArchives(site).map(({ privateMedia, ...row }) => row);
     },
-    archiveContents: async ({}, context) => {
-      const { url } = context;
-      return jobs.query('archive-contents', { id: url.searchParams.get('id') ?? '' });
+    archiveContents: async ({query}) => {
+      return jobs.query('archive-contents', query);
     },
     jobs: async () => {
       return site.jobs();

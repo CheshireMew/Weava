@@ -16,5 +16,5 @@ export type ParsedInput<K extends ApiOperation> = {
 export type AdminHandler<K extends ApiOperation> = (
   input: ParsedInput<K>,
   context: AdminContext,
-) => ApiOutput<K> | Promise<ApiOutput<K>>;
+) => ApiOutput<K> | (AdminApi[K] extends {stream:true} ? Response : never) | Promise<ApiOutput<K> | (AdminApi[K] extends {stream:true} ? Response : never)>;
 export type AdminHandlers = { [K in ApiOperation]: AdminHandler<K> };

@@ -34,6 +34,15 @@ it('ARC-R17 guards navigation without publishing a reply and keeps the draft whe
  await act(async()=>host.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})));
  expect(api).toHaveBeenCalledWith('comment/reply',expect.objectContaining({body:'Unpublished reply'}));expect(host.querySelector('textarea')).toBeNull();
 });
+it('keeps other comments, filtering and pagination usable while one moderation request is pending',async()=>{
+ await mount();let finish!:(value:any)=>void;
+ vi.mocked(api).mockImplementation((path:any)=>path==='comment'?new Promise(resolve=>finish=resolve) as any:Promise.resolve({items,total:2,hasMore:false}) as any);
+ await act(async()=>button('隐藏评论').click());
+ const actions=[...host.querySelectorAll<HTMLButtonElement>('button')].filter(node=>node.textContent==='隐藏评论');
+ expect(actions[0].disabled).toBe(true);expect(actions[1].disabled).toBe(false);expect(host.querySelector<HTMLSelectElement>('[aria-label="评论状态"]')?.disabled).toBe(false);expect(button('刷新评论').disabled).toBe(false);
+ vi.mocked(api).mockRejectedValue(new Error('刷新断线'));await act(async()=>finish({}));
+ expect(host.textContent).toContain('恢复显示');expect(button('恢复显示').disabled).toBe(false);
+});
 it('ARC-R17 recovers reply text after reload even when its comment is no longer on the current page',async()=>{
  await mount();await act(async()=>button('回复').click());await write('Recover after reload');
  await act(async()=>root.unmount());root=createRoot(host);adminQueries.invalidate(true);vi.mocked(api).mockResolvedValue({items:[],total:0,hasMore:false} as any);await mount();

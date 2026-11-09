@@ -11,9 +11,9 @@ export interface Xml {
   attrs: Record<string, string>;
   children: Xml[];
 }
-export type WxrInput = string | { file: string };
+export type WxrInput = string | { file: string; sha256?: string };
 export const wxrDigest = (source: WxrInput) =>
-  typeof source === 'string' ? digest(source) : digestFile(source.file);
+  typeof source === 'string' ? digest(source) : source.sha256 ?? digestFile(source.file);
 export function parseXml(source: WxrInput, acceptItem?: (node: Xml) => void) {
   if (
     (typeof source === 'string' ? Buffer.byteLength(source) : statSync(source.file).size) >

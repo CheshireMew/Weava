@@ -32,7 +32,7 @@ export class EntryWorkspace {
     const row=this.db.prepare('SELECT data FROM staging WHERE kind=? AND id=?').get(kind,id) as {data:string};
     return this.cache.set(key,JSON.parse(row.data),row.data.length*2);
   }
-  reset(){this.cache.clear();this.db.exec('DELETE FROM staging');}
+  reset(kind?:string){this.cache.clear();if(kind)this.db.prepare('DELETE FROM staging WHERE kind=?').run(kind);else this.db.exec('DELETE FROM staging');}
   close(){this.cache.clear();try{this.db.exec('COMMIT');}finally{this.db.close();}}
 }
 /** Only this internal list can skip a second full-array schema clone during exchange. */

@@ -32,7 +32,7 @@ it('declares every built-in admin route and gives each operation request and res
     if(definition.method==='POST')expect(operation.requestBody).toBeDefined();
     for(const param of definition.path.matchAll(/\{(\w+)\}/g))expect(operation.parameters).toContainEqual(expect.objectContaining({name:param[1],in:'path',required:true}));
   }
-  expect(Object.keys(adminApi)).toHaveLength(117);
+    expect(Object.keys(adminApi)).toHaveLength(124);
   expect(readFileSync('docs/api-reference.md','utf8')).toBe(apiReferenceMarkdown());
 });
 it('checks request revisions and query types with the same rules used by server and client',()=>{

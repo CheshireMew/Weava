@@ -20,11 +20,12 @@ export function publicationHandlers(
     },
     publish: async ({ body: data }, context) => {
       const { request } = context;
-      return await execute(
+      const job=execute(
         'publish',
         data ?? {},
         request.headers.get('Idempotency-Key') ?? undefined,
       );
+      return jobs.observe(job.id);
     },
     withdraw: async ({ body: data }, context) => {
       return jobs.command(

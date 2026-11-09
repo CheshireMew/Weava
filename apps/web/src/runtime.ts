@@ -37,6 +37,7 @@ const initialization=Promise.all([siteExtension,siteRenderer]).then(async([manag
  const failed=manager.status().filter(row=>row.enabled&&row.status!=='active');
  if(failed.length)throw new Error(failed.map(r=>r.id+'：'+r.error).join('；'));
  if(features.includes('analytics')){actualAnalytics=new Analytics(root);if(!validating)void actualAnalytics.geo.update(false).catch(()=>{});}
+ if(features.includes('content')&&!maintenance)await jobs.warmPublication();
  await manager.pause(maintenance);
  if(!maintenance)site.recoverJobs();
  ready=true;jobs.pause(maintenance);if(!maintenance)jobs.pump();atomicJson(runtimeFile,{...state,status:'running'});
@@ -58,7 +59,7 @@ process.on('message',(message:any)=>{
  const answer=(value?:unknown,error?:string)=>process.send?.({controlId:message.controlId,value,error});
  if(message.action==='shutdown'){void shutdown();return;}
  if(message.action==='initialize'){void initialization.then(async()=>{await(await siteExtension).initialize();answer({initialized:true});}).catch(e=>answer(undefined,e.message));return;}
- if(message.action==='resume'){void initialization.then(async()=>{await(await siteExtension).pause(false);validating=false;maintenance=false;jobs.pause(false);answer({resumed:true});}).catch(e=>answer(undefined,e.message));return;}
+ if(message.action==='resume'){void initialization.then(async()=>{await(await siteExtension).pause(false);validating=false;maintenance=false;jobs.pause(false);if(features.includes('content'))await jobs.warmPublication();answer({resumed:true});}).catch(e=>answer(undefined,e.message));return;}
  if(message.action==='drain')void (async()=>{
   maintenance=true;jobs.pause(true);const manager=await siteExtension;await manager.pause(true);
   const until=Date.now()+(message.timeoutMs??300000);

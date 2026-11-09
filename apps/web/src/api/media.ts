@@ -1,6 +1,6 @@
 import { archiveMedia, queryMedia, saveMediaMetadata, stageMedia } from '@weava/core';
 import { mediaVariants } from '../../../../packages/core/src/image-variants.ts';
-import { mediaRecords } from '../../../../packages/core/src/media.ts';
+import { mediaRecords, queueMediaOptimization } from '../../../../packages/core/src/media.ts';
 
 import { mediaGroups, moveMedia, saveMediaGroup } from '@weava/core';
 
@@ -11,6 +11,7 @@ import {
   finishMediaUpload,
   mediaUploadStatus,
   receiveMediaChunk,
+  receiveMediaFile,
 } from '../../../../packages/core/src/media-upload.ts';
 import { cancelUpload } from '../../../../packages/core/src/temporary-files.ts';
 import type { AdminHandlers, ApiServices } from './types.ts';
@@ -19,6 +20,8 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    uploadMediaFile: async ({ query }, context) => receiveMediaFile(site, context.request, query),
+    optimizeMedia: async ({ body }) => queueMediaOptimization(site, body.id),
     cancelUpload: async ({ body }) => cancelUpload(site, body.id),
     media: async () => {
       return mediaRecords(site);
@@ -91,6 +94,8 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   } satisfies Pick<
     AdminHandlers,
     | 'media'
+    | 'uploadMediaFile'
+    | 'optimizeMedia'
     | 'cancelUpload'
     | 'uploadMedia'
     | 'beginUpload'

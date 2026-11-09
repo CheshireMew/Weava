@@ -46,6 +46,13 @@ describe('reversible history maintenance',()=>{
     const next=planHistoryArchive(site,options),archived=await archiveHistory(site,options,next.review),path=join(archived.path!,'objects.jsonl'),original=readFileSync(path);writeFileSync(path,original.toString()+'damaged');
     expect(()=>restoreHistoryArchive(site,archived.id!)).toThrow(/校验失败/);expect(site.releases()).toHaveLength(1);writeFileSync(path,original);expect(verifyHistoryArchive(site,archived.id!).manifest.id).toBe(archived.id);
   });
+  it('pages the lightweight directory without hashing object payloads, while restore still verifies them',async()=>{
+    const site=create();seed(site);const plan=planHistoryArchive(site,options),archive=await archiveHistory(site,options,plan.review);
+    const path=join(archive.path!,'objects.jsonl');writeFileSync(path,'damaged payload');
+    const first=historyArchiveContents(site,archive.id!,{page:1,pageSize:2}),next=historyArchiveContents(site,archive.id!,{page:2,pageSize:2});
+    expect(first.totalReleases).toBe(5);expect(first.releases).toHaveLength(2);expect(next.releases).toHaveLength(2);expect(first.releases[0].id).not.toBe(next.releases[0].id);expect(first.pages).toBeGreaterThan(1);
+    expect(()=>restoreHistoryArchive(site,archive.id!)).toThrow(/校验失败/);
+  });
   it('keeps privacy of archived private media and compacts only after creating a readable database copy',async()=>{
     const site=create();let row=site.saveEntry(entrySchema.parse({id:'page',kind:'page',title:'私密旧稿',path:'/private/',visibility:'private',cover:'/media/private-old.png'}),null);
     for(let index=0;index<4;index++) row=site.saveEntry({...row.value,title:'新稿 '+index,cover:''},row.revision);

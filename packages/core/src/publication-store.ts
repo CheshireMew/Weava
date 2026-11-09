@@ -8,8 +8,12 @@ import { publishedObjectKey, publishedMetadata, publishedHasBlocks, publishedRes
 import { publicationDependencies,entryDependencies,validationSnapshot } from './publication-validation.ts';
 import { entryMediaReferences, mediaReferencesIn } from './media-references.ts';
 import { referencedLayouts } from './layouts.ts';
+import {BoundedCache} from './cache.ts';
 
 const keyOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+interface Derivatives {media:BoundedCache<string,string[]>;search:BoundedCache<string,{key:string;text:string}>}
+const derivatives=new WeakMap<object,Derivatives>();
+function derivativeCache(db:Database.Database){let cache=derivatives.get(db);if(!cache){cache={media:new BoundedCache(20000,8*1024*1024),search:new BoundedCache(20000,16*1024*1024)};derivatives.set(db,cache);}return cache;}
 
 // Index a page's own authored text, not every article displayed in a dynamic list.
 export function blockText(blocks: Block[],entry?:Entry,release?:Release,seen=new Set<string>()): string {
@@ -48,6 +52,7 @@ interface Manifest {
 }
 /** Serialize, hash and derive indexes before taking the publication write lock. */
 export function prepareReleaseStorage(db: Database.Database, release: Release) {
+  const cache=derivativeCache(db);
   const objects = new Map<string, {kind:string;data:string}>();
   const object = (_db: Database.Database, kind: string, value: unknown) => {
     const data=JSON.stringify(value),key=createHash('sha256').update('{"kind":'+JSON.stringify(kind)+',"value":'+data+'}').digest('hex');
@@ -69,14 +74,21 @@ export function prepareReleaseStorage(db: Database.Database, release: Release) {
     manifest.entryKeys.push(key);
     const hasBlocks=publishedHasBlocks(entry);
     const layouts=referencedLayouts(entry,release),layoutKey=keyOf(layouts.map(layout=>{let value=layoutKeys.get(layout);if(!value){value=keyOf(layout);layoutKeys.set(layout,value);}return value;}));
-    const priorMedia=publishedMedia(entry),paths=priorMedia?.layouts===layoutKey?priorMedia.paths:[...entryMediaReferences(entry,release)];
+    const mediaKey=key+':'+layoutKey,priorMedia=publishedMedia(entry);
+    let paths=priorMedia?.layouts===layoutKey?priorMedia.paths:cache.media.get(mediaKey);
+    if(!paths){paths=[...entryMediaReferences(entry,release)];cache.media.set(mediaKey,paths,mediaKey.length*2+JSON.stringify(paths).length*2);}
     catalog.push({key,summary:publishedMetadata(entry),hasBlocks,responsePath:publishedResponsePath(entry)??null,dependencies:entryDependencies(entry),validation:validationSnapshot(entry),media:{layouts:layoutKey,paths}});
     const dependencyKey=hasBlocks?keyOf([release.settings,release.layouts,publicationDependencies(entry,release)]):'';
     let searchKey=(sourceLookup?.get(key,dependencyKey) as {search_key:string}|undefined)?.search_key;
     let searchText='';
     if(!searchKey){
-      searchText=tokens([entry.title,entry.description,hasBlocks?'':plain(entry.html),hasBlocks?blockText(entry.blocks,entry,release):'',entry.categories.join(' '),entry.tags.join(' ')].join(' '));
-      searchKey=keyOf({kind:'search',entryKey:key,text:searchText});
+      const cacheKey=key+':'+dependencyKey,known=cache.search.get(cacheKey);
+      if(known){searchKey=known.key;searchText=known.text;}
+      else{
+        searchText=tokens([entry.title,entry.description,hasBlocks?'':plain(entry.html),hasBlocks?blockText(entry.blocks,entry,release):'',entry.categories.join(' '),entry.tags.join(' ')].join(' '));
+        searchKey=keyOf({kind:'search',entryKey:key,text:searchText});
+        cache.search.set(cacheKey,{key:searchKey,text:searchText},cacheKey.length*2+searchText.length*2+128);
+      }
       if(hasSourceCache)sources.push({entryKey:key,dependencyKey,searchKey});
     }
     members.push({entryId:entry.id,position,searchKey,searchText,indexable:entry.indexable&&entry.visibility!=='private'});

@@ -16,6 +16,7 @@ function domains(path:string):QueryDomain[]{
 }
 export function mutationDomains(path:string,body?:any):QueryDomain[]{
   const route=path.split('?')[0];
+  if(route==='import/file'||route.startsWith('import')&&body?.options?.dryRun===true)return [];
   if(['publication','entry/check','entry/merge','entry/structure'].includes(route)||route.endsWith('/preview'))return [];
   if(route==='entry'||route==='entry/merge/save'||route==='restore')return ['content','terms','settings',...(route==='entry'&&body?.revision==null?['content-count' as const]:[])];
   if(route.startsWith('entries/'))return ['content','terms','settings',...(route==='entries/create'||route==='entries/duplicate'||route==='entries/delete'?['content-count' as const]:[]),...(route==='entries/delete'?['publication','operations'] as const:[])];
@@ -34,11 +35,12 @@ export function mutationDomains(path:string,body?:any):QueryDomain[]{
 }
 export const affectedQueries=(affected:readonly QueryDomain[])=>(path:string)=>domains(path).some(domain=>affected.includes(domain));
 export function jobDomains(operation:string):QueryDomain[]{
+  if(operation==='preflight-wxr')return [];
   if(operation==='publish')return mutationDomains('publish');
   if(operation==='entry-delete')return mutationDomains('entries/delete');
   if(operation==='withdraw')return mutationDomains('withdraw');
   if(operation.startsWith('media'))return mutationDomains('media');
-  if(operation.includes('wxr')||operation==='import-json')return mutationDomains('import');
+  if(operation.includes('wxr')||operation==='import-json'||operation==='import-source')return mutationDomains('import');
   if(operation==='restore-history'||operation==='archive-history')return ['operations','content','publication'];
   return ['operations'];
 }

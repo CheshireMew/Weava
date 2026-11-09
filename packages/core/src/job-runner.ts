@@ -6,6 +6,7 @@ import type { Site } from './site.ts';
 import { TaskService } from './task-service.ts';
 import {siteFeatures,operationFeature} from './site-features.ts';
 import {digest} from '../../runtime-common/src/identity.ts';
+import {updateMediaOptimization} from './media.ts';
 export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number; startPaused?: boolean; timeoutMs?:number }
 export class JobRunner {
   private children = new Map<string,ChildProcess>();
@@ -15,18 +16,22 @@ export class JobRunner {
   private retryAt=0;
   private failures=0;
   private exited=new Map<string,string>();
-  pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); }
-  get pendingQueries() { return this.service.pending; }
-  get queryProcessCount() { return this.service.processCount; }
-  stopQueries() { this.service.stop(); }
+  pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); if(!value&&this.background?.isStopped)this.background=new TaskService(this.site.root,this.options,1);if(!value&&this.publication?.isStopped)this.publication=new TaskService(this.site.root,this.options,1); }
+  get pendingQueries() { return this.service.pending + this.background.pending + this.publication.pending; }
+  get queryProcessCount() { return this.service.processCount + this.background.processCount + this.publication.processCount; }
+  stopQueries() { this.service.stop(); this.background.stop();this.publication.stop(); }
   private concurrency: number;
   private timeoutMs:number;
   private service:TaskService;
+  private background:TaskService;
+  private publication:TaskService;
   constructor(private site: Site, private options: JobRunnerOptions) {
     this.paused = options.startPaused ?? true;
     this.timeoutMs=options.timeoutMs??Number(process.env.WEAVA_JOB_TIMEOUT_MS??1800000);
     if(!Number.isSafeInteger(this.timeoutMs)||this.timeoutMs<1)throw new WeavaError('任务执行期限必须是正整数毫秒。');
     this.service=new TaskService(site.root,options);
+    this.background=new TaskService(site.root,options,1);
+    this.publication=new TaskService(site.root,options,1);
     this.concurrency = Math.max(1,Math.min(4,options.concurrency??2));
     this.timer=setInterval(()=>this.pump(),250); this.timer.unref();
   }
@@ -61,14 +66,59 @@ export class JobRunner {
     if(!this.site.store.raw.prepare("SELECT 1 FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 LIMIT 1").get())return;
     for(;;){
       const claimed=this.site.store.raw.transaction(()=>{
-        const active=this.site.store.raw.prepare("SELECT COUNT(*) n FROM jobs WHERE status='running'").get() as {n:number};
-        if(active.n>=this.concurrency)return null;
-        const next=this.site.store.raw.prepare("SELECT id FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 ORDER BY rowid LIMIT 1").get() as {id:string}|undefined;
-        return next?this.site.updateJob(next.id,{status:'running',workerPid:process.pid,deadlineAt:Date.now()+this.timeoutMs,message:'正在启动任务'}):null;
+        const light=['schedule-create','plan-save','media-edit','media-variant'];
+        const background=['media-optimize','preflight-wxr','import-wxr','import-source'];
+        const running=this.site.activeJobs().filter(job=>job.status==='running');
+        const queued=this.site.store.raw.prepare("SELECT id,operation FROM jobs WHERE status='queued' AND json_extract(data,'$.managed')=1 ORDER BY CASE WHEN operation='media-optimize' THEN 2 WHEN operation IN ('schedule-create','plan-save') THEN 0 ELSE 1 END,rowid LIMIT 128").all() as {id:string;operation:string}[];
+        const next=queued.find(job=>job.operation==='publish'?!running.some(active=>active.operation==='publish'):background.includes(job.operation)
+          ? !running.some(active=>background.includes(active.operation))
+          : light.includes(job.operation) ? !running.some(active=>light.includes(active.operation))
+          : running.filter(active=>active.operation!=='publish'&&!background.includes(active.operation)&&!light.includes(active.operation)).length<this.concurrency);
+        return next?this.site.updateJob(next.id,{status:'running',workerPid:process.pid,deadlineAt:Date.now()+this.timeoutMs,heartbeatAt:Date.now(),message:next.operation==='publish'?'正在提交发布版本':'正在启动任务'}):null;
       }).immediate();
       if(!claimed)break;
-      try{this.launch(claimed);}catch(error:any){this.site.updateJob(claimed.id,{status:'failed',workerPid:undefined,message:error.message});}
+      try{
+        if(claimed.operation==='publish')this.runPublication(claimed);
+        else if(claimed.operation==='media-optimize')this.optimizeImage(claimed);
+        else if(['preflight-wxr','import-wxr','import-source'].includes(claimed.operation))this.runImport(claimed);
+        else if(['schedule-create','plan-save','media-edit','media-variant'].includes(claimed.operation))this.runCommand(claimed);
+        else this.launch(claimed);
+      }catch(error:any){this.site.updateJob(claimed.id,{status:'failed',workerPid:undefined,message:error.message});}
     }
+  }
+  warmPublication(){return this.publication.run('publication-warm',{});}
+  private runPublication(job:Job){
+    const heartbeat=setInterval(()=>{if(this.site.store.raw.open&&this.site.job(job.id).status==='running')this.site.updateJob(job.id,{heartbeatAt:Date.now()});},1000);heartbeat.unref();
+    void this.publication.run('publication-publish',{...job.payload,jobId:job.id,deadlineAt:job.deadlineAt}).then(result=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:'complete',message:'发布已完成。',result});
+    },(error:any)=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:this.site.job(job.id).cancelRequestedAt?'任务已取消。':error.message,errorStatus:error.status??400,errorDetails:error.details});
+    }).finally(()=>clearInterval(heartbeat));
+  }
+  private optimizeImage(job: Job) {
+    this.site.updateJob(job.id,{message:'正在优化图片，原图已可使用'});
+    void this.background.run('media-optimize',{...job.payload,jobId:job.id}).then(result=>{
+      if(this.site.store.raw.open)this.site.updateJob(job.id,{status:'complete',message:'图片优化已完成。',result});
+    },(error:any)=>{
+      if(this.site.store.raw.open){
+        updateMediaOptimization(this.site,job.payload.id,{optimization:{status:'failed',error:error.message}});
+        this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message});
+      }
+    });
+  }
+  private runCommand(job: Job) {
+    void this.service.run('content-command',{operation:job.operation,payload:job.payload,jobId:job.id}).then(result=>{
+      if(this.site.store.raw.open)this.site.updateJob(job.id,{status:'complete',message:'已完成。',result});
+    },(error:any)=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message,errorStatus:error.status??400,errorDetails:error.details});
+    });
+  }
+  private runImport(job: Job) {
+    void this.background.run('background-import',{operation:job.operation,payload:job.payload,jobId:job.id}).then(result=>{
+      if(this.site.store.raw.open)this.site.updateJob(job.id,{status:'complete',message:'导入处理已完成。',result});
+    },(error:any)=>{
+      if(this.site.store.raw.open&&this.site.job(job.id).status!=='complete')this.site.updateJob(job.id,{status:this.site.job(job.id).cancelRequestedAt?'cancelled':'failed',message:error.message,errorStatus:error.status??400,errorDetails:error.details});
+    });
   }
   private launch(job: Job) {
     const framework=this.options.framework,worker=this.options.worker??join(framework,'dist','worker.mjs');
@@ -106,12 +156,22 @@ export class JobRunner {
       await new Promise(resolve=>setTimeout(resolve,100));
     }
   }
+  /** Return an already-finished interactive command in its submission response. */
+  async observe(id:string,maximumMs=300){
+    const until=Date.now()+maximumMs;
+    for(;;){const job=this.site.job(id);if(!['queued','running'].includes(job.status)||Date.now()>=until)return job;await new Promise(resolve=>setTimeout(resolve,10));}
+  }
   query(operation:string,payload:any){
     const feature=operationFeature(operation);
     if(feature&&!siteFeatures(this.site.root).includes(feature))return Promise.reject(new WeavaError('网站未启用此任务所需功能。',404));
-    return this.service.run(operation,payload);
+    return (['publication-review','publication-plan-review'].includes(operation)?this.publication:this.service).run(operation,payload);
   }
-  cancel(id:string){return this.site.jobStore.cancelJob(id);}
+  cancel(id:string){
+    const job=this.site.jobStore.cancelJob(id);
+    if(job.cancelRequestedAt){this.service.cancelJob(id);this.background.cancelJob(id);this.publication.cancelJob(id);}
+    if(job.operation==='media-optimize'&&job.status==='cancelled')updateMediaOptimization(this.site,job.payload.id,{optimization:{status:'failed',error:'图片优化已取消，原图仍可使用。'}});
+    return job;
+  }
   command(operation:string,payload:any,key?:string){
     if(key)return this.enqueue(operation,payload,key);
     return this.site.store.raw.transaction(()=>{
@@ -126,5 +186,5 @@ export class JobRunner {
     }).immediate();
   }
   /** Running workers finish independently. Never close their instance leases or kill unrelated processes. */
-  stop() {this.stopped=true;clearInterval(this.timer);this.service.stop();}
+  stop() {this.stopped=true;clearInterval(this.timer);this.service.stop();this.background.stop();this.publication.stop();}
 }

@@ -1,6 +1,7 @@
 import {
   contentViewSchema,
   creationTemplateSchema,
+  writingSnippetSchema,
   entrySchema,
   layoutSchema,
   typeSchema,
@@ -11,11 +12,12 @@ import {
 } from '@weava/contracts';
 import { digest } from '../../runtime-common/src/identity.ts';
 import { canonicalJson } from '../../runtime-common/src/json.ts';
-import { saveContentView, saveCreationTemplate } from './authoring.ts';
+import { saveContentView, saveCreationTemplate, saveWritingSnippet } from './authoring.ts';
 import { saveLayout } from './layouts.ts';
 import type { Site } from './site.ts';
 import { StagedEntries } from './staged-entries.ts';
 import { saveTerm as saveTermRecord } from './taxonomy.ts';
+import {previewImport} from './import-preview.ts';
 
 export interface SiteExchange {
   version: 1;
@@ -26,6 +28,7 @@ export interface SiteExchange {
   layouts?: Layout[];
   contentViews?: unknown[];
   creationTemplates?: unknown[];
+  writingSnippets?: unknown[];
   redirects?: Record<string, { target: string; entryId?: string }>;
 }
 export interface ImportOptions {
@@ -44,6 +47,7 @@ export function exportSite(site: Site) {
     redirects: Object.fromEntries(site.store.list('redirect').map((row) => [row.id, row.value])),
     contentViews: site.store.list('content-view').map((row) => row.value),
     creationTemplates: site.store.list('creation-template').map((row) => row.value),
+    writingSnippets: site.store.list('writing-snippet').map(row => row.value),
   };
 }
 const comparable = (scope: string, value: any) =>
@@ -53,6 +57,10 @@ function fingerprint(scope: string, value: any) {
 }
 
 export function importSite(site: Site, source: SiteExchange, options: ImportOptions = {}) {
+  if(options.dryRun)return previewImport(site,preview=>applyImport(preview,source,options));
+  return applyImport(site,source,options);
+}
+function applyImport(site:Site,source:SiteExchange,options:ImportOptions){
   if (source?.version !== 1) throw new WeavaError('不支持这个站点交换格式版本。');
   if (options.mode && !['create', 'merge'].includes(options.mode))
     throw new WeavaError('导入方式无效。');
@@ -63,6 +71,7 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
     'layouts',
     'contentViews',
     'creationTemplates',
+    'writingSnippets',
   ] as const)
     if (source[key] !== undefined && !Array.isArray(source[key]))
       throw new WeavaError('导入的 ' + key + ' 需要是列表。');
@@ -78,6 +87,7 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
     creationTemplateSchema.parse(value),
   );
   const groups = [
+    ['writing-snippet', (source.writingSnippets ?? []).map(value => writingSnippetSchema.parse(value))],
     ['type', types],
     ['entry', entries],
     ['term', source.terms ?? []],
@@ -205,6 +215,10 @@ export function importSite(site: Site, source: SiteExchange, options: ImportOpti
           );
         for (const view of views)
           save('content-view', view.id, view, (revision) => saveContentView(site, view, revision));
+          for (const snippet of source.writingSnippets ?? []) {
+            const value = writingSnippetSchema.parse(snippet);
+            save('writing-snippet', value.id, value, revision => saveWritingSnippet(site, value, revision));
+          }
         for (const template of templates)
           save('creation-template', template.id, template, (revision) =>
             saveCreationTemplate(site, template, revision),
@@ -233,6 +247,7 @@ export function importRevisions(site: Pick<Site, 'store'>) {
       'redirect',
       'content-view',
       'creation-template',
+      'writing-snippet',
     ].flatMap((scope) => site.store.list(scope).map((row) => [scope + ':' + row.id, row.revision])),
   );
 }

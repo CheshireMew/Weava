@@ -10,13 +10,14 @@ import { EditSessionsProvider, useEditSessions } from '../apps/admin/src/EditSes
 import { useContentWorkspace } from '../apps/admin/src/useContentWorkspace.ts';
 import { adminQueries } from '../apps/admin/src/query-cache.ts';
 import { uploadFile } from '../apps/admin/src/upload-file.ts';
+import { dismissMediaUpload, mediaUploadSnapshot } from '../apps/admin/src/media-uploads.tsx';
 import { api,waitJob } from '../apps/admin/src/api.ts';
 import { entrySchema } from '../packages/contracts/src/index.ts';
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/upload-file.ts', () => ({ uploadFile: vi.fn() }));
 vi.mock('../apps/admin/src/api.ts', () => ({ api: vi.fn(), waitJob: vi.fn() }));
 let host: HTMLDivElement, root: ReturnType<typeof createRoot>, library: any[];
-const row = (file: File) => ({ id: file.name, revision: 1, value: { url: '/media/' + file.name, name: file.name, bytes: file.size } });
+const row = (file: File) => ({ id: file.name, revision: 1, updatedAt: '2026-11-09', value: { url: '/media/' + file.name, name: file.name, bytes: file.size, createdAt: '2026-11-09' } });
 const file = (name = 'photo.png') => new File(['image'], name, { type: 'image/png' });
 const pending = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 function drag(target: Element, files: File[], type = 'drop') {
@@ -30,8 +31,9 @@ function caret(doc: Document, text: Node, offset: number) {
 }
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; adminQueries.resume(); library = [];
+  mediaUploadSnapshot().forEach(item => dismissMediaUpload(item.id));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  vi.mocked(uploadFile).mockReset().mockImplementation(async upload => { const media = row(upload); library.push(media); return media; });
+  vi.mocked(uploadFile).mockReset().mockImplementation(async (upload, _progress, options) => { const media = { ...row(upload), value: { ...row(upload).value, groupId: options?.groupId } }; library.push(media); adminQueries.invalidate(false, path => path.startsWith('media')); return media; });
   vi.mocked(api).mockReset().mockImplementation(async (path: any, body?: any): Promise<any> => {
     if (String(path).startsWith('media/query?')) return { items: [...library], pages: 1, total: library.length };
     if (path === 'media/move') return body.items.map((item: {id:string}) => { const media=library.find(row=>row.id===item.id); media.value.groupId=body.groupId; return media; });
@@ -89,8 +91,21 @@ it('uploads files dropped in the media panel, preserving the selected group and 
   const group = host.querySelector<HTMLSelectElement>('[aria-label="媒体分组筛选"]')!;
   await act(async () => { group.value = 'pictures'; group.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => drag(host.querySelector('.media-panel')!, [file('one.png'), file('two.png')]));
-  expect(uploadFile).toHaveBeenCalledTimes(2); expect(api).toHaveBeenCalledWith('media/move', {items:[{id:'one.png',revision:1}],groupId:'pictures'});
+  expect(uploadFile).toHaveBeenCalledTimes(2); expect(uploadFile).toHaveBeenCalledWith(expect.objectContaining({name:'one.png'}), expect.any(Function), {groupId:'pictures'}); expect(api).not.toHaveBeenCalledWith('media/move', expect.anything());
   expect(host.querySelector('.media-grid')!.textContent).toContain('one.png'); expect(host.querySelector('.media-grid')!.textContent).toContain('two.png');
+});
+it('keeps library uploads alive after leaving the panel and does not hold navigation pending',async()=>{
+  const upload=pending<any>();vi.mocked(uploadFile).mockReturnValue(upload.promise);
+  let manager!:ReturnType<typeof useEditSessions>;
+  function Panel(){manager=useEditSessions();return <MediaManager onError={vi.fn()} onOpen={vi.fn()}/>;}
+  await act(async()=>root.render(<EditSessionsProvider><Panel/></EditSessionsProvider>));
+  await act(async()=>drag(host.querySelector('.media-panel')!,[file('background.png')]));
+  expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='上传文件')!.disabled).toBe(false);
+  await expect(manager.prepare()).resolves.toBeUndefined();await expect(manager.flush()).resolves.toBeUndefined();
+  await act(async()=>root.render(<div>继续编辑</div>));
+  await act(async()=>upload.resolve(row(file('background.png'))));
+  expect(mediaUploadSnapshot().find(item=>item.name==='background.png')?.status).toBe('complete');
+  expect(host.textContent).toBe('继续编辑');
 });
 it('keeps failed files available for retry and blocks unsupported files from opening in the browser', async () => {
   vi.mocked(uploadFile).mockRejectedValueOnce(new Error('网络中断'));
@@ -102,11 +117,12 @@ it('keeps failed files available for retry and blocks unsupported files from ope
   expect([...host.querySelectorAll<HTMLButtonElement>('.file-upload-error button')].every(button=>!button.disabled)).toBe(true);
 });
 it('recovers from validation failure before progress starts without an unrelated render',async()=>{
+  vi.mocked(uploadFile).mockRejectedValueOnce(new Error('不支持这个文件格式。'));
   await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));
   await act(async()=>drag(host.querySelector('.media-panel')!,[file('unsupported.svg')]));
   const controls=[...host.querySelectorAll<HTMLButtonElement>('button')];
-  for(const label of ['上传文件','重试上传','取消这些上传'])expect(controls.find(button=>button.textContent===label)?.disabled).toBe(false);
-  await act(async()=>controls.find(button=>button.textContent==='取消这些上传')!.click());
+  for(const label of ['上传文件','重试上传','取消此上传'])expect(controls.find(button=>button.textContent===label)?.disabled).toBe(false);
+  await act(async()=>controls.find(button=>button.textContent==='取消此上传')!.click());
   await act(async()=>drag(host.querySelector('.media-panel')!,[file('valid.png')]));
   expect(host.querySelector('.media-grid')!.textContent).toContain('valid.png');
 });

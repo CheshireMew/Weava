@@ -107,6 +107,10 @@ export function MediaDetails({
         </>
       )}
       <AutosaveStatus state={editor.autoSave} label="媒体信息" />
+      {selected.value.optimization?.status === 'failed' && <p role="status">图片优化未完成，原图可正常使用。<button onClick={async () => {
+        try { await api('media/optimize', { id: selected.id }); editor.receive({ ...selected, value: { ...selected.value, optimization: { status: 'pending' } } }); }
+        catch (error: any) { onError(error.message); }
+      }}>重试优化</button></p>}
       {isImage && (
         <section>
           <div className="media-image-heading">
@@ -158,7 +162,7 @@ export function MediaDetails({
               setSelected({ ...selected, value: { ...selected.value, focalPoint: focus } });
             }}
           >
-            <img src={selected.value.url} alt="点击图片选择裁切时保留的位置" draggable={false} />
+            <img src={selected.value.url} width={selected.value.width} height={selected.value.height} alt="点击图片选择裁切时保留的位置" draggable={false} />
             <span
               style={{
                 left: (selected.value.focalPoint?.x ?? 50) + '%',

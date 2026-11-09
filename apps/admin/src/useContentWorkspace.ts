@@ -14,6 +14,7 @@ export interface ContentWorkspaceOptions {
   tab: string;
   compact: boolean;
   busy: boolean;
+  isPublishing?: (id?:string)=>boolean;
   setError: (message: string) => void;
   notify: (message: string) => void;
   refresh: () => Promise<any>;

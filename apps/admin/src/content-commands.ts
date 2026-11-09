@@ -8,10 +8,12 @@ interface CommandOptions {
   library: ReturnType<typeof useContentLibrary>;
   refresh: () => Promise<unknown>;
   notify: (message: string) => void;
+  onError?: (message:string)=>void;
 }
 
 /** Editing transitions stay together; views receive commands instead of session internals. */
-export function contentCommands({ editor, library, refresh, notify }: CommandOptions) {
+export function contentCommands({ editor, library, refresh, notify,onError=notify }: CommandOptions) {
+  const refreshDisplay=()=>{void refresh().catch(error=>onError('操作已完成，列表刷新失败：'+error.message));};
   const { session, persist, adopt } = editor;
   const current = () => session.record;
   async function check() {
@@ -60,7 +62,7 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
       if (!adopt(restored, checkpoint)) await editor.showConflict(current()!);
       editor.setHistory(null);
     }
-    await refresh();
+    refreshDisplay();
     notify('历史版本已恢复为工作稿，公开页面保持原版本。');
   }
   async function saveMerge(choices: any) {
@@ -79,7 +81,7 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
         choices,
       });
       if (current()?.id === row.id && !adopt(row, conflict.checkpoint)) await editor.showConflict(current()!);
-      await refresh();
+      refreshDisplay();
       notify('已保存合并结果。');
     } catch (error: any) {
       if (error.status === 409 && current()?.id === conflict.id) await compare();
@@ -93,7 +95,7 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
   async function finishBulk() {
     const checkpoint = session.checkpoint();
     const row = current();
-    await refresh();
+    refreshDisplay();
     if (row && library.bulkIds.includes(row.id)) {
       const remote = await api(`entry/${encodeURIComponent(row.id)}`);
       if (current()?.id === row.id && !adopt(remote, checkpoint)) await editor.showConflict(current()!);
@@ -104,13 +106,13 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
     const row = await persist();
     if (!row) return;
     const checkpoint=session.checkpoint();
-    await waitJob(await api('withdraw', {
+    const done=await waitJob(await api('withdraw', {
       id: row.id,
       revision: row.revision,
       ...(archive ? { archive: true } : {}),
     }),()=>{});
-    await refresh();
-    const remote=await api(`entry/${encodeURIComponent(row.id)}`);
+    refreshDisplay();
+    const remote=done.result;
     if (current()?.id === row.id&&!adopt(remote,checkpoint)) await editor.showConflict(current()!);
   }
   async function schedule() {
@@ -122,12 +124,12 @@ export function contentCommands({ editor, library, refresh, notify }: CommandOpt
       dueAt: new Date(editor.scheduleDueAt).toISOString(),
     }),()=>{});
     editor.setScheduleDueAt('');
-    await refresh();
+    refreshDisplay();
     notify('定时发布已安排');
   }
   async function changeSchedule(action: 'cancel' | 'retry', id: string, revision: number) {
     await api(`schedule/${action}`, { id, revision });
-    await refresh();
+    refreshDisplay();
   }
   return {
     check,

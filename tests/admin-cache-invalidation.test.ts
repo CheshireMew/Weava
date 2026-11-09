@@ -7,6 +7,13 @@ vi.mock('@weava/contracts/api-client', () => ({ createAdminClient: (options: any
 } }));
 beforeEach(() => { adminQueries.resume(); mocks.request.mockReset().mockResolvedValue({ saved: true }); mocks.call.mockReset().mockResolvedValue({ saved: true }); });
 afterEach(()=>vi.unstubAllGlobals());
+it('does not fence content or settings reads while an import preview is being submitted',async()=>{
+ let finish!:(value:any)=>void;mocks.request.mockReturnValueOnce(new Promise(resolve=>finish=resolve));
+ const preview=api.request('import/wxr',{xml:'<rss/>',options:{dryRun:true}});
+ expect(await adminQueries.read('entries',async()=>'readable content')).toBe('readable content');
+ expect(await adminQueries.read('settings',async()=>'readable settings')).toBe('readable settings');
+ finish({id:'preview',status:'queued'});await preview;
+});
 it('refreshes taxonomy projections after an article write while retaining unrelated media and analytics',async()=>{
  for(const path of ['state?summary=1&panel=content','media/query','analytics'])await adminQueries.read(path,async()=>path);
  await api.request('entry',{revision:1});

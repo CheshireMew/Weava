@@ -6,14 +6,17 @@ import {
   $isTableRowNode,
   $isTableCellNode,
 } from '@lexical/table';
-import { TRANSFORMERS, CODE, $convertFromMarkdownString, type Transformer } from '@lexical/markdown';
-import { $createParagraphNode, $isParagraphNode, $isLineBreakNode, $isTextNode, $getState, type ElementNode, type LexicalNode } from 'lexical';
+import { TRANSFORMERS, CODE, $convertFromMarkdownString, $convertToMarkdownString, type Transformer, type TextMatchTransformer } from '@lexical/markdown';
+import { $createParagraphNode, $getRoot, $isParagraphNode, $isLineBreakNode, $isTextNode, $getState, type ElementNode, type LexicalNode } from 'lexical';
 import {CodeNode} from '@lexical/code';
 import {$isListNode, $isListItemNode, ListNode, ListItemNode} from '@lexical/list';
 import {HorizontalRuleNode} from '@lexical/react/LexicalHorizontalRuleNode';
 import {QuoteNode, HeadingNode} from '@lexical/rich-text';
 import { MediaNode, EmbedNode } from './nodes.tsx';
-import {codeMetadata} from './markdown.ts';
+import {codeMetadata, footnoteOrphans} from './markdown.ts';
+import {ButtonLinkNode, DetailsNode, FootnoteNode, writingDescendants} from './WritingNodes.tsx';
+import {$isLinkNode} from '@lexical/link';
+import {escapeWritingHtml, writingStyles, inlineCode} from '../../../../packages/runtime-common/src/writing-format.ts';
 
 const codeBlock: Transformer = {
   ...CODE,
@@ -29,6 +32,7 @@ const markdownLabel = (value: string) => value.replace(/[\\`*_[\]<>]/g, '\\$&');
 const markdownUrl = (value: string) => value.replace(/[\s()]/g, character => encodeURIComponent(character).replace(/\(/g, '%28').replace(/\)/g, '%29'));
 const mediaMarkdown = (node: import('lexical').LexicalNode) => {
   if (!(node instanceof MediaNode)) return null;
+  if (node.__kind === 'video' || node.__kind === 'audio') return `<figure><${node.__kind} src="${escapeWritingHtml(node.__src)}" controls preload="metadata"></${node.__kind}>${node.__caption ? '<figcaption>' + escapeWritingHtml(node.__caption) + '</figcaption>' : ''}</figure>`;
   let source = node.__kind === 'image' ? `![${markdownLabel(node.__alt)}](${markdownUrl(node.__src)})`
     : `[${markdownLabel(node.__alt || ({video:'视频',audio:'音频',file:'下载附件'}[node.__kind] ?? '附件'))}](${markdownUrl(node.__src)})`;
   if (node.__kind === 'image' && node.__href) source = `[${source}](${markdownUrl(node.__href)})`;
@@ -57,13 +61,14 @@ export const image: Transformer = {
 export const embed: Transformer = {
   type: 'text-match', dependencies: [EmbedNode], regExp: /$^/,
   replace: () => {},
-  export: node => node instanceof EmbedNode ? `[${markdownLabel(node.__value.title || '嵌入内容')}](${markdownUrl(node.__value.src)})` : null,
+  export: node => node instanceof EmbedNode ? embedMarkdown(node) : null,
 };
+function embedMarkdown(node: EmbedNode) {return `<iframe src="${escapeWritingHtml(node.__value.src)}" title="${escapeWritingHtml(node.__value.title)}"${node.__value.width ? ' width="' + escapeWritingHtml(node.__value.width) + '"' : ''}${node.__value.height ? ' height="' + escapeWritingHtml(node.__value.height) + '"' : ''} allowfullscreen></iframe>`;}
 
 const mediaBlock: Transformer = {
   type: 'element', dependencies: [MediaNode, EmbedNode, HorizontalRuleNode], regExp: /$^/,
   replace: () => false,
-  export: node => mediaMarkdown(node) ?? (node instanceof EmbedNode ? `[${markdownLabel(node.__value.title || '嵌入内容')}](${markdownUrl(node.__value.src)})` : node instanceof HorizontalRuleNode ? '---' : null),
+  export: node => mediaMarkdown(node) ?? (node instanceof EmbedNode ? embedMarkdown(node) : node instanceof HorizontalRuleNode ? '---' : null),
 };
 
 function listMarkdown(node: ListNode, traverse: (node: ElementNode) => string): string {
@@ -72,22 +77,25 @@ function listMarkdown(node: ListNode, traverse: (node: ElementNode) => string): 
     const child = item.getFirstChild();
     if (item.getChildrenSize() === 1 && $isListNode(child)) return listMarkdown(child, traverse).split('\n').map(line => '    ' + line).join('\n');
     const prefix = node.getListType() === 'number' ? `${node.getStart() + index++}. ` : node.getListType() === 'check' ? `- [${item.getChecked() ? 'x' : ' '}] ` : '- ';
-    return prefix + traverse(item).replace(/\n/g, '\n' + ' '.repeat(prefix.length));
+    const rich = writingDescendants(item).some(extendedText);
+    const content = rich ? richChildren(item, traverse).trimEnd() : traverse(item);
+    return prefix + content.replace(/\n/g, '\n' + ' '.repeat(prefix.length));
   }).join('\n');
 }
 const listBlock: Transformer = {
   type: 'element', dependencies: [ListNode, ListItemNode], regExp: /$^/, replace: () => false,
   export: (node, traverse) => $isListNode(node) ? listMarkdown(node, traverse) : null,
 };
-const nestedBlock: Transformer = {
+const nestedBlock: TextMatchTransformer = {
   type: 'text-match', dependencies: [CodeNode, ListNode, QuoteNode, HeadingNode, HorizontalRuleNode], regExp: /$^/, replace: () => {},
   export: (node: LexicalNode, traverse: (node: ElementNode) => string) => {
     if (node instanceof CodeNode) return '\n\n' + codeBlock.export!(node, traverse) + '\n\n';
     if ($isListNode(node)) return '\n' + listMarkdown(node, traverse);
     if ($isLineBreakNode(node)) return '  \n';
-    if ($isParagraphNode(node)) return traverse(node) + '\n\n';
-    if (node instanceof QuoteNode) return '\n\n' + traverse(node).trimEnd().split('\n').map(line => '> ' + line).join('\n') + '\n\n';
-    if (node instanceof HeadingNode) return '#'.repeat(Number(node.getTag().slice(1))) + ' ' + traverse(node) + '\n\n';
+    if ($isParagraphNode(node)) return blockContent(node, traverse) + '\n\n';
+    if (node instanceof QuoteNode) return '\n\n' + blockContent(node, traverse).trimEnd().split('\n').map(line => '> ' + line).join('\n') + '\n\n';
+    if (node instanceof HeadingNode) return '#'.repeat(Number(node.getTag().slice(1))) + ' ' + blockContent(node, traverse) + '\n\n';
+    if (node instanceof DetailsNode) return '\n\n' + detailsMarkdown(node) + '\n\n';
     if (node instanceof HorizontalRuleNode) return '\n\n---\n\n';
     return null;
   },
@@ -95,8 +103,57 @@ const nestedBlock: Transformer = {
 
 const literalText: Transformer = {
   type: 'text-match', dependencies: [], regExp: /$^/, replace: () => {},
-  export: (node, _children, format) => $isTextNode(node) && !node.hasFormat('code')
-    ? format(node, node.getTextContent()).replace(/[<>&]/g, '\\$&') : null,
+  export: (node, _children, format) => {
+    if (!$isTextNode(node)) return null;
+    return format(node, node.getTextContent()).replace(/[<>&]/g, '\\$&');
+  },
+};
+
+const extendedText = (node: LexicalNode) => $isTextNode(node) && (['underline','subscript','superscript','highlight'].some(flag => node.hasFormat(flag as any)) || !!writingStyles(node.getStyle()).color);
+// HTML spans keep overlapping rich formats balanced; ordinary paragraphs retain Markdown emphasis.
+function richInline(node: LexicalNode): string {
+  if ($isTextNode(node)) {
+    let text = escapeWritingHtml(node.getTextContent()).replace(/[\\`*_[\]~]/g, '\\$&');
+    if (node.hasFormat('code')) text = inlineCode(node.getTextContent());
+    for (const [flag, tag] of [['bold','strong'],['italic','em'],['strikethrough','s'],['underline','u'],['subscript','sub'],['superscript','sup']] as const) if (node.hasFormat(flag)) text = `<${tag}>${text}</${tag}>`;
+    const styles = writingStyles(node.getStyle());
+    if (styles.color) text = `<span class="weava-color-${styles.color}">${text}</span>`;
+    if (node.hasFormat('highlight')) text = `<mark class="weava-highlight-${styles.highlight ?? 'yellow'}">${text}</mark>`;
+    return text;
+  }
+  if (node instanceof FootnoteNode) return `[^${node.getLabel()}]`;
+  if ($isLineBreakNode(node)) return '<br>';
+  const children = 'getChildren' in node ? (node as ElementNode).getChildren().map(richInline).join('') : '';
+  if ($isLinkNode(node)) return `<a${node instanceof ButtonLinkNode ? ' class="weava-link-button"' : ''} href="${escapeWritingHtml(node.getURL())}">${children}</a>`;
+  return mediaMarkdown(node) ?? children;
+}
+function blockContent(node: ElementNode, traverse: (node: ElementNode) => string) {
+  return writingDescendants(node).some(extendedText) ? richChildren(node, traverse) : traverse(node);
+}
+function richChildren(node: ElementNode, traverse: (node: ElementNode) => string): string {
+  return node.getChildren().map(child => nestedBlock.export!(child, traverse, () => '') ?? richInline(child)).join('');
+}
+function detailsMarkdown(node: DetailsNode): string {return `<details class="weava-details"><summary>${escapeWritingHtml(node.getTitle())}</summary>\n\n${$convertToMarkdownString(transformers, node)}\n\n</details>`;}
+
+const writingBlock: Transformer = {
+  type: 'element', dependencies: [DetailsNode], regExp: /$^/, replace: () => false,
+  export: (node, traverse) => {
+    if (node instanceof DetailsNode) return detailsMarkdown(node);
+    if ($isParagraphNode(node) || node instanceof HeadingNode || node instanceof QuoteNode) {
+      const rich = writingDescendants(node).some(extendedText), aligned = ['center','right','justify'].includes(node.getFormatType());
+      if (!rich && !aligned) return null;
+      const text = blockContent(node, traverse);
+      const content = node instanceof HeadingNode ? '#'.repeat(Number(node.getTag().slice(1))) + ' ' + text
+        : node instanceof QuoteNode ? text.split('\n').map(line => '> ' + line).join('\n') : text;
+      return aligned ? `<div class="weava-align-${node.getFormatType()}">\n\n${content}\n\n</div>` : content;
+    }
+    return null;
+  },
+};
+const writingInline: Transformer = {
+  type: 'text-match', dependencies: [ButtonLinkNode, FootnoteNode], regExp: /$^/, replace: () => {},
+  export: (node, traverse) => node instanceof ButtonLinkNode ? `<a class="weava-link-button" href="${escapeWritingHtml(node.getURL())}">${traverse(node)}</a>`
+    : node instanceof FootnoteNode ? `[^${node.getLabel()}]` : null,
 };
 
 export const table: Transformer = {
@@ -157,4 +214,11 @@ export const table: Transformer = {
   },
 };
 
-export const transformers = [table, codeBlock, mediaBlock, listBlock, linkedImage, image, embed, nestedBlock, literalText, ...TRANSFORMERS];
+export const transformers: Transformer[] = [writingBlock, table, codeBlock, mediaBlock, listBlock, writingInline, linkedImage, image, embed, nestedBlock, literalText, ...TRANSFORMERS];
+
+export function exportMarkdown(root: ElementNode = $getRoot()) {
+  const source = $convertToMarkdownString(transformers, root), notes = new Map<string, string>();
+  for (const node of writingDescendants(root)) if (node instanceof FootnoteNode) notes.set(node.getLabel(), node.getSource());
+  for (const [label, body] of Object.entries($getState(root, footnoteOrphans))) if (!notes.has(label)) notes.set(label, body);
+  return source + (notes.size ? '\n\n' + [...notes].map(([label, body]) => `[^${label}]: ${body.split('\n').join('\n    ')}`).join('\n\n') : '');
+}

@@ -65,6 +65,10 @@ export class JobStore {
     for (const job of this.activeJobs()) {
       if (job.status === 'queued' && job.managed) continue;
       if (job.workerPid && processAlive(job.workerPid)) continue;
+      if (job.operation === 'media-optimize' && !job.cancelRequestedAt) {
+        this.updateJob(job.id, { status: 'queued', workerPid: undefined, message: '等待继续优化图片，原图可使用。' });
+        continue;
+      }
       if (
         job.operation === 'publish' &&
         job.result?.releaseId &&

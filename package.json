@@ -32,6 +32,7 @@
     "@lexical/markdown": "0.52.0",
     "@lexical/react": "0.52.0",
     "@lexical/rich-text": "0.52.0",
+    "@lexical/selection": "0.52.0",
     "@lexical/table": "0.52.0",
     "@weava/contracts": "workspace:*",
     "@weava/core": "workspace:*",
@@ -44,6 +45,7 @@
     "lexical": "0.52.0",
     "lucide-react": "0.468.0",
     "markdown-it": "14.3.3",
+    "markdown-it-footnote": "4.0.0",
     "maxmind": "5.0.7",
     "oxc-transform-react": "0.145.0",
     "qrcode": "1.5.4",
@@ -60,6 +62,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
     "@types/markdown-it": "14.1.2",
+    "@types/markdown-it-footnote": "3.0.4",
     "@types/node": "24.10.1",
     "@types/qrcode": "1.5.6",
     "@types/react": "19.2.7",

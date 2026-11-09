@@ -35,7 +35,9 @@ Ctrl+C 会尽量完成保存。进程异常退出后，`diagnose report` 可以�
 | authoring/views、authoring/templates | GET 命名筛选/新建模板；POST `{value,revision}` 保存或归档恢复 |
 | settings、types | GET 读取；POST `{value, revision}` 保存 |
 | media | GET 列表；POST `{uploadId}` 返回 202 媒体任务；完成后的 result 为媒体记录。兼容旧 `{name,base64}` |
-| media/uploads | POST `{name,size}` 创建上传，返回 id、offset、chunkBytes、expiresAt；文件最多 32 MiB |
+| media/file?name=…&groupId=… | POST `application/octet-stream` 流式上传，最多 32 MiB；直接返回可插入的原文件媒体记录，分组随上传保存，图片优化在后台执行 |
+| media/optimize | POST `{id}` 重试后台图片优化，原图保持可用 |
+| media/uploads | POST `{name,size,sha256}` 创建可续传上传，返回 id、offset、chunkBytes、expiresAt；文件最多 32 MiB |
 | media/uploads/id | GET 当前上传位置；POST `application/octet-stream` 二进制分块，查询参数 offset 为服务器确认的位置，每块最多 1 MiB |
 | media/groups、media/move | GET 分组；POST groups `{value,revision}`；POST move `{items:[{id,revision}],groupId}`，null 为未分组 |
 | history?id=… | GET 历史记录 |

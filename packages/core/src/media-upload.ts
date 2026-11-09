@@ -1,15 +1,72 @@
 import { isUploadFormat, mediaUploadMaxBytes } from '@weava/contracts';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, open, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { WeavaError } from '../../contracts/src/errors.ts';
 import { inside } from '../../runtime-common/src/paths.ts';
-import { digestFile } from './file-io.ts';
+import { digestFileAsync } from './file-io.ts';
 import type { JobRunner } from './job-runner.ts';
-import { prepareMedia } from './media.ts';
+import { prepareMedia, queueMediaOptimization } from './media.ts';
+import { validateMediaFormat } from './media-format.ts';
 import type { Site } from './site.ts';
-import { expireUploads, temporaryPath } from './temporary-files.ts';
+import { closeStagedRequest, expireUploads, registerStagedRequest, temporaryPath } from './temporary-files.ts';
+
+/** Normal uploads stream once; only explicit resumable clients need upload sessions. */
+export async function receiveMediaFile(site: Site, request: Request, options: { name: string; groupId?: string }) {
+  if (!options.name || options.name.length > 300 || !isUploadFormat(options.name)) throw new WeavaError('不支持这个附件格式。');
+  if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/octet-stream') throw new WeavaError('上传需要二进制内容。', 415);
+  if (!request.body || Number(request.headers.get('content-length')) > mediaUploadMaxBytes) throw new WeavaError('附件大小需要在 32 MB 以内。', 413);
+  if (options.groupId) {
+    const group = site.store.get('media-group', options.groupId);
+    if (!group || group.value.archived) throw new WeavaError('媒体分组不存在或已归档。');
+  }
+  const path = 'uploads/' + randomUUID() + '.bin',
+    stagedId = registerStagedRequest(site, path, 'media-file', Number(request.headers.get('content-length')) || mediaUploadMaxBytes),
+    staging = temporaryPath(site, path),
+    reader = request.body.getReader(), hash = createHash('sha256'),
+    ext = extname(options.name).toLowerCase(), text = ['.txt', '.csv', '.srt', '.vtt'].includes(ext);
+  let bytes = 0, header = Buffer.alloc(0), file: Awaited<ReturnType<typeof open>> | undefined;
+  try {
+    await mkdir(join(site.root, 'uploads'), { recursive: true });
+    file = await open(staging, 'wx');
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > mediaUploadMaxBytes) { await reader.cancel(); throw new WeavaError('附件大小需要在 32 MB 以内。', 413); }
+      const part = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+      if (header.length < 32) header = Buffer.concat([header, part.subarray(0, 32 - header.length)]);
+      if (text) validateMediaFormat(part, ext);
+      hash.update(part);
+      await file.writeFile(part);
+    }
+    if (!bytes) throw new WeavaError('上传文件为空。');
+    validateMediaFormat(header, ext);
+    await file.sync();
+    await file.close(); file = undefined;
+    const prepared = await prepareMedia(site, staging, options.name, { hash: hash.digest('hex'), validatedSize: bytes, move: true, optimize: false });
+    const row = site.store.raw.transaction(() => {
+      const existing = site.store.get('media', prepared.id);
+      const value = { ...(existing?.value ?? prepared.value), ...(options.groupId ? { groupId: options.groupId } : {}) };
+      const saved = existing && (!options.groupId || existing.value.groupId === options.groupId)
+        ? existing : site.store.put('media', prepared.id, value, existing?.revision ?? null, '上传');
+      queueMediaOptimization(site, saved.id);
+      return saved;
+    }).immediate();
+    // Duplicate uploads may leave a staging file; its cleanup cannot fail an accepted upload.
+    void unlink(staging).then(() => {
+      if (site.store.raw.open) site.store.raw.prepare('DELETE FROM staged_requests WHERE id=?').run(stagedId);
+    }, (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT' && site.store.raw.open) site.store.raw.prepare('DELETE FROM staged_requests WHERE id=?').run(stagedId);
+    });
+    return row;
+  } finally {
+    reader.releaseLock(); await file?.close();
+    closeStagedRequest(site, stagedId, bytes);
+    site.store.raw.prepare('UPDATE staged_requests SET expires=0 WHERE id=?').run(stagedId);
+  }
+}
 interface Upload {
   id: string;
   name: string;
@@ -168,7 +225,6 @@ export async function receiveMediaChunk(site: Site, id: string, offset: number, 
       reader.releaseLock();
     }
     if (!bytes) throw new WeavaError('上传分块为空。');
-    await file.sync();
     await file.close();
     file = undefined;
     const updated = site.store.raw
@@ -220,7 +276,9 @@ export async function completeMediaUpload(site: Site, id: string, jobId: string)
   const selected = inside(site.root, upload.path);
   try {
     if (!upload.verified) {
-      if (!upload.sha256 || digestFile(staging) !== upload.sha256)
+      const file = await open(staging, 'r+');
+      try { await file.sync(); } finally { await file.close(); }
+      if (!upload.sha256 || await digestFileAsync(staging) !== upload.sha256)
         throw new WeavaError('文件校验失败，上传内容与选择的文件不同，请重新上传。', 409);
       site.store.raw
         .prepare('UPDATE media_uploads SET verified=1 WHERE id=? AND job_id=?')
@@ -230,6 +288,7 @@ export async function completeMediaUpload(site: Site, id: string, jobId: string)
       site,
       existsSync(selected) ? selected : staging,
       upload.name,
+      { hash: upload.sha256!, move: true, optimize: false },
     );
     const destination = prepared.value.url.slice(1);
     // Persist a readable recovery location before releasing the owned staging
@@ -238,17 +297,7 @@ export async function completeMediaUpload(site: Site, id: string, jobId: string)
       .prepare('UPDATE media_uploads SET path=? WHERE id=? AND job_id=?')
       .run(destination, id, jobId);
     if (recorded.changes !== 1) throw new WeavaError('上传任务已变化，请重新读取上传状态。', 409);
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await unlink(staging);
-        break;
-      } catch (error: any) {
-        if (error.code === 'ENOENT') break;
-        if (!['EBUSY', 'EPERM', 'EACCES'].includes(error.code) || attempt === 4) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** attempt));
-      }
-    }
-    return site.store.raw
+    const record = site.store.raw
       .transaction(() => {
         if (find(site, id).job_id !== jobId)
           throw new WeavaError('上传任务已变化，请重新读取上传状态。', 409);
@@ -258,9 +307,12 @@ export async function completeMediaUpload(site: Site, id: string, jobId: string)
         site.store.raw
           .prepare("UPDATE media_uploads SET status='complete',path=? WHERE id=?")
           .run(destination, id);
+        queueMediaOptimization(site, record.id);
         return record;
       })
       .immediate();
+    void unlink(staging).catch(() => {});
+    return record;
   } catch (error: any) {
     if (['EBUSY', 'EPERM', 'EACCES'].includes(error.code))
       throw new WeavaError('文件暂时被占用，请稍后重试上传，已传送的文件会继续保留。', 409);

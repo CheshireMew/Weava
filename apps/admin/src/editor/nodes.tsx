@@ -42,9 +42,10 @@ export class MediaNode extends DecoratorNode<any> {
         priority: 1,
       }),
       audio: (el: HTMLAudioElement) => ({
-        conversion: () => ({ node: new MediaNode(el.getAttribute('src') ?? el.src, '', 'audio') }),
+        conversion: () => ({ node: new MediaNode(el.getAttribute('src') ?? el.src, '', 'audio', undefined, el.closest('figure')?.querySelector('figcaption')?.textContent ?? '') }),
         priority: 1,
       }),
+      figcaption: () => ({priority: 3, conversion: () => ({node: null, forChild: () => null})}),
     };
   }
   static clone(n: MediaNode) {
@@ -132,6 +133,7 @@ export class EmbedNode extends DecoratorNode<any> {
   static getType() {
     return 'embed';
   }
+  static importDOM(): any {return {iframe: (element: HTMLIFrameElement) => ({priority: 3, conversion: () => ({node: new EmbedNode({src: element.getAttribute('src') ?? '', title: element.title, ...(element.hasAttribute('width') ? {width: element.getAttribute('width')!} : {}), ...(element.hasAttribute('height') ? {height: element.getAttribute('height')!} : {})})})})};}
   static clone(node: EmbedNode) {
     return new EmbedNode(node.__value, node.__key);
   }

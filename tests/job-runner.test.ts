@@ -5,7 +5,22 @@ import {spawn} from 'node:child_process';
 import {entrySchema} from '@weava/contracts';
 import { JobRunner, Site, readJsonBody, Analytics } from '@weava/core';
 import {createAdminDispatcher} from '../apps/web/src/api/dispatch.ts';
+import {executeContentMutation} from '../packages/core/src/content-mutations.ts';
 const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/job-runner-'+Date.now();
+it('keeps an atomically committed command successful if its worker loses the result connection',async()=>{
+ const site=new Site(join(base,'committed-result')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:true});
+ try{
+  const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);
+  const run=(await import('vitest')).vi.spyOn((runner as any).service,'run').mockImplementation(async(_operation,payload:any)=>{
+   await executeContentMutation(site,undefined,payload.operation,payload.payload,payload.jobId);
+   throw new Error('Result connection lost after commit');
+  });
+  const job=runner.command('schedule-create',{id:row.id,revision:row.revision,dueAt:new Date(Date.now()+60000).toISOString()});
+  runner.pause(false);runner.pump();await new Promise(resolve=>setTimeout(resolve,0));
+  expect(site.job(job.id).status).toBe('complete');expect((await runner.wait(job.id)).value.entryId).toBe(row.id);
+  expect(runner.command('schedule-create',job.payload).id).toBe(job.id);run.mockRestore();
+ }finally{runner.stop();site.close();}
+});
 it('dispatches plan saves, withdrawals and deletion as inspectable jobs with committed results',async()=>{
  const site=new Site(join(base,'content-commands')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false});
  try{
@@ -31,7 +46,7 @@ it('reuses active and committed commands but allows retrying a terminal failed o
     site.updateJob(next.id,{status:'complete',result:{saved:true}});expect(runner.command('schedule-create',payload).id).toBe(next.id);
   }finally{runner.stop();site.close();}
 });
-it.each(['cancel','timeout'] as const)('stops a blocked rendering thread on %s without publishing a late result',async action=>{
+it.each(['cancel','timeout'] as const)('stops a blocked rendering process on %s without publishing a late result',async action=>{
   const site=new Site(join(base,action)),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false,timeoutMs:action==='timeout'?8000:20000});
   try{
     const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);

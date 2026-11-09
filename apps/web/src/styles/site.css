@@ -1,3 +1,4 @@
+@import '../../../../packages/runtime-common/src/writing.css';
 :root {
   scrollbar-gutter: stable;
   color: #202a25;

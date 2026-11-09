@@ -1,15 +1,39 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it,vi } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import sharp from 'sharp';
 import { Site, uploadMedia, saveMediaMetadata, archiveMedia, cropMedia, mediaReferences, queryMedia, saveLayout, renderDocument, imageAttributes, responsiveImages, entryCover, queryDrafts } from '@weava/core';
 import { imageDerivatives } from '../packages/core/src/media-images.ts';
 import { entrySchema } from '@weava/contracts';
+import * as documents from '../packages/core/src/documents.ts';
+import {mediaReferencesIn} from '../packages/core/src/media-references.ts';
 const sites: Site[] = [], base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/media-edit-' + Date.now();
 let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); return site; };
 const image = () => sharp({ create: { width: 800, height: 400, channels: 3, background: '#337755' } }).png().toBuffer();
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 describe('media library editing', () => {
+  it('saves and publishes ordered lists containing links without interpreting numeric attributes as URLs',async()=>{
+    const site=create(),file=await uploadMedia(site,Buffer.from('ordered list attachment'),'notes.txt');
+    const row=site.saveEntry(entrySchema.parse({id:'ordered-links',kind:'page',title:'有序列表',path:'/ordered-links/',document:{version:1,format:'markdown',source:`3. [附件](${file.value.url})\n4. 第二项\n\n下一段\n\n9. [同一附件](${file.value.url})`}}),null);
+    expect([...mediaReferencesIn(row.value)]).toContain(file.value.url);
+    const released=site.publish({ids:[row.id]}).entries.find(entry=>entry.id===row.id)!;
+    expect(released.html).toContain('<ol start="3">');expect(released.html).toContain('<ol start="9">');expect(released.html).toContain(file.value.url);
+  });
+  it('saves drafts and indexes their images without rendering or highlighting the document',()=>{
+    const site=create(),render=vi.spyOn(documents,'renderDocument');
+    try{
+      const row=site.saveEntry(entrySchema.parse({id:'fast-draft',kind:'page',title:'草稿',path:'/fast-draft/',document:{version:1,format:'markdown',source:'```js\nconst value=1;\n```\n\n![图片][photo]\n\n[photo]: </media/my photo.png>'}}),null);
+      expect(render).not.toHaveBeenCalled();expect(entryCover(row.value)).toBe('/media/my%20photo.png');
+      expect(mediaReferencesIn(row.value)).toContain('/media/my%20photo.png');
+      expect(()=>site.publish({ids:[row.id]})).toThrow(/引用/);expect(render).toHaveBeenCalled();
+    }finally{render.mockRestore();}
+  });
+  it('crops in the displayed orientation without an intermediate full-size PNG',async()=>{
+    const site=create(),bytes=await sharp({create:{width:800,height:400,channels:3,background:'#335577'}}).jpeg().withMetadata({orientation:6}).toBuffer();
+    const original=await uploadMedia(site,bytes,'rotated.jpg');
+    const crop=await cropMedia(site,original.id,original.revision,{left:25,top:25,width:50,height:50});
+    expect(crop.value).toMatchObject({width:200,height:400,parentId:original.id,optimization:{status:'pending'}});
+  });
   it('uses the first real body image when no cover is set and follows later body edits without saving a cover', () => {
     const site = create(), value = entrySchema.parse({ id: 'automatic-cover', kind: 'content', type: 'post', title: '自动封面', path: '/automatic-cover/', document: { version: 1, format: 'markdown', source: '```md\n![example](https://example.com/code.png)\n```\n\n![first](https://example.com/first.png)\n\n![second](https://example.com/second.png)' } });
     site.saveType({ id: 'post', label: '文章', fields: [], pathPrefix: '/posts/', template: 'article' }, null);
@@ -74,7 +98,7 @@ describe('media library editing', () => {
     const metadata = saveMediaMetadata(site, original.id, { name: 'picture.png', alt: '原图说明', caption: '原图图注' }, original.revision);
     const cropped = await cropMedia(site, original.id, metadata.revision, { left: 25, top: 25, width: 50, height: 50 });
     expect(cropped.id).not.toBe(original.id); expect(cropped.value).toMatchObject({ width: 400, height: 200, parentId: original.id, alt: '原图说明', caption: '原图图注' });
-    expect(cropped.value.derivatives.length).toBeGreaterThan(0); expect(readFileSync(site.root + original.value.url)).toEqual(bytes);
+    expect(cropped.value.derivatives).toEqual([]);expect(cropped.value.optimization.status).toBe('pending');expect(site.jobs().some(job=>job.operation==='media-optimize'&&job.payload.id===cropped.id)).toBe(true); expect(readFileSync(site.root + original.value.url)).toEqual(bytes);
     expect((await cropMedia(site, original.id, metadata.revision, { left: 25, top: 25, width: 50, height: 50 })).id).toBe(cropped.id);
     await expect(cropMedia(site, original.id, metadata.revision, { left: 90, top: 0, width: 50, height: 20 })).rejects.toThrow(/范围/);
   });

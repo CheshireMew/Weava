@@ -7,12 +7,70 @@ import { importedDocument } from '../packages/core/src/imported-document.ts';
 import {renderDocument} from '../packages/core/src/documents.ts';
 import {load} from 'cheerio';
 import {markdownFormats} from './fixtures/markdown.ts';
+import {api} from '../apps/admin/src/api.ts';
 
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/api.ts', () => ({api: vi.fn(async () => ({value: {path: '/guide/target/', title: '目标文章'}}))}));
 let host: HTMLDivElement, toolbarHost: HTMLDivElement, root: Root;
 beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; host = document.createElement('div'); toolbarHost = document.createElement('div'); document.body.append(toolbarHost, host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); toolbarHost.remove(); });
+async function clickFormat(name: string) {
+  const label = name === '代码' ? '代码块' : name;
+  if (!document.querySelector(`[aria-label="${label}"]`)) await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="插入内容"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
+}
+async function input(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  await act(async () => {Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(element, value); element.dispatchEvent(new Event('input', {bubbles: true}));});
+}
+
+it('applies a palette format at the rich-text selection after its menu takes focus', async () => {
+  let saved: any; const error = vi.fn();
+  function Harness() {const [value, setValue] = useState({version: 1 as const, format: 'markdown' as const, source: '第一段保留文字。\n\n第二段。'}); return <Editor value={value} onChange={next => {saved = next; setValue(next as any);}} onMedia={async () => null} onError={error}/>;}
+  await act(async () => root.render(<Harness/>));
+  const editable = host.querySelector('.visual-editor')!;
+  await act(async () => {const text = document.createTreeWalker(editable.querySelector('p')!, NodeFilter.SHOW_TEXT).nextNode()!, range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 3); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange'));});
+  const menu = host.querySelector<HTMLButtonElement>('[aria-label="更多格式"]')!;
+  await act(async () => {menu.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); menu.click();});
+  expect(saved).toBeUndefined();
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="高亮：黄色"]')!.click());
+  const $ = load(renderDocument(saved), null, false); expect($('mark.weava-highlight-yellow').text()).toBe('第一段'); expect($('p').last().text()).toBe('第二段。');
+  await clickFormat('切换为 Markdown'); await clickFormat('切换为富文本');
+  expect(host.querySelector('.editor-highlight')?.textContent).toBe('第一段'); expect(error).not.toHaveBeenCalled();
+});
+
+it('inserts a link button, rich footnote and collapsible content from Markdown dialogs and reopens them visually', async () => {
+  let saved: any; const error = vi.fn();
+  function Harness() {const [value, setValue] = useState({version: 1 as const, format: 'markdown' as const, source: '正文'}); return <Editor value={value} onChange={next => {saved = next; setValue(next as any);}} onMedia={async () => null} onError={error}/>;}
+  await act(async () => root.render(<Harness/>)); await clickFormat('切换为 Markdown');
+  const field = host.querySelector<HTMLTextAreaElement>('[aria-label="正文源码"]')!;
+  field.setSelectionRange(0, 2); await clickFormat('链接按钮');
+  const fields = document.querySelectorAll<HTMLInputElement>('dialog input'); await input(fields[1], 'https://example.com/read');
+  await act(async () => document.querySelector('dialog form')!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true})));
+  field.setSelectionRange(field.value.length, field.value.length); await clickFormat('脚注');
+  await act(async () => document.querySelector<HTMLButtonElement>('dialog [aria-label="切换为 Markdown"]')!.click());
+  await input(document.querySelector<HTMLTextAreaElement>('dialog textarea')!, '**来源说明**');
+  await act(async () => document.querySelector('dialog form')!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true})));
+  const end = field.value.indexOf('\n\n[^note-'); field.setSelectionRange(0, end); await clickFormat('折叠内容');
+  await act(async () => document.querySelector('dialog form')!.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true})));
+  await clickFormat('切换为富文本');
+  expect(host.querySelector('.editor-details a.weava-link-button')?.textContent).toBe('正文'); expect(host.querySelector('[aria-label="编辑脚注 1"]')).not.toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="编辑脚注 1"]')!.click());
+  expect(document.querySelector('dialog .editor-bold')?.textContent).toBe('来源说明');
+  await act(async () => document.querySelector<HTMLButtonElement>('dialog [aria-label="切换为 Markdown"]')!.click());
+  await input(document.querySelector<HTMLTextAreaElement>('dialog textarea')!, '**更新来源**');
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find(button => button.textContent === '保存脚注')!.click());
+  expect(renderDocument(saved)).toContain('更新来源'); expect(error).not.toHaveBeenCalled();
+});
+
+it('inserts an independent copy of a saved common-content snippet at the selected position', async () => {
+  vi.mocked(api as any).mockResolvedValueOnce([{id: 'signature', revision: 1, value: {id: 'signature', name: '签名', source: '**作者签名**\n\n---', archived: false}}]);
+  let saved: any;
+  function Harness() {const [value, setValue] = useState({version: 1 as const, format: 'markdown' as const, source: '前文\n\n后文'}); return <Editor value={value} onChange={next => {saved = next; setValue(next as any);}} onMedia={async () => null} onError={vi.fn()}/>;}
+  await act(async () => root.render(<Harness/>)); await clickFormat('切换为 Markdown'); const field = host.querySelector('textarea')!; field.setSelectionRange(4, 4);
+  await clickFormat('常用内容'); expect(document.querySelector('dialog')?.textContent).toContain('签名');
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find(button => button.textContent === '插入')!.click());
+  expect(saved.source).toContain('**作者签名**'); expect(saved.source.indexOf('作者签名')).toBeGreaterThan(saved.source.indexOf('前文')); expect(saved.source.indexOf('作者签名')).toBeLessThan(saved.source.indexOf('后文')); expect(document.querySelector('dialog')).toBeNull();
+});
 
 it('opens supported Markdown visually by default without changing its stored content', async () => {
   const changed = vi.fn();
@@ -141,7 +199,7 @@ it('formats the Markdown selection, toggles emphasis, and supports undo, redo an
   const source='正文\n\n下一段。';
   function Harness(){const [value,setValue]=useState({version:1 as const,format:'markdown' as const,source});return <Editor value={value} onChange={next=>setValue(next as any)} onMedia={async()=>null} onError={vi.fn()}/>;}
   await act(async()=>root.render(<Harness/>));
-  const click=async(name:string)=>act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="'+name+'"]')!.click());
+  const click=clickFormat;
   await click('切换为 Markdown');
   const field=host.querySelector('textarea')!;
   field.setSelectionRange(0,2); await click('加粗');
@@ -154,7 +212,8 @@ it('formats the Markdown selection, toggles emphasis, and supports undo, redo an
   await click('重做'); expect(field.value).toBe('*正文*\n\n下一段。');
   await click('撤销'); field.setSelectionRange(0,2); await click('代码');
   expect(field.value).toBe('```text\n正文\n```\n\n下一段。');
-  const language=host.querySelector<HTMLSelectElement>('[aria-label="代码语言"]')!;
+  await click('插入内容');
+  const language=document.querySelector<HTMLSelectElement>('[aria-label="代码语言"]')!;
   await act(async()=>{language.value='python';language.dispatchEvent(new Event('change',{bubbles:true}));});
   expect(field.value).toContain('```python\n正文\n```');
   await click('代码'); expect(field.value).toBe(source);
@@ -179,7 +238,7 @@ it('inserts a Markdown link at the preserved selection while a dialog has focus'
 it('changes selected Markdown lines between lists, quotes and paragraphs without losing text', async()=>{
   function Harness(){const [value,setValue]=useState({version:1 as const,format:'markdown' as const,source:'第一行\n第二行\n\n后面的段落。'});return <Editor value={value} onChange={next=>setValue(next as any)} onMedia={async()=>null} onError={vi.fn()}/>;}
   await act(async()=>root.render(<Harness/>));
-  const click=async(name:string)=>act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="'+name+'"]')!.click());
+  const click=clickFormat;
   await click('切换为 Markdown');const field=host.querySelector('textarea')!;field.setSelectionRange(0,7);
   await click('无序列表');expect(field.value).toBe('- 第一行\n- 第二行\n\n后面的段落。');
   await click('有序列表');expect(field.value).toBe('1. 第一行\n2. 第二行\n\n后面的段落。');
@@ -195,6 +254,7 @@ it('inserts Markdown media with an escaped label, destination and caption', asyn
   await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为 Markdown"]')!.click());
   const field=host.querySelector('textarea')!;field.setSelectionRange(field.value.length,field.value.length);
   await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="插入媒体"]')!.click());
+  await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="从媒体库选择"]')!.click());
   expect(field.value).toBe('保留正文。\n\n![图\\[片\\]](/media/a%20b.png)\n\n保留图注');
 });
 
@@ -279,7 +339,7 @@ it('converts imported features to Markdown while retaining media destinations an
   await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.click());
   const source = (host.querySelector('[aria-label="正文源码"]') as HTMLTextAreaElement).value;
   expect(source).toContain('[![图片](/media/a.png)](/full/)');
-  expect(source).toContain('[嵌入视频](about:blank)');
+  expect(source).toContain('<iframe src="about:blank" title="嵌入视频"');
   expect(source).toContain('## 标题');
   expect(error).not.toHaveBeenCalled();
   await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为富文本')!.click());
@@ -316,7 +376,7 @@ it('opens Markdown containing HTML code visually and preserves media captions an
   await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.click());
   const source = (host.querySelector('[aria-label="正文源码"]') as HTMLTextAreaElement).value;
   expect(source).toContain('![图片](/media/photo.png)\n\n原有图注');
-  expect(source).toContain('[视频](/media/movie.mp4)');
+  expect(source).toContain('<video src="/media/movie.mp4" controls');
   expect(source).toContain('| 标题 | 内容 |');
   expect(source).toContain('<div>保留代码</div>\n\n  next');
   await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为富文本')!.click());

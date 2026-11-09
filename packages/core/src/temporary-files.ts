@@ -60,7 +60,7 @@ function inventory(site:Site){
     catch(error:any){skipped.push({path,reason:error.message});}
   };
   for(const row of site.store.raw.prepare("SELECT u.* FROM media_uploads u LEFT JOIN jobs j ON j.id=u.job_id WHERE u.status<>'complete' AND u.status<>'purged' AND u.lease_until<=? AND COALESCE(j.status,'') NOT IN ('queued','running') AND (u.status IN ('expired','cancelled','purging') OR j.status IN ('failed','cancelled','recovery_required')) ORDER BY u.id LIMIT 100").all(clock) as any[])add(row.id,'upload','uploads/'+row.id+'.bin');
-  for(const row of site.store.raw.prepare("SELECT r.* FROM staged_requests r LEFT JOIN jobs j ON j.id=r.job_id WHERE r.active_until<=? AND COALESCE(j.status,'') NOT IN ('queued','running') AND (r.expires<=? OR j.status IN ('complete','failed','cancelled','recovery_required')) ORDER BY r.id LIMIT 100").all(clock,clock) as StagedRequest[])add(row.id,'request',row.path);
+  for(const row of site.store.raw.prepare("SELECT r.* FROM staged_requests r LEFT JOIN jobs j ON j.id=r.job_id WHERE r.active_until<=? AND COALESCE(j.status,'') NOT IN ('queued','running') AND NOT EXISTS (SELECT 1 FROM jobs active WHERE active.status IN ('queued','running') AND json_extract(active.data,'$.payload.sourceId')=r.id) AND (r.expires<=? OR r.kind<>'import-source' AND j.status IN ('complete','failed','cancelled','recovery_required')) ORDER BY r.id LIMIT 100").all(clock,clock) as StagedRequest[])add(row.id,'request',row.path);
   return {files,skipped};
 }
 export function previewTemporaryCleanup(site:Site){const {files,skipped}=inventory(site);return {files:files.map(({stamp,...row})=>row),skipped,bytes:files.reduce((sum,row)=>sum+row.bytes,0),review:digest(files)};}
@@ -70,7 +70,7 @@ export function cleanupTemporaryFiles(site:Site,review:string){
     // The short write transaction excludes chunk claims and new processing jobs.
     for(const row of files){const path=temporaryPath(site,row.path);if(existsSync(path))unlinkSync(path);
       if(row.kind==='upload')site.store.raw.prepare("UPDATE media_uploads SET status='purged',offset=0,lease=NULL,lease_until=0 WHERE id=?").run(row.id);
-      else site.store.raw.prepare('DELETE FROM staged_requests WHERE id=?').run(row.id);
+      else { site.store.raw.prepare('DELETE FROM staged_requests WHERE id=?').run(row.id);site.store.raw.prepare('DELETE FROM state WHERE key=?').run('import-source:'+row.id); }
     }
     return {files:files.length,bytes:files.reduce((sum,row)=>sum+row.bytes,0)};
   }).immediate();

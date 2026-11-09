@@ -33,6 +33,8 @@ export async function extensionMetadata(
   return pageMetadata(entry, release, url, { ...options, contribution });
 }
 export async function validateExtensionRelease(active: readonly Extension[], release: Release) {
+  // Routing-only extensions have no page output to validate.
+  if(!active.some(extension=>extension.render||extension.metadata))return;
   for (const entry of release.entries)
     try {
       const html = await renderExtension(active, entry, release);

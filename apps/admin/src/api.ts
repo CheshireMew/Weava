@@ -101,6 +101,10 @@ export const api = Object.assign(request, {
     );
   },
 }) as AdminClient;
+export async function submitJob(path:string,body:unknown,key:string=crypto.randomUUID()):Promise<any>{
+  const {createAdminClient}=await import('@weava/contracts/api-client');
+  return perform(path,body,()=>createAdminClient({onUnauthorized:unauthorized,headers:{'Idempotency-Key':key}}).request(path,body));
+}
 export async function waitJob(job: any, onProgress: (job: any) => void) {
   let interval = 150;
   while (['queued', 'running'].includes(job.status)) {

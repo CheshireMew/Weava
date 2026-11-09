@@ -28,6 +28,8 @@ import {LinkEditorPlugin} from './editor/LinkEditorPlugin.tsx';
 import {DocumentChangePlugin} from './editor/DocumentChangePlugin.tsx';
 import {MarkdownEditor} from './editor/MarkdownEditor.tsx';
 import {supportsVisualEditing, importMarkdown} from './editor/markdown.ts';
+import {ButtonLinkNode, DetailsNode, FootnoteNode, WritingNodesPlugin} from './editor/WritingNodes.tsx';
+import {writingDOMImport} from './editor/writing-dom.ts';
 
 export function Editor({
   value,
@@ -38,6 +40,7 @@ export function Editor({
   outputFormat = 'markdown',
   placeholder = '写下你的内容…',
   compact = false,
+  snippets = true,
 }: {
   value: Document;
   onChange: (value: Document) => void;
@@ -47,6 +50,7 @@ export function Editor({
   outputFormat?: 'lexical' | 'markdown';
   placeholder?: string;
   compact?: boolean;
+  snippets?: boolean;
 }) {
   const [mode, setMode] = useState(() => supportsVisualEditing(value) ? 'visual' : 'source');
   const uploads = useFileUploads();
@@ -73,7 +77,7 @@ export function Editor({
   const [seed, setSeed] = useState<Document>(value);
   if (value.format === 'html') return <HtmlPageText value={value.source} cleanFormatting label="正文" onChange={source => onChange({ version: 1, format: 'html', source })} />;
   if (mode === 'source') return <div className="document-editor">
-    <MarkdownEditor source={sourceView} onChange={changeSource} target={toolbarTarget} compact={compact} uploading={uploads.busy || uploads.failed.length > 0} onError={onError} onMedia={onMedia}
+    <MarkdownEditor source={sourceView} onChange={changeSource} target={toolbarTarget} compact={compact} snippets={snippets} uploading={uploads.busy || uploads.failed.length > 0} onError={onError} onMedia={onMedia}
       onMode={() => {
         const document: Document = sourceText.current === sourceBaseline.current.source ? sourceBaseline.current.document : {version: 1, format: 'markdown', source: sourceText.current};
         if (!supportsVisualEditing(document)) {onError('包含不能无损转换的来源格式，继续使用源码模式可完整保留内容。'); return;}
@@ -95,10 +99,11 @@ export function Editor({
   return (
     <div className="document-editor" onBeforeInputCapture={markEditing} onInputCapture={markEditing} onPasteCapture={markEditing} onCutCapture={markEditing} onDropCapture={markEditing}
       onKeyDownCapture={event => {if ((event.target as Element).closest('.visual-editor') && (['Backspace','Delete','Enter'].includes(event.key) || event.key === ' ' && (event.target as Element).closest('[role="checkbox"]') || (event.ctrlKey || event.metaKey) && ['b','i','u','z','y'].includes(event.key.toLowerCase()))) markEditing();}}
-      onClickCapture={event => { if ((event.target as Element).closest('button:not(.editor-mode-toggle)')) markEditing(); }}>
+      onClickCapture={event => { if ((event.target as Element).closest('button:not(.editor-mode-toggle):not([aria-haspopup])')) markEditing(); }}>
       <LexicalComposer
         initialConfig={{
           namespace: 'Weava',
+          html: {import: writingDOMImport},
           nodes: [
             HeadingNode,
             QuoteNode,
@@ -114,6 +119,7 @@ export function Editor({
             MediaNode,
             HorizontalRuleNode,
             EmbedNode,
+            ButtonLinkNode, DetailsNode, FootnoteNode,
           ],
           onError: (error) => onError(error.message),
           editorState:
@@ -127,7 +133,7 @@ export function Editor({
             paragraph: 'editor-paragraph',
             heading: { h1: 'editor-h1', h2: 'editor-h2', h3: 'editor-h3', h4: 'editor-h4', h5: 'editor-h5', h6: 'editor-h6' },
             quote: 'editor-quote',
-            list: { ul: 'editor-ul', ol: 'editor-ol', listitemChecked: 'editor-task-checked', listitemUnchecked: 'editor-task-unchecked' },
+            list: { ul: 'editor-ul', ol: 'editor-ol', nested: { listitem: 'editor-nested-listitem' }, listitemChecked: 'editor-task-checked', listitemUnchecked: 'editor-task-unchecked' },
             text: { bold: 'editor-bold', italic: 'editor-italic', code: 'editor-code', strikethrough: 'editor-strikethrough', underline: 'editor-underline', highlight: 'editor-highlight' },
             code: 'editor-codeblock',
             table: 'editor-table',
@@ -140,6 +146,7 @@ export function Editor({
           onEdit={markEditing}
           target={toolbarTarget}
           compact={compact}
+          snippets={snippets}
           uploading={uploads.busy || uploads.failed.length > 0}
           onMode={(source) => {
             const document = current.current.value;
@@ -150,6 +157,7 @@ export function Editor({
           }}
           onMedia={onMedia}
         />
+        <WritingNodesPlugin/>
         <div className="editor-canvas">
           <RichTextPlugin
             contentEditable={<ContentEditable className="visual-editor" aria-label="正文编辑器" />}

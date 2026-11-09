@@ -36,6 +36,7 @@ import { useSettingsApplication } from './useSettingsApplication.ts';
 import { useTransientMessage } from './useTransientMessage.ts';
 import { LoadingState } from './LoadingState.tsx';
 import { operationLabels } from './admin-labels.ts';
+import { MediaUploadFeedback } from './media-uploads.tsx';
 
 const panelModules = {
   appearance: () => import('./SettingsPanel.tsx'),
@@ -78,13 +79,14 @@ export function App({ authentication, error, setError }: AppProps) {
     currentEntry: () => workspace.navigation.current(),
   });
   const publicationController = usePublication(sync, setError, notify);
-  const { busy, job, setJob, setPublication, task } = publicationController;
+  const { busy, job, setPublication, task } = publicationController;
   const workspace = useContentWorkspace({
     state: workspaceData(state),
     receiveSchedules,
     tab,
     compact,
     busy,
+    isPublishing: publicationController.isPublishing,
     setError,
     notify,
     refresh: sync,
@@ -94,9 +96,8 @@ export function App({ authentication, error, setError }: AppProps) {
   const feedbackContext = tab + ':' + (record?.id ?? 'list');
   useTransientMessage(error, () => setError(''), feedbackContext, 0);
   useTransientMessage(toast, () => setToast(''), feedbackContext, 3000);
-  useTransientMessage(job && !busy ? job.id : '', () => setJob(null), feedbackContext);
   useSiteIcon(state?.siteIcon ?? state?.settings.value.logo);
-  const settingsApplication = useSettingsApplication(sync, () => notify('已保存并生效', 2600));
+  const settingsApplication = useSettingsApplication(sync, () => notify('已保存并生效', 2600),setError);
   useEffect(() => {
     if (state?.settingsPending || state?.termsPending) settingsApplication.resumePending();
   }, [state?.settingsPending, state?.termsPending, settingsApplication]);
@@ -104,7 +105,7 @@ export function App({ authentication, error, setError }: AppProps) {
   async function saveSiteSettings(value: any, revision: number) {
     const row = await api('settings', { value, revision });
     settingsApplication.request();
-    await sync();
+    void sync().catch(error=>setError('设置已保存，刷新页面数据失败：'+error.message));
     return row;
   }
   useScheduleUpdates(
@@ -172,6 +173,7 @@ export function App({ authentication, error, setError }: AppProps) {
             <aside className="sidebar">{navigation}</aside>
           ))}
         <main className="main-shell" id="main-content" tabIndex={-1}>
+          {tab !== 'media' && <MediaUploadFeedback />}
           {compact && !focusedWriting && (
             <header className="topbar">
               <button
@@ -192,7 +194,7 @@ export function App({ authentication, error, setError }: AppProps) {
               </div>
             </header>
           )}
-          {busy && job && !publicationController.publication && tab !== 'notes' && !error && (
+          {job && !publicationController.publication && !error && (
             <div className="toast operation-progress" role="status">
               <Loader2 className="spin" size={15} aria-hidden="true" />
               <span>{operationLabels[job.operation] ?? '处理操作'}…</span>
@@ -309,6 +311,7 @@ export function App({ authentication, error, setError }: AppProps) {
                   <Operations
                     state={state}
                     busy={busy}
+                    pending={publicationController.pending}
                     task={task}
                     refresh={async () => {
                       await refresh();

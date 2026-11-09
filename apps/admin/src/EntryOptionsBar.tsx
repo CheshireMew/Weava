@@ -37,7 +37,7 @@ export function EntryOptionsBar({ model, onMore }: { model: Pick<EntrySettingsMo
       {option('author', <UserRound size={16} aria-hidden="true" />, value.author)}
       {option('category', <Folder size={16} aria-hidden="true" />, value.categories.length ? value.categories[0] + (value.categories.length > 1 ? ` +${value.categories.length - 1}` : '') : undefined)}
       {option('tag', <Tags size={16} aria-hidden="true" />, value.tags.length ? String(value.tags.length) : undefined)}
-      {option('cover', value.cover ? <img className="entry-cover-thumb" src={value.cover} alt="" /> : <Image size={16} aria-hidden="true" />)}
+      {option('cover', <span className="entry-cover-icon">{value.cover ? <img className="entry-cover-thumb" src={value.cover} alt="" /> : <Image size={16} aria-hidden="true" />}</span>)}
       <span className="entry-options-divider" aria-hidden="true" />
       {option('publication', <SlidersHorizontal size={16} aria-hidden="true" />, value.visibility === 'private' ? '私密' : undefined)}
       <button type="button" aria-haspopup="dialog" onClick={() => { close(); onMore(); }}><Settings2 size={16} aria-hidden="true" />更多设置</button>

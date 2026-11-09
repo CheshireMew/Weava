@@ -37,7 +37,7 @@ export const ALL: APIRoute = async (context) => {
     const write = !['GET', 'HEAD'].includes(context.request.method);
     if(admin && (!match || !(anonymousSessionOperations as readonly string[]).includes(match.operation)) && !authorized(services,requestContext))
       throw new WeavaError('请先登录。',401);
-    if(admin && write && match?.operation!=='uploadChunk') assertJsonRequest(context.request);
+    if(admin && write && !match?.definition.binary) assertJsonRequest(context.request);
     const custom = await (
       await services.siteExtension
     ).route?.(context.request, services.site.visibleRelease());
@@ -56,7 +56,7 @@ export const ALL: APIRoute = async (context) => {
           : match.operation === 'importWxr'
             ? importRequestBytes
             : 16 * 1024 * 1024;
-    const body = match.operation==='uploadMedia' ? await readMediaUploadRequest(services.site,services.jobs,context.request) : write && match.operation!=='uploadChunk' ? await readJsonBody(context.request, limit) : undefined;
+    const body = match.operation==='uploadMedia' ? await readMediaUploadRequest(services.site,services.jobs,context.request) : write && !match.definition.binary ? await readJsonBody(context.request, limit) : undefined;
     return await dispatch(match.operation, match.params, body, requestContext);
   } catch (error: any) {
     if(error instanceof WeavaError){
