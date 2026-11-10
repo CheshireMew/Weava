@@ -1,3 +1,4 @@
+import {siteText} from '@weava/contracts';
 import { load } from 'cheerio';
 import { WeavaError, schemaTypes, type Entry, type Release, type Seo } from '@weava/contracts';
 import { escape as e } from './documents.ts';
@@ -52,7 +53,7 @@ export function customEvidence(html: string, entry: Entry) {
 }
 export function pageMetadata(entry: Entry | undefined, release: Release, url: URL, options: { preview?: boolean; missing?: boolean; html?: string; media?: boolean; contribution?: MetadataContribution } = {}): PageMetadata {
   const settings = release.settings, base = settings.domain.replace(/\/$/, ''), seo = { ...options.contribution, ...entry?.seo };
-  const socialTitle = seo.title || entry?.title || (options.missing ? '页面未找到' : '搜索');
+  const socialTitle = seo.title || entry?.title || siteText(settings.language,options.missing ? '页面未找到' : '搜索');
   const description = seo.description ?? entry?.description ?? settings.description;
   const pageKeys = new Set<string>(), visitedLayouts = new Set<string>();
   const visit = (blocks: Entry['blocks']) => blocks.forEach((block) => {

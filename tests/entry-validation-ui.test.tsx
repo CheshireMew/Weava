@@ -47,6 +47,16 @@ it('selects an unvisited settings tab and focuses its field without closing the 
   expect(panel.textContent).toContain('搜索摘要');expect(document.querySelector('dialog[open]')).not.toBeNull();
   expect(document.activeElement).toBe(panel.querySelector('textarea'));
 });
+it('takes author errors to the single top-level author control and keeps editing available',async()=>{
+  await mount('author');await click('请修正此字段');await frames();
+  expect(document.querySelector('dialog[aria-label="文章设置"]')).toBeNull();
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('设置作者');
+  await click('设置作者');
+  const author=document.querySelector<HTMLInputElement>('[aria-label="作者姓名"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(author,'新作者');author.dispatchEvent(new Event('input',{bubbles:true}));});
+  expect(document.querySelector<HTMLInputElement>('[aria-label="作者姓名"]')!.value).toBe('新作者');
+  expect(host.querySelector('[aria-label="设置作者"]')?.textContent).toContain('新作者');
+});
 it('keeps errors without an editable destination as text instead of a dead button',async()=>{
   await mount('type');expect([...document.querySelectorAll('button')].some(node=>node.textContent==='请修正此字段')).toBe(false);
   expect(document.querySelector('.content-check')?.textContent).toContain('请修正此字段');
@@ -59,4 +69,21 @@ it('shows an empty title as a placeholder and exposes the author next to article
   const title=host.querySelector<HTMLTextAreaElement>('[aria-label="内容标题"]')!;
   expect(title.value).toBe('');expect(title.placeholder).toBe('未命名内容');expect(host.querySelector('.save-status')).toBeNull();
   await click('设置作者');expect(document.querySelector<HTMLInputElement>('[aria-label="作者姓名"]')?.value).toBe('柴郡');
+});
+
+it('moves Enter from the title to the body start while preserving Chinese input confirmation',async()=>{
+  const update=vi.fn(),record={id:'post',revision:1,updatedAt:'',value:entrySchema.parse({id:'post',kind:'content',title:'文章标题',path:'/post/'})};
+  const state=contentWorkspaceFixture({types:[{id:'post',value:{id:'post',label:'文章'}}]});
+  const model:any={record,update,state,settings:{record,update,state,schedule:{items:[]},moreActions:{record}},recovery:{record:null}};
+  await act(async()=>root.render(<EditSessionsProvider><SelectorsProvider><EntryEditor model={model}/></SelectorsProvider></EditSessionsProvider>));
+  const title=host.querySelector<HTMLTextAreaElement>('[aria-label="内容标题"]')!,body=host.querySelector<HTMLElement>('[aria-label="正文编辑器"]')!;
+  body.textContent='已有正文';title.focus();
+  const composing=new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true});
+  await act(async()=>title.dispatchEvent(composing));
+  expect(composing.defaultPrevented).toBe(false);expect(document.activeElement).toBe(title);
+  const enter=new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true});
+  await act(async()=>title.dispatchEvent(enter));
+  expect(enter.defaultPrevented).toBe(true);expect(document.activeElement).toBe(body);
+  expect(window.getSelection()?.anchorNode).toBe(body.firstChild);expect(window.getSelection()?.anchorOffset).toBe(0);
+  expect(title.value).toBe('文章标题');expect(update).not.toHaveBeenCalled();
 });

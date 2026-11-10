@@ -1,5 +1,5 @@
 export type QueryDomain='content'|'content-count'|'settings'|'models'|'terms'|'layouts'|'media'|'publication'|'operations'|'account'|'analytics'|'extensions'|'comments';
-const jobSubmissions=new Set(['publish','withdraw','entries/delete','plans','plans/run','schedules','media','media/optimize','media/crop','media/variant','backup','verify','import','import/source','import/wxr','maintenance/archive','maintenance/restore','maintenance/scan','seo/audit']);
+const jobSubmissions=new Set(['publish','withdraw','entries/delete','plans','plans/run','schedules','media','media/optimize','media/crop','media/variant','backup','verify','import','import/source','import/wxr','maintenance/archive','maintenance/restore','maintenance/scan','seo/audit','export/markdown','import/markdown/preview','import/markdown','analytics/archive','analytics/archive/restore']);
 /** A queued job changes the task list; its authored domains change only on completion. */
 export const submissionDomains=(path:string,body?:any):QueryDomain[]=>jobSubmissions.has(path.split('?')[0])?['operations']:mutationDomains(path,body);
 function domains(path:string):QueryDomain[]{
@@ -14,6 +14,7 @@ function domains(path:string):QueryDomain[]{
   if(route.startsWith('analytics'))return ['analytics'];
   if(route.startsWith('account'))return ['account'];
   if(route.startsWith('comment'))return ['comments'];
+  if(route.startsWith('schedule'))return ['content','operations'];
   if(route.startsWith('extension'))return ['extensions'];
   return ['operations'];
 }
@@ -22,11 +23,12 @@ export function mutationDomains(path:string,body?:any):QueryDomain[]{
   if(route==='import/file'||route.startsWith('import')&&body?.options?.dryRun===true)return [];
   if(['publication','entry/check','entry/merge','entry/structure'].includes(route)||route.endsWith('/preview'))return [];
   if(route==='entry'||route==='entry/merge/save'||route==='restore')return ['content','terms','settings',...(route==='entry'&&body?.revision==null?['content-count' as const]:[])];
-  if(route.startsWith('entries/'))return ['content','terms','settings',...(route==='entries/create'||route==='entries/duplicate'||route==='entries/delete'?['content-count' as const]:[]),...(route==='entries/delete'?['publication','operations'] as const:[])];
+  if(route.startsWith('entries/'))return ['content','terms','settings',...(route==='entries/create'||route==='entries/duplicate'||route==='entries/delete'||route==='entries/trash/restore'?['content-count' as const]:[]),...(route==='entries/delete'?['publication','operations'] as const:[])];
   if(route==='settings')return ['settings'];
   if(route==='types'||route.startsWith('authoring/'))return ['models','content'];
   if(route==='terms')return ['terms','content','settings'];
   if(route==='layouts')return ['layouts'];
+  if(route.startsWith('media/replace/'))return route.endsWith('/preview')?[]:['media','content','operations'];
   if(route.startsWith('media')||route.startsWith('image-'))return ['media','operations'];
   if(route==='publish'||route==='rollback'||route==='withdraw')return ['publication','content','operations'];
   if(route.startsWith('import'))return ['models','settings','terms','layouts','content','content-count','media','operations'];
@@ -41,6 +43,9 @@ export function jobDomains(operation:string):QueryDomain[]{
   if(operation==='preflight-wxr')return [];
   if(operation==='publish')return mutationDomains('publish');
   if(operation==='entry-delete')return mutationDomains('entries/delete');
+  if(operation==='markdown-import')return mutationDomains('import');
+  if(operation==='analytics-archive'||operation==='analytics-restore')return ['analytics','operations'];
+  if(operation.includes('schedule'))return ['content','operations'];
   if(operation==='withdraw')return mutationDomains('withdraw');
   if(operation.startsWith('media'))return mutationDomains('media');
   if(operation.includes('wxr')||operation==='import-json'||operation==='import-source')return mutationDomains('import');

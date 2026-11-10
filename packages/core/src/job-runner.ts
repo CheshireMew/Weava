@@ -11,7 +11,7 @@ import {nextPublicationTime} from './publication-time.ts';
 import {queueScheduledPublications} from './schedules.ts';
 export interface JobRunnerOptions { framework: string; worker?: string; source?: boolean; concurrency?: number; maxQueued?: number; logBytes?: number; startPaused?: boolean; timeoutMs?:number;schedulePublications?:boolean }
 const publicationCommands=['publish','withdraw','entry-delete'];
-const backgroundCommands=['media-optimize','preflight-wxr','import-wxr','import-source','backup','verify','import-json','archive-history','restore-history','media','seo-audit','storage-scan'];
+const backgroundCommands=['media-optimize','preflight-wxr','import-wxr','import-source','backup','verify','import-json','archive-history','restore-history','media','seo-audit','storage-scan','markdown-export','markdown-preview','markdown-import','analytics-archive','analytics-restore'];
 export class JobRunner {
   private children = new Map<string,ChildProcess>();
   private timer: ReturnType<typeof setInterval>;
@@ -24,6 +24,7 @@ export class JobRunner {
   private dueAt:number|null=null;
   private lastDueAttempt=0;
   private administrationWarm=false;
+  private backgroundWarm?:Promise<unknown>;
   pause(value: boolean) { this.paused = value; if(!value&&this.service?.isStopped)this.service=new TaskService(this.site.root,this.options); if(!value&&this.background?.isStopped)this.background=new TaskService(this.site.root,this.options,1);if(!value&&this.publication?.isStopped)this.publication=new TaskService(this.site.root,this.options,1);this.refreshSchedule(); }
   refreshSchedule(){
     if(!this.options.schedulePublications||this.stopped||this.paused||!this.site.store.raw.open){clearTimeout(this.dueTimer);this.dueTimer=undefined;this.dueAt=null;return;}
@@ -115,10 +116,16 @@ export class JobRunner {
     }
   }
   warmPublication(){return this.publication.run('publication-warm',{});}
+  warmBackground(){
+    if(this.paused||this.stopped)return Promise.resolve();
+    if(this.backgroundWarm&&this.background.processCount)return this.backgroundWarm;
+    const work=this.background.run('background-warm',{}).catch(error=>{if(this.backgroundWarm===work)this.backgroundWarm=undefined;throw error;});
+    this.backgroundWarm=work;return work;
+  }
   warmAdministration(){
     if(this.administrationWarm||this.paused||this.stopped)return;
     this.administrationWarm=true;
-    void Promise.all([this.service.run('command-warm',{}),this.background.run('background-warm',{})])
+    void Promise.all([this.service.run('command-warm',{}),this.warmBackground()])
       .catch(()=>{this.administrationWarm=false;});
   }
   private runManaged(job:Job){

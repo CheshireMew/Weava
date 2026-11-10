@@ -160,7 +160,7 @@ export function Toolbar({
         $patchStyleText(selection, {'background-color': highlightColors[value as keyof typeof highlightColors]?.value ?? null});
       }
     });
-    else if (command === 'quote' || command === 'code') block(command);
+    else if (command === 'quote' || command === 'code') block(blockType === command ? 'paragraph' : command);
     else if (command === 'bullet' || command === 'ordered') editor.dispatchCommand(command === 'bullet' ? INSERT_UNORDERED_LIST_COMMAND : INSERT_ORDERED_LIST_COMMAND, undefined);
     else if (command === 'link') editor.dispatchCommand(OPEN_LINK_EDITOR_COMMAND, undefined);
     else if (command === 'video') captureLink();

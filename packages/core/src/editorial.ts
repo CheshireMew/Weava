@@ -1,3 +1,4 @@
+import {textFor} from '@weava/contracts';
 import { WeavaError, type Block, type Entry, type PublishedEntry, type Release } from '@weava/contracts';
 import { escape as e, plain, renderDocument } from './documents.ts';
 import { selectEntries } from './query.ts';
@@ -87,10 +88,11 @@ export function validateEditorial(release: Release) {
   }
 }
 export function renderDocumentNavigation(entry: Entry, release: Release) {
+  const t=textFor(release.settings.language);
   const nav = documentNavigation(entry, release); if (!nav) return { before: '', after: '' };
   const link = (item: Entry, rel = '') => `<a href="${e(item.path)}"${rel ? ` rel="${rel}"` : ''}>${e(item.title)}</a>`;
   const depth = (item: Entry) => { let value = 0, parent = item.documentation?.parentId; while (parent && value < nav.items.length) { const target = nav.items.find((candidate) => candidate.id === parent); if (!target) break; value++; parent = target.documentation?.parentId; } return value; };
-  return { before: `<nav class="doc-breadcrumbs" aria-label="面包屑">${nav.breadcrumbs.map((item) => link(item)).join(' / ')}${nav.breadcrumbs.length ? ' / ' : ''}<span>${e(entry.title)}</span></nav><nav class="doc-navigation" aria-label="文档导航"><strong>${e(entry.documentation!.group)}</strong>${nav.items.map((item) => `<a href="${e(item.path)}" style="--doc-depth:${depth(item)}"${item.id === entry.id ? ' aria-current="page"' : ''}>${e(item.title)}</a>`).join('')}</nav>`, after: `<nav class="doc-pagination" aria-label="文档翻页">${nav.previous ? link(nav.previous, 'prev') : '<span></span>'}${nav.next ? link(nav.next, 'next') : ''}</nav>` };
+  return { before: `<nav class="doc-breadcrumbs" aria-label="${e(t("面包屑"))}">${nav.breadcrumbs.map((item) => link(item)).join(' / ')}${nav.breadcrumbs.length ? ' / ' : ''}<span>${e(entry.title)}</span></nav><nav class="doc-navigation" aria-label="${e(t("文档导航"))}"><strong>${e(entry.documentation!.group)}</strong>${nav.items.map((item) => `<a href="${e(item.path)}" style="--doc-depth:${depth(item)}"${item.id === entry.id ? ' aria-current="page"' : ''}>${e(item.title)}</a>`).join('')}</nav>`, after: `<nav class="doc-pagination" aria-label="${e(t("文档翻页"))}">${nav.previous ? link(nav.previous, 'prev') : '<span></span>'}${nav.next ? link(nav.next, 'next') : ''}</nav>` };
 }
 export function scopedFeed(release: Release, params: URLSearchParams) {
   return selectEntries(release.entries.filter((item) => item.kind === 'content' && item.visibility !== 'private' && item.indexable), { type: params.get('type') || undefined, category: params.get('category') || undefined }, release.types, release.terms)

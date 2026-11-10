@@ -63,7 +63,7 @@ it('keeps active conditions visible and clearable even when the filtered library
   const current=model();current.libraryType='post';current.status='changed';current.visibility='private';current.fieldFilters={rating:'5'};
   await act(async()=>root.render(<ContentLibrary model={current}/>));
   const conditions=host.querySelector('[aria-label="已生效的筛选"]')!;
-  expect(conditions.textContent).toContain('文章');expect(conditions.textContent).toContain('有未发布修改');expect(conditions.textContent).toContain('私密');expect(conditions.textContent).toContain('评分：5');
+  expect(conditions.textContent).toContain('文章');expect(host.querySelector('[aria-label="内容状态"] [aria-pressed="true"]')?.textContent).toBe('有未发布修改');expect(conditions.textContent).toContain('私密');expect(conditions.textContent).toContain('评分：5');
   await act(async()=>[...conditions.querySelectorAll('button')].find(button=>button.textContent==='清除筛选')!.click());
   expect(current.setLibraryType).toHaveBeenCalledWith('');expect(current.setStatus).toHaveBeenCalledWith('all');expect(current.setVisibility).toHaveBeenCalledWith('all');expect(current.setFieldFilters).toHaveBeenCalledWith({});
 });
@@ -183,6 +183,41 @@ it('uses the existing status and sorting setters from the new controls', async (
   expect(current.setLibraryPage).toHaveBeenCalledWith(1);
 });
 
+it('keeps content and scheduling statuses in one control and resets pagination when selecting any status', async () => {
+  const current = model(); current.libraryPage = 3;
+  await act(async () => root.render(<ContentLibrary model={current} />));
+  const statuses = host.querySelectorAll<HTMLButtonElement>('[aria-label="内容状态"] button');
+  expect([...statuses].map(button => button.textContent)).toEqual(['全部', '已发布', '草稿', '有未发布修改', '已安排发布', '定时发布失败', '已归档']);
+  for (const [index, status] of ['all', 'published', 'draft', 'changed', 'scheduled', 'schedule-failed', 'archived'].entries()) {
+    await act(async () => statuses[index].click());
+    expect(current.setStatus).toHaveBeenLastCalledWith(status);
+    expect(current.setLibraryPage).toHaveBeenLastCalledWith(1);
+    current.status = status;
+    await act(async () => root.render(<ContentLibrary model={current} />));
+    expect(host.querySelector('[aria-label="内容状态"] [aria-pressed="true"]')).toBe(statuses[index]);
+  }
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="筛选内容"]')!.click());
+  expect(document.querySelector('[aria-label="更多内容状态"]')).toBeNull();
+  expect(document.querySelector('[aria-label="内容可见性"]')).not.toBeNull();
+});
+
+it('shows one working clear action with and without matches for every active filter', async () => {
+  for (const filters of [{ filter: '不存在的标题' }, { status: 'draft' }, { status: 'changed' }, { status: 'archived' }, { visibility: 'private' }, { libraryType: 'post' }, { fieldFilters: { rating: '5' } }]) {
+    const current = { ...model(), ...filters };
+    for (const empty of [false, true]) {
+      if (empty) { current.items = []; current.library = { total: 0, pages: 0 }; }
+      await act(async () => root.render(<ContentLibrary model={current} />));
+      const clears = [...host.querySelectorAll<HTMLButtonElement>('button')].filter(button => button.textContent === '清除筛选');
+      expect(clears).toHaveLength(1);
+      expect(host.querySelector('.library-empty') !== null).toBe(empty);
+      await act(async () => clears[0].click());
+      expect(current.setFilter).toHaveBeenLastCalledWith(''); expect(current.setStatus).toHaveBeenLastCalledWith('all');
+      expect(current.setVisibility).toHaveBeenLastCalledWith('all'); expect(current.setLibraryType).toHaveBeenLastCalledWith('');
+      expect(current.setFieldFilters).toHaveBeenLastCalledWith({}); expect(current.setLibraryPage).toHaveBeenLastCalledWith(1);
+    }
+  }
+});
+
 it('opens filters above the library and restores focus on Escape without changing the selection', async () => {
   const current = model();
   await act(async () => root.render(<ContentLibrary model={current} />));
@@ -191,8 +226,8 @@ it('opens filters above the library and restores focus on Escape without changin
   await act(async () => trigger.click());
   const popup = document.querySelector('[role="dialog"][aria-label="筛选内容"]')!;
   expect(popup).not.toBeNull(); expect(host.contains(popup)).toBe(false);
-  await act(async () => { const select = popup.querySelector<HTMLSelectElement>('[aria-label="更多内容状态"]')!; select.value = 'changed'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-  expect(current.setStatus).toHaveBeenCalledWith('changed');
+  await act(async () => { const select = popup.querySelector<HTMLSelectElement>('[aria-label="内容可见性"]')!; select.value = 'private'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(current.setVisibility).toHaveBeenCalledWith('private');
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
   expect(document.querySelector('[role="dialog"][aria-label="筛选内容"]')).toBeNull();
   expect(document.activeElement).toBe(trigger);

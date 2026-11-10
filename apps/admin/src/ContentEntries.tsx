@@ -2,6 +2,7 @@ import {ArrowUpRight,Eye,FileText,Heart,MessageCircle} from 'lucide-react';
 import type {ContentLibraryModel} from './content-models.ts';
 import {entryStatus} from './EntryStatus.tsx';
 import {EntryActions} from './EntryActions.tsx';
+import {ScheduleSummary} from './ScheduleSummary.tsx';
 
 const date = (value: string) => new Date(value).toLocaleDateString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' });
 function valueFor(row: any, key: string) {
@@ -13,7 +14,7 @@ function valueFor(row: any, key: string) {
   return typeof value === 'object' ? '字段组' : String(value);
 }
 
-export function ContentEntries({ model, selectable = false, showType = false }: { model: Pick<ContentLibraryModel,'items'|'state'|'libraryLoading'|'filter'|'searchTerm'|'bulkIds'|'setBulkIds'|'select'|'tab'|'busy'|'actions'>; selectable?: boolean; showType?: boolean }) {
+export function ContentEntries({ model, selectable = false, showType = false }: { model: Pick<ContentLibraryModel,'timezone'|'items'|'state'|'libraryLoading'|'filter'|'searchTerm'|'bulkIds'|'setBulkIds'|'select'|'tab'|'busy'|'actions'>; selectable?: boolean; showType?: boolean }) {
   const { items, state, libraryLoading, filter, searchTerm, bulkIds, setBulkIds, select, tab } = model;
   const disabled = libraryLoading || filter !== searchTerm || model.busy;
   const selected = items.length > 0 && items.every((row: any) => bulkIds.includes(row.id));
@@ -32,7 +33,7 @@ export function ContentEntries({ model, selectable = false, showType = false }: 
       return <article role="listitem" className={'publication-row' + (bulkIds.includes(row.id) ? ' checked' : '')} key={row.id}>
         {selectable && <label className="publication-selection"><input type="checkbox" disabled={disabled} aria-label={'批量选择 ' + row.value.title} checked={bulkIds.includes(row.id)} onChange={event => { const checked = event.currentTarget.checked; setBulkIds(ids => checked ? [...ids, row.id] : ids.filter(id => id !== row.id)); }} /></label>}
         <button className="publication-open" disabled={model.busy} onClick={() => select(row.id)}>
-          <span className="publication-cover" aria-hidden="true">{row.value.cover ? <img src={row.thumbnail ?? row.value.cover} alt="" loading="lazy" decoding="async" /> : <FileText size={26} strokeWidth={1.4} />}</span>
+          <span className="publication-cover" aria-hidden="true">{row.value.cover ? <img src={row.thumbnail ?? row.value.cover} srcSet={row.thumbnailSrcset} sizes={row.thumbnailSizes} alt="" loading="lazy" decoding="async" /> : <FileText size={26} strokeWidth={1.4} />}</span>
           <span className="publication-copy"><span className="publication-title">{row.value.title || '无标题'}</span>
             {tab === 'pages' && <span className="publication-page-path">{row.value.path === '/' ? '首页' : row.value.path}</span>}
             <span className="publication-meta">
@@ -47,6 +48,7 @@ export function ContentEntries({ model, selectable = false, showType = false }: 
             {custom.length > 0 && <span className="publication-custom">{custom.map(key => <span key={key}>{type?.fields.find((field: any) => field.key === key)?.label ?? key}：{valueFor(row, key)}</span>)}</span>}
           </span>
         </button>
+        {!!row.schedules?.length&&<ScheduleSummary items={row.schedules} timezone={model.timezone} onError={model.actions.setError}/>}
         {published && publishedPath && <a className="publication-visit" href={publishedPath} target="_blank" rel="noopener noreferrer" aria-label={'打开'+(type?.label ?? '内容')+'：'+row.value.title} title={'打开'+(type?.label ?? '内容')}><ArrowUpRight size={20} aria-hidden="true"/></a>}
         <EntryActions row={row} model={model.actions} disabled={disabled || model.busy} />
       </article>;

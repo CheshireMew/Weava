@@ -30,7 +30,18 @@ export async function executeManagedJob(site:Site,job:Job,content:()=>Promise<{m
     } else if(job.operation==='backup'){
       result=await(await import('./backup.ts')).createBackup(site,job.payload.path??process.env.WEAVA_BACKUP_ROOT??'D:/Tools/weava/backups',job.payload.label);
     } else if(job.operation==='verify'){
-      result=(await import('./backup.ts')).verifyBackup(job.payload.path);
+      const {recordBackupVerification}=await import('./backup-management.ts');
+      try{result=(await import('./backup.ts')).verifyBackup(job.payload.path);recordBackupVerification(site,job.payload.path);}
+      catch(error:any){recordBackupVerification(site,job.payload.path,error.message);throw error;}
+    } else if(job.operation.startsWith('markdown-')){
+      await content();const markdown=await import('./markdown-folder.ts');
+      if(job.operation==='markdown-export')result=markdown.exportMarkdownFolder(site,job.payload.path,job.payload.budgetBytes);
+      else if(job.operation==='markdown-preview')result=markdown.previewMarkdownFolder(site,job.payload.path,job.payload.options);
+      else if(job.operation==='markdown-import')result=await markdown.importMarkdownFolder(site,job.payload.path,job.payload.options);
+      else throw new WeavaError('未知 Markdown 操作。');
+    } else if(job.operation==='analytics-archive'||job.operation==='analytics-restore'){
+      const {Analytics}=await import('./analytics.ts'),analytics=new Analytics(site.root);
+      try{result=job.operation==='analytics-archive'?analytics.archive(job.payload.before,job.payload.review,job.payload.budgetBytes):analytics.restoreArchive(job.payload.id);}finally{analytics.close();}
     } else if(job.operation==='import-json'){
       result=(await import('./json-import.ts')).executeJsonImport(site,job.id,job.payload);
     } else if(job.operation==='archive-history'){

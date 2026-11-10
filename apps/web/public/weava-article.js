@@ -1,4 +1,7 @@
 (() => {
+  const messages=JSON.parse(document.getElementById('weava-i18n')?.textContent||'{}');
+  const t=(text,values={})=>(messages[text]||text).replace(/\{(\w+)\}/g,(match,key)=>values[key]===undefined?match:String(values[key]));
+
   const track = (name) => document.dispatchEvent(new CustomEvent('weava:analytics', { detail: { name } }));
   const toc = document.querySelector('[data-toc]');
   if (toc) {
@@ -10,7 +13,7 @@
       panel.hidden = !open;
       backdrop.hidden = !open;
       handle.setAttribute('aria-expanded', String(open));
-      handle.setAttribute('aria-label', open ? '收起文章目录' : '展开文章目录');
+      handle.setAttribute('aria-label', t(open ? '收起文章目录' : '展开文章目录'));
     };
     handle.addEventListener('click', () => setOpen(toc.dataset.open !== 'true'));
     toc.querySelectorAll('[data-toc-close]').forEach((button) => button.addEventListener('click', () => setOpen(false)));
@@ -57,9 +60,9 @@
     try { await navigator.clipboard.writeText(canonical); }
     catch {
       const input = document.createElement('textarea'); input.value = canonical; input.style.position = 'fixed'; input.style.opacity = '0'; document.body.append(input); input.select();
-      const copied = document.execCommand('copy'); input.remove(); if (!copied) throw new Error('复制失败，请从地址栏复制链接。');
+      const copied = document.execCommand('copy'); input.remove(); if (!copied) throw new Error(t('复制失败，请从地址栏复制链接。'));
     }
-    notify('链接已复制'); track('article:copy');
+    notify(t('链接已复制')); track('article:copy');
   };
   const moreButtons = [...document.querySelectorAll('[data-article-action="more"]')];
   const menuFor = button => document.getElementById(button.getAttribute('aria-controls'));
@@ -134,7 +137,7 @@
   async function api(action, data) {
     const response = await fetch('/api/v1/' + action, { method: data === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: data === undefined ? undefined : JSON.stringify({ ...data, id: entryId }) });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || '操作失败，请稍后重试。');
+    if (!response.ok) throw new Error(t(result.error || '操作失败，请稍后重试。'));
     return result;
   }
   const updateCounts = (data) => {
@@ -154,15 +157,15 @@
       author.textContent = item.author; time.dateTime = item.createdAt;
       time.textContent = new Intl.DateTimeFormat(document.body.dataset.language || 'zh-CN', { dateStyle: 'medium', timeStyle: 'short', timeZone: document.body.dataset.timezone || 'Asia/Shanghai' }).format(new Date(item.createdAt));
       body.textContent = item.body; header.append(author);
-      if(item.isOwner){const badge=document.createElement('span');badge.className='comment-owner';badge.textContent='站主';header.append(badge);}
+      if(item.isOwner){const badge=document.createElement('span');badge.className='comment-owner';badge.textContent=t('站主');header.append(badge);}
       header.append(time); column.append(header);
-      if(item.replyTo){const target=document.createElement('small');target.textContent='回复 '+item.replyTo;column.append(target);}
+      if(item.replyTo){const target=document.createElement('small');target.textContent=t('回复 {name}',{name:item.replyTo});column.append(target);}
       column.append(body);
       const actions = document.createElement('div'); actions.className = 'nl-comment-actions';
-      const like = document.createElement('button'); like.type = 'button'; like.dataset.commentLike = item.id; like.setAttribute('aria-label', '点赞 ' + item.author + ' 的评论'); like.setAttribute('aria-pressed', String(!!item.liked)); like.disabled = commentLikePending.has(item.id);
+      const like = document.createElement('button'); like.type = 'button'; like.dataset.commentLike = item.id; like.setAttribute('aria-label', t('点赞 {name} 的评论',{name:item.author})); like.setAttribute('aria-pressed', String(!!item.liked)); like.disabled = commentLikePending.has(item.id);
       like.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 10H3v11h4M7 10l5-8c2 0 3 2 2 4l-1 4h6a2 2 0 0 1 2 2l-2 7a3 3 0 0 1-3 2H7Z" /></svg>';
-      const label = document.createElement('span'), count = document.createElement('span'); label.dataset.commentLikeLabel = ''; label.textContent = item.liked ? '已赞' : '点赞'; count.dataset.commentLikeCount = ''; count.textContent = item.likes || 0; count.hidden = !item.likes; like.append(label, count); actions.append(like);
-      if(form.dataset.closed!=='true'){const button=document.createElement('button');button.type='button';button.textContent='回复';button.dataset.replyId=item.id;button.dataset.replyAuthor=item.author;actions.append(button);}
+      const label = document.createElement('span'), count = document.createElement('span'); label.dataset.commentLikeLabel = ''; label.textContent = t(item.liked ? '已赞' : '点赞'); count.dataset.commentLikeCount = ''; count.textContent = item.likes || 0; count.hidden = !item.likes; like.append(label, count); actions.append(like);
+      if(form.dataset.closed!=='true'){const button=document.createElement('button');button.type='button';button.textContent=t('回复');button.dataset.replyId=item.id;button.dataset.replyAuthor=item.author;actions.append(button);}
       column.append(actions);
       article.append(avatar, column); list.append(article);
     });
@@ -194,7 +197,7 @@
       list.querySelectorAll('[data-comment-like]').forEach(item => {
         if (item.dataset.commentLike !== id) return;
         item.setAttribute('aria-pressed', String(result.liked));
-        item.querySelector('[data-comment-like-label]').textContent = result.liked ? '已赞' : '点赞';
+        item.querySelector('[data-comment-like-label]').textContent = t(result.liked ? '已赞' : '点赞');
         const count = item.querySelector('[data-comment-like-count]'); count.textContent = result.likes; count.hidden = !result.likes;
       });
     } catch (error) { notify(error.message); }
@@ -212,9 +215,9 @@
   if (form.dataset.closed === 'true') return;
   const authorInput = form.elements.author, bodyInput = form.elements.body, captchaInput = form.elements.captcha;
   const parentInput=form.elements.parentId,replyTarget=form.querySelector('[data-reply-target]');
-  const cancelReply=()=>{parentInput.value='';replyTarget.hidden=true;bodyInput.placeholder='写下你的'+noun+'…';submit.textContent='发布'+noun;};
+  const cancelReply=()=>{parentInput.value='';replyTarget.hidden=true;bodyInput.placeholder=t('写下你的'+noun+'…');submit.textContent=t('发布'+noun);};
   form.querySelector('[data-cancel-reply]').addEventListener('click',cancelReply);
-  list.addEventListener('click',event=>{const button=event.target.closest('[data-reply-id]');if(!button)return;parentInput.value=button.dataset.replyId;replyTarget.querySelector('span').textContent='回复 '+button.dataset.replyAuthor;replyTarget.hidden=false;bodyInput.placeholder='回复 '+button.dataset.replyAuthor+'…';submit.textContent='发布回复';bodyInput.focus();});
+  list.addEventListener('click',event=>{const button=event.target.closest('[data-reply-id]');if(!button)return;parentInput.value=button.dataset.replyId;replyTarget.querySelector('span').textContent=t('回复 {name}',{name:button.dataset.replyAuthor});replyTarget.hidden=false;bodyInput.placeholder=t('回复 {name}',{name:button.dataset.replyAuthor})+'…';submit.textContent=t('发布回复');bodyInput.focus();});
   const captchaRow = form.querySelector('[data-captcha-row]'), captchaImage = form.querySelector('[data-captcha-image]'), refresh = form.querySelector('[data-refresh-captcha]'), submit = form.querySelector('[type="submit"]');
   let captchaId = '', captchaPending, posting = false, clientId = '', signature = '';
   try { authorInput.value = localStorage.getItem('weava-comment-author') || ''; } catch {}
@@ -235,7 +238,7 @@
     const submitted = { author: authorInput.value, body: bodyInput.value, parentId: parentInput.value };
     const current = JSON.stringify([submitted.author.trim(), submitted.body.trim(), submitted.parentId]);
     if (!clientId || signature !== current) { signature = current; clientId = crypto.randomUUID(); }
-    posting = true; submit.disabled = true; submit.textContent = '发布中…'; showMessage('');
+    posting = true; submit.disabled = true; submit.textContent = t('发布中…'); showMessage('');
     try {
       const data = await api('comment', { ...submitted, parentId: submitted.parentId || null, captchaId, captcha: captchaInput.value, clientId });
       track('article:comment');
@@ -243,9 +246,9 @@
       try { localStorage.setItem('weava-comment-author', authorInput.value.trim()); } catch {}
       const unchanged = authorInput.value === submitted.author && bodyInput.value === submitted.body && parentInput.value === submitted.parentId;
       if (unchanged) { bodyInput.value = ''; cancelReply(); }
-      captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; showMessage(data.comment?.status === 'pending' ? noun+'已提交，等待审核' : noun+'已发布');
+      captchaInput.value = ''; clientId = ''; signature = ''; captchaId = ''; captchaRow.hidden = true; captchaInput.disabled = true; showMessage(t(data.comment?.status === 'pending' ? noun+'已提交，等待审核' : noun+'已发布'));
       if (!unchanged) await loadCaptcha();
     } catch (error) { showMessage(error.message); captchaId = ''; await loadCaptcha(); }
-    finally { posting = false; submit.disabled = !captchaId; submit.textContent = parentInput.value ? '发布回复' : '发布'+noun; }
+    finally { posting = false; submit.disabled = !captchaId; submit.textContent = t(parentInput.value ? '发布回复' : '发布'+noun); }
   });
 })();

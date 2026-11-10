@@ -4,6 +4,7 @@ import {Storage} from './storage.ts';
 import {now,uuid,digest} from '../../runtime-common/src/identity.ts';
 
 import {WeavaError,type Job} from '@weava/contracts';
+import {appendSiteEvent} from './site-events.ts';
 export class JobStore {
   constructor(private store: Storage) {}
   job(id: string): Job {
@@ -54,10 +55,14 @@ export class JobStore {
   }
   updateJob(id: string, updates: Partial<Job>) {
     return this.store.raw.transaction(()=>{
-    const job = { ...this.job(id), ...updates, updatedAt: now() };
+    const previous=this.job(id),job = { ...previous, ...updates, updatedAt: now() };
     this.store.raw
       .prepare('UPDATE jobs SET status=?,data=? WHERE id=?')
       .run(job.status, JSON.stringify(job), id);
+    if(previous.status!==job.status&&['complete','failed','cancelled','recovery_required'].includes(job.status)&&['publish','backup'].includes(job.operation)) {
+      const type=job.operation==='backup'?'backup':job.payload?.scheduleId?'publication.scheduled':'publication';
+      appendSiteEvent(this.store.raw,type+'.'+job.status,{jobId:id,operation:job.operation,status:job.status,message:job.message,...(job.result?.releaseId?{releaseId:job.result.releaseId}:{}),...(job.payload?.scheduleId?{scheduleId:job.payload.scheduleId}:{})},'job:'+id+':'+job.status);
+    }
     return job;
     }).immediate();
   }

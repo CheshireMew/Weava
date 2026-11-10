@@ -1,9 +1,10 @@
 import { useContext } from 'react';
-import { DateRangeMenu } from './DateRangeMenu.tsx';
+import { rangeLabel } from './date-ranges.ts';
 import { ReportWorkspace } from './report-workspace.ts';
 
 export function ReportPeriod({ label }: { label: string }) {
   const workspace = useContext(ReportWorkspace);
   if (!workspace) return null;
-  return <DateRangeMenu label={label} {...workspace.data.range} disabled={workspace.loading} onChange={workspace.changeRange} />;
+  const { start, end, timezone } = workspace.data.range;
+  return <span className="analytics-report-period" aria-label={label + '统计范围'} title={start + ' — ' + end}>{rangeLabel(start, end, timezone)}</span>;
 }

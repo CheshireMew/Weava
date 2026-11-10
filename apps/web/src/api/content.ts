@@ -22,6 +22,7 @@ import {
 } from '@weava/core';
 
 import { applyBulkEdit, previewBulkEdit } from '@weava/core';
+import {trashedContent,restoreTrashedContent,purgeTrashedContent} from '@weava/core';
 
 import type { AdminHandlers, ApiServices } from './types.ts';
 export function contentHandlers(
@@ -46,6 +47,9 @@ export function contentHandlers(
       return createContent(site, data);
     },
     duplicateEntry: async ({ body: data }) => duplicateContent(site, data.id, data.revision),
+    trash: async ({query})=>trashedContent(site,{query:query.q,kind:query.kind,page:query.page,pageSize:query.pageSize}),
+    restoreTrash: async ({body})=>restoreTrashedContent(site,body.id,body.revision),
+    purgeTrash: async ({body})=>purgeTrashedContent(site,body.id,body.revision,body.confirmation),
     deleteEntry: async ({ body: data }, context) =>
       jobs.command(
         'entry-delete',
@@ -135,6 +139,9 @@ export function contentHandlers(
     | 'createEntry'
     | 'duplicateEntry'
     | 'deleteEntry'
+    | 'trash'
+    | 'restoreTrash'
+    | 'purgeTrash'
     | 'getEntry'
     | 'saveEntry'
     | 'checkEntry'

@@ -37,6 +37,14 @@
     activeMs = 0,
     tick = now(),
     maxScroll = 0;
+  let searchId = '';
+  function searchView() {
+    const results=document.querySelector('[data-search-query]'),query=results?.dataset.searchQuery?.trim();
+    if(!query||searchId)return;
+    let previous=null;try{previous=JSON.parse(local?.getItem('weava-search-context')||'null');}catch{}
+    if(Number(results.dataset.searchPage)>1&&previous?.query===query&&now()-previous.at<1800000)searchId=previous.id;
+    else {searchId=add('search',{query,total:Number(results.dataset.searchTotal)});try{local?.setItem('weava-search-context',JSON.stringify({id:searchId,query,at:now()}));}catch{}}
+  }
   const key = 'weava-events-v2';
   let queue = [];
   try {
@@ -148,6 +156,7 @@
       maxScroll = 0;
       tick = now();
       viewId = add('view');
+      searchView();
     }
   }
   function measure() {
@@ -222,6 +231,7 @@
   document.addEventListener('click', (event) => {
     const a = event.target instanceof Element ? event.target.closest('a[href]') : null;
     if (!a || !viewed) return;
+    if(a.hasAttribute('data-search-result')&&searchId)add('search-click',{searchId,target:a.getAttribute('href')});
     let target;
     try {
       target = new URL(a.href);

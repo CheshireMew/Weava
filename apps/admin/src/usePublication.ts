@@ -26,7 +26,7 @@ export function usePublication(refresh:()=>Promise<any>,setError:(message:string
     finally{active.current.delete(key);setSubmitting(items=>items.filter(item=>item.key!==key));}
   }
   async function task(operation:'publish'|'backup'|'verify',payload:any={},reviewed=false){
-    if(operation==='publish'&&!reviewed&&payload.ids?.length!==1){
+    if(operation==='publish'&&!reviewed){
       if(active.current.has('review'))return;active.current.add('review');setSubmitting(items=>[...items,{key:'review',operation,ids:payload.ids}]);setError('');
       try{const review=await api('publication',payload);setPublication(review);return review;}catch(error:any){setError(error.message);}finally{active.current.delete('review');setSubmitting(items=>items.filter(item=>item.key!=='review'));}
       return;

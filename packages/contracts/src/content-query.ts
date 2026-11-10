@@ -1,4 +1,5 @@
 export const contentSorts = [
+  'relevance',
   'date',
   'oldest',
   'title',

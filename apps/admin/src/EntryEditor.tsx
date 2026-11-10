@@ -22,6 +22,21 @@ const Editor = lazy(() => import('./Editor.tsx').then((m) => ({ default: m.Edito
 
 const ImportedContentEditor = lazy(() => import('./ImportedContentEditor.tsx').then(module => ({ default: module.ImportedContentEditor })));
 
+function focusBodyStart(root: HTMLElement | null) {
+  const body = root?.querySelector('[data-field-path="document"], [data-field-path="blocks"]');
+  let target = body?.querySelector<HTMLElement>('[contenteditable="true"], textarea, iframe');
+  if (target instanceof HTMLIFrameElement) target = target.contentDocument?.querySelector<HTMLElement>('[contenteditable="true"]') ?? undefined;
+  if (!target) return;
+  target.focus();
+  if (target instanceof HTMLTextAreaElement) target.setSelectionRange(0, 0);
+  else {
+    const range = target.ownerDocument.createRange();
+    range.selectNodeContents(target.firstChild ?? target); range.collapse(true);
+    const selection = target.ownerDocument.getSelection();
+    selection?.removeAllRanges(); selection?.addRange(range);
+  }
+}
+
 export function EntryEditor({ model }: { model: EntryEditorModel }) {
   const {record,dirty,saving,editorEpoch,contentCheck,persist,update,clear,state,busy,setError,newEntry,publish}=model;
   const selectors = useSelectors();
@@ -189,6 +204,11 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                   value={record.value.title}
                   placeholder="未命名内容"
                   onChange={(e) => update({ title: e.target.value })}
+                  onKeyDown={event => {
+                    if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    event.preventDefault();
+                    focusBodyStart(editorRoot.current);
+                  }}
                 />
                 {!article && publication && <EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} />}
               </div>

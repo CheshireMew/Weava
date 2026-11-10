@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { open as openFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import {createHash} from 'node:crypto';
+import {mediaUploadLimit} from '@weava/contracts';
 import type { CliContext } from '../context.ts';
 
 export function registerContentCommands({
@@ -48,7 +49,8 @@ export function registerContentCommands({
       try {
         const info = await handle.stat();
         if (!info.isFile()) throw new Error('请选择普通文件。');
-        if(info.size<1||info.size>32*1024*1024)throw new Error('附件大小需要在 32 MB 以内。');
+        const maximum=mediaUploadLimit(basename(path),await request('media/limits'));
+        if(info.size<1||info.size>maximum)throw new Error('附件大小需要在 '+maximum/1048576+' MB 以内。');
         const hash=createHash('sha256'),part=Buffer.allocUnsafe(1024*1024);
         for(let offset=0;offset<info.size;){const {bytesRead}=await handle.read(part,0,Math.min(part.length,info.size-offset),offset);if(!bytesRead)throw new Error('文件在校验期间发生变化。');hash.update(part.subarray(0,bytesRead));offset+=bytesRead;}
         const sha256=hash.digest('hex');
@@ -93,7 +95,15 @@ export function registerContentCommands({
 
   for (const name of ['content', 'page', 'settings', 'media']) {
     const command = program.command(name);
+    if(name==='content'||name==='page'){
+      const trash=command.command('trash');
+      trash.command('list').option('--page <page>','页码','1').option('--query <text>').action(async options=>output(await request('entries/trash?'+new URLSearchParams({page:options.page,kind:name==='page'?'page':'content',...(options.query?{q:options.query}:{})}))));
+      trash.command('restore').requiredOption('--id <id>').requiredOption('--revision <revision>').action(async options=>output(await request('entries/trash/restore',{id:options.id,revision:Number(options.revision)})));
+      trash.command('purge').requiredOption('--id <id>').requiredOption('--revision <revision>').requiredOption('--confirm <text>','必须明确填写“永久删除”').action(async options=>output(await request('entries/trash/purge',{id:options.id,revision:Number(options.revision),confirmation:options.confirm})));
+    }
     if (name === 'media') {
+      const replacement=command.command('replace');
+      replacement.requiredOption('--from <id>').requiredOption('--to <id>').option('--ids <ids>','逗号分隔的内容编号').option('--review <review>','提交预检返回的 review；未提供时只预检').action(async options=>output(await request(options.review?'media/replace/apply':'media/replace/preview',{fromId:options.from,toId:options.to,...(options.ids?{ids:options.ids.split(',')}:{}),...(options.review?{review:options.review}:{})})));
       const groups = command.command('group');
       const presets = command.command('preset');
       presets.command('list').action(async () => output(await request('media/presets')));
@@ -205,7 +215,7 @@ export function registerContentCommands({
       .option('--type <type>', '内容类型')
       .option('--category <category>', '分类编号或名称')
       .option('--tag <tag>', '标签编号或名称')
-      .option('--query <text>', '标题和摘要')
+      .option('--query <text>', '标题、摘要和正文')
       .option('--status <status>', '内容状态')
       .option('--visibility <visibility>', '可见性')
       .option('--field <key=value...>', '声明为可筛选的字段条件')

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import sharp from 'sharp';
 import { WeavaError } from '@weava/contracts';
+import {appendSiteEvent} from './site-events.ts';
 
 export interface ArticleComment {
   id: string;
@@ -127,6 +128,7 @@ export class Engagement {
       const comment: ArticleComment = { id: randomBytes(16).toString('hex'), entryId, author, body, createdAt: new Date(time).toISOString(), status };
       this.db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)').run(comment.id, entryId, reader, networkKey, value.clientId, author, body, status, comment.createdAt);
       this.db.prepare('INSERT INTO comment_threads VALUES(?,?,0)').run(comment.id,value.parentId??null);
+      if(status==='pending')appendSiteEvent(this.db,'comment.pending',{id:comment.id,entryId,author:comment.author},'comment:'+comment.id);
       return this.decorate(comment);
     }).immediate();
   }
@@ -145,13 +147,31 @@ export class Engagement {
       return this.decorate(comment,true);
     }).immediate();
   }
-  comments(status: string = 'all', page = 1) {
-    const parameters = ['visible', 'hidden', 'pending'].includes(status) ? [status] : [];
-    const where = parameters.length ? 'WHERE status=?' : '';
+  comments(status: string = 'all', page = 1, filters: {query?:string;author?:string;entryId?:string;start?:string;end?:string} = {}) {
+    const parameters: string[] = [], clauses: string[] = [];
+    const add = (sql:string,value:string) => {clauses.push(sql);parameters.push(value);};
+    if (['visible','hidden','pending'].includes(status)) add('status=?',status);
+    if (filters.query?.trim()) add("instr(lower(author||' '||body),lower(?))>0",filters.query.trim());
+    if (filters.author?.trim()) add('instr(lower(author),lower(?))>0',filters.author.trim());
+    if (filters.entryId) add('entry_id=?',filters.entryId);
+    for (const key of ['start','end'] as const) if (filters[key]) {
+      const date=filters[key]!;
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date) throw new WeavaError('评论日期无效。');
+      add(key==='start'?'created_at>=?':'created_at<?',key==='start'?date+'T00:00:00.000Z':new Date(Date.parse(date)+86400000).toISOString());
+    }
+    if(filters.start&&filters.end&&filters.start>filters.end)throw new WeavaError('开始日期不能晚于结束日期。');
+    const where = clauses.length ? 'WHERE '+clauses.join(' AND ') : '';
     const offset = (Math.max(1, Math.floor(page) || 1) - 1) * 30;
     const total = (this.db.prepare(`SELECT COUNT(*) count FROM article_comments ${where}`).get(...parameters) as any).count as number;
     const items = this.db.prepare(`SELECT id,entry_id entryId,author,body,status,created_at createdAt FROM article_comments ${where} ORDER BY created_at DESC,rowid DESC LIMIT 30 OFFSET ?`).all(...parameters, offset) as ArticleComment[];
     return { items:items.map(row=>this.decorate(row,true)), total, hasMore: offset + items.length < total };
+  }
+  moderateMany(items:{id:string;expectedStatus:string}[],status:'visible'|'hidden') {
+    if(!Array.isArray(items)||!items.length||items.length>200||new Set(items.map(item=>item.id)).size!==items.length)throw new WeavaError('请选择 1～200 条不同评论。');
+    return this.db.transaction(()=>{
+      for(const item of items){const row=this.db.prepare('SELECT status FROM article_comments WHERE id=?').get(item.id) as {status:string}|undefined;if(!row||row.status!==item.expectedStatus)throw new WeavaError('评论状态已变化，请刷新后重新选择。',409,{id:item.id});}
+      return items.map(item=>this.moderate(item.id,status));
+    }).immediate();
   }
   moderate(id: string, status: string) {
     if (!['visible', 'hidden'].includes(status)) throw new WeavaError('评论状态无效。');

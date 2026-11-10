@@ -72,6 +72,12 @@ export function useContentLibrary(
   const empty: ContentPage = { items: [], total: 0, pages: 0, page: 1, pageSize: 25 };
   const library =
     local?.key === queryKey && local.source === query.data ? local.value : (query.data ?? empty);
+  useEffect(()=>{
+    const due = library.items.flatMap(row=>row.schedules??[]).filter(item=>item.status!=='failed').map(item=>Date.parse(item.dueAt));
+    if(!due.length)return;
+    const timer=setTimeout(()=>{if(document.visibilityState!=='hidden')void query.refresh().catch(()=>{});},Math.min(30000,Math.max(1000,Math.min(...due)-Date.now()+200)));
+    return ()=>clearTimeout(timer);
+  },[library,query.refresh]);
   const setLibrary = useCallback(
     (next: React.SetStateAction<ContentPage>) =>
       setLocal((previous) => {

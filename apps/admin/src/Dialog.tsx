@@ -1,11 +1,12 @@
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode, type ClipboardEventHandler } from 'react';
 
-export function Dialog({ children, label, className = 'modal', onClose, dismissible = true }: {
+export function Dialog({ children, label, className = 'modal', onClose, dismissible = true, onPaste }: {
   children: ReactNode;
   label: string;
   className?: string;
   onClose: () => void;
   dismissible?: boolean;
+  onPaste?: ClipboardEventHandler<HTMLDialogElement>;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   useLayoutEffect(() => {
@@ -18,7 +19,7 @@ export function Dialog({ children, label, className = 'modal', onClose, dismissi
       if (previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, []);
-  return <dialog ref={ref} className={className} aria-label={label} onCancel={(event) => {
+  return <dialog ref={ref} className={className} aria-label={label} onPaste={onPaste} onCancel={(event) => {
     event.preventDefault();
     event.stopPropagation();
     if (dismissible) onClose();

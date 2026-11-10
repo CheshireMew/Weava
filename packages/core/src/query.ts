@@ -3,6 +3,7 @@ import type {Site} from './site.ts';
 import {wordpressArchivePage,wordpressPagePath} from './wordpress-archives.ts';
 import type {Entry} from '@weava/contracts';
 import {queryPublicCatalog} from './public-query.ts';
+import {defaultArticleCover} from './entry-cover.ts';
 import {paginate,validateQueryFields,taxonomyIds,queryOrder,compareContent,contentSqlFilters} from './query-rules.ts';
 export {paginate,validateQueryFields,taxonomyIds} from './query-rules.ts';
 export function queryPublished(site: Site, input: ContentQuery = {}, search = false, releaseId?: string) {
@@ -19,14 +20,18 @@ export function queryDrafts(site: Site, input: ContentQuery & { status?: string;
   if(input.visibility&&input.visibility!=='all')eq('l.visibility=?',input.visibility);
   if(input.status==='published')clauses.push('p.entry_id IS NOT NULL');
   else if(input.status==='changed')clauses.push('p.entry_id IS NOT NULL AND p.revision<>l.revision');
+  else if(input.status==='scheduled'||input.status==='schedule-failed')eq("EXISTS(SELECT 1 FROM records s WHERE s.scope='publication-schedule' AND json_extract(s.data,'$.entryId')=l.id AND json_extract(s.data,'$.status')=?)",input.status==='scheduled'?'scheduled':'failed');
   else if(input.status&&input.status!=='all')eq('p.entry_id IS NULL AND l.status=?',input.status);
   const order=queryOrder(input.sort);
   const from=`FROM entry_list l LEFT JOIN published_entry_revisions p ON p.entry_id=l.id AND p.release_id=(SELECT value FROM state WHERE key='release')${clauses.length?' WHERE '+clauses.join(' AND '):''}`;
   const total=(site.store.raw.prepare('SELECT COUNT(*) n '+from).get(...args) as {n:number}).n;
   const selected=site.store.raw.prepare('SELECT l.id,l.revision,l.summary,l.fields,l.updated_at,p.revision published_revision '+from+' ORDER BY '+order.draft+',l.id LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string;revision:number;summary:string;fields:string;updated_at:string;published_revision:number|null}[];
   return {page,pageSize,total,pages:Math.ceil(total/pageSize),items:selected.map(row=>{
-    const value=JSON.parse(row.summary),fields=JSON.parse(row.fields),columns=types.find(type=>type.id===value.type)?.admin?.columns??[];
-    return {id:row.id,revision:row.revision,updatedAt:row.updated_at,published:row.published_revision!==null,hasChanges:row.published_revision!==row.revision,value:{...value,fields:Object.fromEntries(columns.filter(key=>Object.hasOwn(fields,key)).map(key=>[key,fields[key]]))}};
+    const value=JSON.parse(row.summary),fields=JSON.parse(row.fields),type=types.find(type=>type.id===value.type),columns=type?.admin?.columns??[];
+    // Older summaries may lack the default photo; fill it without reading or rewriting the body.
+    value.cover ||= defaultArticleCover(value, type);
+    const schedules = (site.store.raw.prepare("SELECT id,revision,data FROM records WHERE scope='publication-schedule' AND json_extract(data,'$.entryId')=? AND json_extract(data,'$.status') IN ('scheduled','running','failed') ORDER BY json_extract(data,'$.dueAt'),id").all(row.id) as {id:string;revision:number;data:string}[]).map(item=>{const schedule=JSON.parse(item.data);return {id:item.id,revision:item.revision,dueAt:schedule.dueAt,status:schedule.status as 'scheduled'|'running'|'failed',...(schedule.error?{error:schedule.error}:{})};});
+    return {id:row.id,revision:row.revision,updatedAt:row.updated_at,published:row.published_revision!==null,hasChanges:row.published_revision!==row.revision,...(schedules.length?{schedules}:{}),value:{...value,fields:Object.fromEntries(columns.filter(key=>Object.hasOwn(fields,key)).map(key=>[key,fields[key]]))}};
   })};
 }
 
@@ -75,7 +80,7 @@ export function contentQuery(params: URLSearchParams): ContentQuery {
   return { page: Number(params.get('page') ?? 1), pageSize: Number(params.get('pageSize') ?? params.get('limit') ?? 24),
     kind: (kind ?? undefined) as ContentQuery['kind'], type: params.get('type') ?? undefined,
     author: params.get('author') ?? undefined, category: params.get('category') ?? undefined, tag: params.get('tag') ?? undefined,
-    query: params.get('q') ?? undefined, sort: (params.get('sort') ?? 'date') as ContentQuery['sort'], fields };
+    query: params.get('q') ?? undefined, sort: (params.get('sort') ?? undefined) as ContentQuery['sort'], fields };
 }
 
 /** Validate before Astro starts streaming a page. Only selected page blocks apply. */

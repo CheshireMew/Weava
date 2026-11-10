@@ -1,6 +1,6 @@
 import type { Release } from '@weava/contracts';
 import { systemRoutes } from '@weava/contracts';
-import { escape as e, scopedFeed } from '@weava/core';
+import { escape as e, scopedFeed, sanitize } from '@weava/core';
 import { load } from 'cheerio';
 export function publicDocumentResponse(release: Release, url: URL): Response | undefined {
   if(url.pathname===systemRoutes.searchIndex)
@@ -35,7 +35,7 @@ export function publicDocumentResponse(release: Release, url: URL): Response | u
     );
   if (url.pathname === systemRoutes.rss)
     return new Response(
-      '<?xml version="1.0"?><rss version="2.0"><channel><title>' +
+      '<?xml version="1.0"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>' +
         e(release.settings.name) +
         '</title><link>' +
         e(release.settings.domain) +
@@ -47,7 +47,14 @@ export function publicDocumentResponse(release: Release, url: URL): Response | u
             const date = v.publishedAt
               ? '<pubDate>' + new Date(v.publishedAt).toUTCString() + '</pubDate>'
               : '';
-            return `<item><title>${e(v.title)}</title><link>${e(release.settings.domain + v.path)}</link><guid isPermaLink="false">${e(v.id)}</guid><description>${e(v.description)}</description>${date}</item>`;
+            const mode = !v.rssMode || v.rssMode === 'inherit' ? release.settings.rssMode ?? 'summary' : v.rssMode;
+            let full = '';
+            if (mode === 'full') {
+              const body = load(sanitize(v.html), null, false);
+              body('[href],[src],[poster]').each((_i, element) => { for (const attribute of ['href','src','poster']) { const value = body(element).attr(attribute); if (value) try { body(element).attr(attribute,new URL(value, release.settings.domain + v.path).href); } catch {} } });
+              full = '<content:encoded>' + e(body.html()) + '</content:encoded>';
+            }
+            return `<item><title>${e(v.title)}</title><link>${e(new URL(v.path, release.settings.domain).href)}</link><guid isPermaLink="false">${e(v.id)}</guid><description>${e(v.description)}</description>${full}${date}</item>`;
           })
           .join('') +
         '</channel></rss>',

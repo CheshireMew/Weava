@@ -12,7 +12,7 @@ import { AdminNavigation } from '../apps/admin/src/AdminNavigation.tsx';
 import {useTaxonomyEditor} from '../apps/admin/src/TaxonomyManager.tsx';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
+vi.mock('../apps/admin/src/api.ts', () => ({ api: (path:string,...args:unknown[])=>path==='backup/policy'?Promise.resolve({id:'site',revision:null,updatedAt:'',value:{enabled:false,path:'D:/Tools/weava/backups',time:'03:00'},timezone:'Asia/Shanghai'}):path.startsWith('backup/inventory')?Promise.resolve({path:'D:/Tools/weava/backups',items:[],jobs:[]}):mocks.api(path,...args) }));
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 let host: HTMLDivElement, root: Root;
 let settings: Revision<Settings>;

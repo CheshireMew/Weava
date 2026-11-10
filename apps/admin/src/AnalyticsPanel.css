@@ -14,6 +14,7 @@
 .analytics-toolbar-actions button,.analytics-export { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:36px; padding:6px 10px; font-size:13px; border:1px solid var(--control-line); border-radius:var(--radius-control); background:var(--surface); color:var(--ink-secondary); white-space:nowrap; }
 .analytics-date-menu > button { display:inline-flex; align-items:center; gap:5px; min-height:28px; padding:3px 0; font-size:12px; border:0; background:transparent; color:var(--ink-muted); white-space:nowrap; }
 .analytics-date-menu > button:hover { background:var(--surface-soft); }
+.analytics-header-actions .analytics-date-menu > button { padding:6px 10px; border:1px solid var(--control-line); border-radius:var(--radius-control); font-size:13px; color:var(--ink-secondary); }
 .analytics-delta { font-size:11px; margin-left:4px; white-space:nowrap; }
 .analytics-delta.positive { color:var(--analytics-positive); }
 .analytics-delta.negative { color:var(--analytics-negative); }
@@ -178,7 +179,6 @@
   .analytics-section-navigation { margin-bottom:20px; }
   .analytics-section-navigation .analytics-tabs { width:max-content; }
   .analytics-tabs button { flex:0 0 auto; }
-  .analytics-card-footer .analytics-date-menu > button { min-height:34px; }
   .analytics-dashboard,.analytics-section-grid,.analytics-geography-grid { grid-template-columns:minmax(0,1fr); gap:20px; }
   .analytics-card { padding:16px; }
   .analytics-main,.analytics-sidebar { gap:20px; }

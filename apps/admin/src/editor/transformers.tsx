@@ -228,7 +228,10 @@ function descendants(nodes:LexicalNode[]){
 }
 /** Immutable nodes let unchanged groups reuse their Markdown, including nested edits and footnotes. */
 export function exportMarkdown(root: ElementNode = $getRoot()) {
-  const children=root.getChildren(),notes=new Map<string,string>(),parts:string[]=[];
+  let children=root.getChildren();
+  // The empty caret position above a leading divider is editor UI, not authored Markdown.
+  if(emptyParagraph(children[0])&&children[1] instanceof HorizontalRuleNode)children=children.slice(1);
+  const notes=new Map<string,string>(),parts:string[]=[];
   for(let index=0;index<children.length;index+=64){
     const group=children.slice(index,index+64),nodes=descendants(group),previous=markdownParts.get(group[0]);
     let part=previous;

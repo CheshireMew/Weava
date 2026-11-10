@@ -19,9 +19,11 @@ import { searchHandlers } from './search.ts';
 import { sessionHandlers } from './session.ts';
 import { accountHandlers } from './account.ts';
 import { json } from './transport.ts';
+import {eventHandlers} from './events.ts';
 
 export function createAdminHandlers(services: ApiServices) {
   return {
+    ...eventHandlers(services),
     ...contentHandlers(services),
     ...exchangeHandlers(services),
     ...commentsHandlers(services),

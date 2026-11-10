@@ -12,13 +12,13 @@ export function referenceSchema(db:Database.Database){
     CREATE TRIGGER IF NOT EXISTS reference_release_delete AFTER DELETE ON releases BEGIN DELETE FROM publication_entry_media WHERE release_id=OLD.id; END;`);
 }
 export function indexAuthoredMedia(db:Database.Database,scope:string,id:string,value:any){
-  if(!['entry','layout','settings'].includes(scope))return;
+  if(!['entry','entry-trash','layout','settings'].includes(scope))return;
   db.prepare('DELETE FROM authored_media_refs WHERE scope=? AND id=?').run(scope,id);
   db.prepare('DELETE FROM authored_layout_edges WHERE scope=? AND id=?').run(scope,id);
   const insert=db.prepare('INSERT OR IGNORE INTO authored_media_refs VALUES(?,?,?)'),edge=db.prepare('INSERT OR IGNORE INTO authored_layout_edges VALUES(?,?,?)');
-  for(const path of scope==='entry'?entryMediaReferences(value):mediaReferencesIn(value))insert.run(scope,id,path);
+  for(const path of scope==='entry'||scope==='entry-trash'?entryMediaReferences(value):mediaReferencesIn(value))insert.run(scope,id,path);
   const blocks=(items:Block[])=>{for(const block of items){if(block.type==='shared'&&block.props.layoutId)edge.run(scope,id,block.props.layoutId);blocks(block.children??[]);}};
-  if(scope==='entry')edge.run(scope,id,value.template??(value.kind==='content'?'@type:'+value.type:'page'));
+  if(scope==='entry'||scope==='entry-trash')edge.run(scope,id,value.template??(value.kind==='content'?'@type:'+value.type:'page'));
   if(scope==='settings')for(const target of Object.values(value.regions??{}))if(target)edge.run(scope,id,target);
   blocks(value.blocks??[]);
 }

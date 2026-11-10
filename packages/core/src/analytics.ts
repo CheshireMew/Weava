@@ -11,6 +11,9 @@ import { analyticsIndex } from './analytics-index.ts';
 import { analyticsFacts } from './analytics-facts.ts';
 import { AnalyticsIngress } from './analytics-ingress.ts';
 import { mergeWordpressAnalytics, wordpressLifetime } from './analytics-wordpress.ts';
+import {migrateAnalyticsDiscovery,collectSearch,discoveryReport} from './analytics-discovery.ts';
+import {dayInZone} from './analytics-dates.ts';
+import {previewAnalyticsArchive,archiveAnalytics,listAnalyticsArchives,archivedAnalyticsDays,restoreAnalyticsArchive} from './analytics-archive.ts';
 export interface HistoricalViewImport {
   sourceId: string;
   capturedAt: string;
@@ -21,7 +24,7 @@ export class Analytics {
   geo: AnalyticsGeo;
   private writer: InstanceWriter;
   private ingress!: AnalyticsIngress;
-  constructor(root: string, options: { mode?: 'open' | 'migrate' } = {}) {
+  constructor(private root: string, options: { mode?: 'open' | 'migrate' } = {}) {
     this.writer = acquireInstanceWriter(root);
     try {
     this.geo = new AnalyticsGeo(root);
@@ -32,7 +35,8 @@ export class Analytics {
     this.raw.pragma('cache_size=-32768');
     const initialized = this.raw.prepare("SELECT 1 FROM sqlite_master WHERE name='weava_analytics_schema'").get();
     const schema = initialized ? (this.raw.prepare('SELECT version FROM weava_analytics_schema').get() as {version:number})?.version : 0;
-    if (schema > 1) throw new WeavaError('统计数据库版本比当前程序新。');
+    if (schema > 3) throw new WeavaError('统计数据库版本比当前程序新。');
+    if(schema>0&&schema<3&&options.mode!=='migrate'&&process.env.WEAVA_DATABASE_MODE!=='migrate')throw new WeavaError('统计数据库需要显式迁移，请使用 site update 或 site adopt。',409);
     if (!schema && !fresh && options.mode !== 'migrate' && process.env.WEAVA_DATABASE_MODE !== 'migrate') throw new WeavaError('统计数据库需要显式迁移，请使用 site update 或 site adopt。',409);
     if (!schema) {
     this.raw.exec(
@@ -65,6 +69,7 @@ export class Analytics {
     analyticsFacts(this.raw);
     this.raw.exec('CREATE TABLE IF NOT EXISTS weava_analytics_schema(version INTEGER NOT NULL); INSERT INTO weava_analytics_schema VALUES(1);');
     }
+    if(schema<3)this.raw.transaction(()=>{migrateAnalyticsDiscovery(this.raw);this.raw.prepare('UPDATE weava_analytics_schema SET version=3').run();}).immediate();
     this.ingress = new AnalyticsIngress(this.raw,root);
     } catch (error) { if (this.raw?.open) this.raw.close(); this.writer.release(); throw error; }
   }
@@ -90,7 +95,7 @@ export class Analytics {
       for (const item of batch) {
         if (
           !item ||
-          !['view', 'click', 'event', 'pulse'].includes(item.kind) ||
+          !['view', 'click', 'event', 'pulse','search','search-click'].includes(item.kind) ||
           typeof item.path !== 'string'
         )
           continue;
@@ -101,7 +106,7 @@ export class Analytics {
         } catch {
           continue;
         }
-        if (!allowed.has(path)) continue;
+        if (!allowed.has(path)&&!(path==='/search/'&&['view','click','event','search','search-click','pulse'].includes(item.kind))) continue;
         const ts = Date.parse(item.ts);
         if (!Number.isFinite(ts) || ts > Date.now() + 300000 || ts < Date.now() - 7 * 86400000)
           continue;
@@ -109,6 +114,7 @@ export class Analytics {
         const visitor = String(item.visitor || 'anonymous-' + item.id).slice(0, 100),
           session = String(item.session || item.id).slice(0, 100),
           at = new Date(ts).toISOString();
+        if(item.kind==='search'||item.kind==='search-click'){count+=collectSearch(this.raw,item,visitor,session,at,allowed);continue;}
         if (item.kind === 'pulse') {
           const view = findView.get(String(item.viewId || ''), visitor, session, path) as
             | { ts: string }
@@ -159,7 +165,21 @@ export class Analytics {
         if (item.kind === 'view') activity.run(item.id, at);
       }
     })();
+    if(count)this.raw.prepare('UPDATE analytics_health SET last_accepted=? WHERE id=1').run(new Date().toISOString());
     return { accepted: count };
+  }
+  collectionStatus(){const archives=listAnalyticsArchives(this.raw).filter(row=>!row.restoredAt);return {...this.ingress.status(),lastAcceptedAt:(this.raw.prepare('SELECT last_accepted value FROM analytics_health WHERE id=1').get() as {value:string|null}).value,archives:archives.length,archivedBefore:archives.map(row=>row.before).sort().at(-1)??null};}
+  previewArchive(before:string){return this.raw.transaction(()=>previewAnalyticsArchive(this.raw,before)).deferred();}
+  archive(before:string,review:string,budgetBytes?:number){return archiveAnalytics(this.raw,this.root,before,review,budgetBytes);}
+  archives(){return listAnalyticsArchives(this.raw).map(row=>({...row,path:join(this.root,'archives','analytics',row.id+'.sqlite')}));}
+  archiveDays(start:string,end:string,page=1){return archivedAnalyticsDays(this.raw,start,end,page);}
+  restoreArchive(id:string){return restoreAnalyticsArchive(this.raw,this.root,id);}
+  discovery(params:URLSearchParams,timezone='Asia/Shanghai'){return discoveryReport(this.raw,params,timezone);}
+  recordMissing(path:string,referrer:string,agent:string,network:string,timezone='Asia/Shanghai'){
+    if(/bot|crawler|spider|headless|playwright|preview|slurp/i.test(agent)||path.length>2000)return;
+    this.ingress.reserve(network,1);let source='';try{const url=new URL(referrer);source=url.origin+url.pathname;}catch{}
+    const time=new Date(),day=dayInZone(time,timezone);
+    this.raw.prepare('INSERT INTO missing_requests VALUES(?,?,?,1,?) ON CONFLICT(day,path,referrer) DO UPDATE SET count=count+1,last_seen=excluded.last_seen').run(day,normalizePath(path),source,time.toISOString());
   }
   recordCrawler(path: string, agent: string, status: number, network='unknown') {
     const known =
@@ -245,6 +265,7 @@ export class Analytics {
       const batch=entries.slice(offset,offset+200),marks=batch.map(()=>'?').join(',');
       for(const row of this.raw.prepare(`SELECT entry_id,views FROM historical_views WHERE entry_id IN (${marks})`).all(...batch.map(entry=>entry.id)) as {entry_id:string;views:number}[]) historical.set(row.entry_id,row.views);
       for(const row of this.raw.prepare(`SELECT path,views FROM view_counts WHERE path IN (${marks})`).all(...batch.map(entry=>normalizePath(entry.path))) as {path:string;views:number}[]) recorded.set(row.path,row.views);
+      for(const row of this.raw.prepare(`SELECT d.path,SUM(d.views) views FROM analytics_archive_days d JOIN analytics_archives a ON a.id=d.archive_id WHERE a.restored_at IS NULL AND d.path IN (${marks}) GROUP BY d.path`).all(...batch.map(entry=>normalizePath(entry.path))) as {path:string;views:number}[])recorded.set(row.path,(recorded.get(row.path)??0)+row.views);
     }
     return new Map(
       entries.map((entry) => [
@@ -282,6 +303,7 @@ export class Analytics {
       .all(...(path ? [path] : [])) as any[])
       page(row.path).recordedViews = row.views;
     for (const row of pages.values()) row.views = row.historicalViews + row.recordedViews;
+    for(const row of this.raw.prepare('SELECT d.path,SUM(d.views) views FROM analytics_archive_days d JOIN analytics_archives a ON a.id=d.archive_id WHERE a.restored_at IS NULL'+(path?' AND d.path=?':'')+' GROUP BY d.path').all(...(path?[path]:[])) as {path:string;views:number}[]){const item=page(row.path);item.recordedViews+=row.views;item.views=item.historicalViews+item.recordedViews;}
     const rows = [...pages.values()].sort(
       (a, b) => b.views - a.views || a.path.localeCompare(b.path),
     );

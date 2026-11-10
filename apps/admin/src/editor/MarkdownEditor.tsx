@@ -34,12 +34,13 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
   const current = useRef(source), selection = useRef<Selection>({start: 0, end: 0});
   const pending = useRef<(Selection & {scroll: number}) | null>(null);
   const history = useRef<{undo: Snapshot[]; redo: Snapshot[]}>({undo: [], redo: []});
+  const historyRevision=useRef(0);
   const [range, setRange] = useState<Selection>(selection.current);
   const [link, setLink] = useState<{kind: 'link' | 'video'; selection: Selection} | null>(null), [url, setUrl] = useState('');
   const [insert, setInsert] = useState<{kind: WritingInsert | 'snippets'; selection: Selection} | null>(null);
   // An asynchronous upload can replace the source from outside this component.
   // Do not let an older undo snapshot overwrite that external update.
-  if (current.current !== source) {current.current = source; history.current = {undo: [], redo: []};}
+  if (current.current !== source) {current.current = source; history.current = {undo: [], redo: []};historyRevision.current++;}
   useLayoutEffect(() => {
     if (!pending.current || !field.current) return;
     const next = pending.current; pending.current = null;
@@ -55,7 +56,7 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     onChange(next.source); setRange({...selection.current});
   }
   function commit(next: Snapshot, focus = true) {
-    if (next.source !== current.current) {
+    if (!large && next.source !== current.current) {
       history.current.undo.push({source: current.current, ...selection.current});
       if (history.current.undo.length > 100) history.current.undo.shift();
       history.current.redo = [];
@@ -86,6 +87,7 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     replace(leading + marker + content + marker + trailing, at, leading.length + marker.length, leading.length + marker.length + content.length);
   }
   function block(type: string) {
+    field.current?.flush?.();
     const at = capture(), value = current.current;
     if (type === 'code') {
       const existing = fenceAt(value, at.start);
@@ -121,8 +123,10 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     }).join(''), at);
   }
   function action(command: FormatAction) {
+    field.current?.flush?.();
     selection.current = capture();
     if (command === 'undo' || command === 'redo') {
+      if (large) {field.current?.[command]?.(); return;}
       const from = history.current[command], next = from.pop(); if (!next) return;
       history.current[command === 'undo' ? 'redo' : 'undo'].push({source: current.current, ...capture()}); emit(next);
     } else if (command === 'bold' || command === 'italic') wrap(command === 'bold' ? '**' : '*');
@@ -161,18 +165,19 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     else {const prefix = '[' + label(text) + '](', result = prefix + destination(address.trim()) + ')'; replace(result, link.selection, 1, 1 + label(text).length);} setLink(null);
   }
   return <>
-    <ToolbarOutlet target={target}><FormattingToolbar mode="source" onMode={onMode} compact={compact} snippets={snippets} uploading={uploading} onAction={action}
+    <ToolbarOutlet target={target}><FormattingToolbar mode="source" onMode={()=>{field.current?.flush?.();onMode();}} compact={compact} snippets={snippets} uploading={uploading} onAction={action}
       blockType={blockType} onBlock={block} codeLanguage={fence?.language ?? 'text'} onLanguage={language => {
-        if (!fence) return;
-        const prefix = fence.marker + language + '\n', difference = prefix.length - (fence.body - fence.start);
-        commit({source: source.slice(0, fence.start) + prefix + source.slice(fence.body), start: Math.max(fence.start + prefix.length, range.start + difference), end: Math.max(fence.start + prefix.length, range.end + difference)});
+        field.current?.flush?.();
+        const at=capture(),value=current.current,active=fenceAt(value,at.start);if(!active)return;
+        const prefix = active.marker + language + '\n', difference = prefix.length - (active.body - active.start);
+        commit({source:value.slice(0,active.start)+prefix+value.slice(active.body),start:Math.max(active.start+prefix.length,at.start+difference),end:Math.max(active.start+prefix.length,at.end+difference)});
       }}/></ToolbarOutlet>
     <div onKeyDownCapture={event=>{
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const key=event.key.toLowerCase(),command=key==='b'?'bold':key==='i'?'italic':key==='k'?'link':key==='z'?(event.shiftKey?'redo':'undo'):key==='y'?'redo':undefined;
       if(command){event.preventDefault();event.stopPropagation();action(command);}
     }}>
-    {large?<Suspense fallback={<p role="status">正在打开源码…</p>}><SourceCode ref={field} source={source} onInput={(source,start,end)=>commit({source,start,end},false)} onSelection={(start,end)=>{selection.current={start,end};setRange({start,end});}} onDrop={onDrop}/></Suspense>:<textarea ref={element=>{field.current=element;}} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
+    {large?<Suspense fallback={<p role="status">正在打开源码…</p>}><SourceCode ref={field} source={source} historyRevision={historyRevision.current} onInput={(source,start,end)=>commit({source,start,end},false)} onSelection={(start,end)=>{selection.current={start,end};setRange({start,end});}} onDrop={onDrop}/></Suspense>:<textarea ref={element=>{field.current=element;}} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
       onBeforeInput={() => {selection.current = capture();}}
       onSelect={() => {selection.current = capture(); setRange({...selection.current});}}
       onChange={event => commit({source: event.target.value, ...capture()}, false)}

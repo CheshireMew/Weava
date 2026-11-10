@@ -35,7 +35,7 @@ export function contentViewModels({
 }: ViewOptions) {
   const { state, tab, setError, refresh, notify } = options;
   const busy=options.isPublishing?options.isPublishing(editor.record?.id):options.busy;
-  const commands = contentCommands({ editor, library, refresh, notify,onError:setError });
+  const commands = contentCommands({ editor, library, refresh, notify,onError:setError, timezone:state?.timezone });
   const catalog: ContentCatalog = {
     types: state?.types ?? [],
     terms: state?.terms ?? [],
@@ -48,6 +48,7 @@ export function contentViewModels({
   const { record, dirty, saving, editorEpoch, contentCheck, update, persist, clear } = editor;
   const recovery = entryRecoveryModel(editor, setError);
   const schedule: EntryScheduleModel = {
+    timezone: state?.timezone,
     record,
     busy,
     scheduleDueAt: editor.scheduleDueAt,
@@ -127,6 +128,7 @@ export function contentViewModels({
     deleteEntry,
   };
   const libraryView: ContentLibraryModel = {
+    timezone: state?.timezone,
     record,
     state: { types: catalog.types, contentViews: state?.contentViews ?? [] },
     tab,

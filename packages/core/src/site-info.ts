@@ -1,3 +1,4 @@
+import {siteText} from '@weava/contracts';
 import { load } from 'cheerio';
 import { entrySchema, WeavaError, isReservedContentPath, type PublishedEntry, type Settings, type Entry } from '@weava/contracts';
 import { siteInfoSchema, type SiteInfo } from '../../contracts/src/site-info.ts';
@@ -54,7 +55,7 @@ export function applySiteInfo(entries: Map<string, PublishedEntry>, settings: Se
     const old = [...entries.values()].find(entry => entry.path === path) ?? previous.find(entry => entry.path === path);
     if (old?.kind === 'content') throw new WeavaError('这个网址已经被文章使用：' + path);
     if (!config.enabled) { if (old) entries.delete(old.id); continue; }
-    const title = role === 'about' ? '关于本站' : '友情链接';
+    const title = siteText(settings.language,role === 'about' ? '关于本站' : '友情链接');
     let body: string;
     if (role === 'about') body = (config as NonNullable<SiteInfo['about']>).text.trim().split(/\n\s*\n/).filter(Boolean).map(text => '<p>' + escapeHtml(text).replaceAll('\n', '<br>') + '</p>').join('');
     else {
@@ -65,13 +66,13 @@ export function applySiteInfo(entries: Map<string, PublishedEntry>, settings: Se
         if (!['http:', 'https:'].includes(url.protocol)) throw new WeavaError(`“${link.name}”的网址需要以 http:// 或 https:// 开头。`);
         return `<li><a href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.name)}</a>${link.description ? '<p>' + escapeHtml(link.description) + '</p>' : ''}</li>`;
       }).join('') + '</ul>';
-      if (!links.length) body = '<p>暂时还没有友情链接。</p>';
+      if (!links.length) body = '<p>'+escapeHtml(siteText(settings.language,'暂时还没有友情链接。'))+'</p>';
     }
     const html = `<section class="site-information"><h1>${title}</h1>${body}</section>`;
     const published = previous.find(entry => entry.id === old?.id);
     if (published?.source?.siteInfoRole === role && published.html === html && published.path === path) { entries.set(published.id, published); continue; }
     const value = entrySchema.parse({ ...old, id: old?.id ?? config.entryId ?? 'site-info:' + role, kind: 'page', path, title, template: 'page', status: 'published',
-      blocks: [], document: { version: 1, format: 'html', source: html }, description: role === 'about' ? (config as NonNullable<SiteInfo['about']>).text.slice(0, 160) : '友情链接',
+      blocks: [], document: { version: 1, format: 'html', source: html }, description: role === 'about' ? (config as NonNullable<SiteInfo['about']>).text.slice(0, 160) : siteText(settings.language,'友情链接'),
       allowComments: false, visibility: 'public', source: { ...old?.source, siteInfoRole: role } });
     entries.set(value.id, { ...value, html, publishedAt: old?.publishedAt ?? time, modifiedAt: time, revisionId: old?.revisionId ?? revision });
   }

@@ -1,9 +1,11 @@
 import { api,waitJob } from './api.ts';
+import {zonedDateTime} from '@weava/contracts';
 import { drafts } from './draft-repository.ts';
 import type { useEntryEditor } from './useEntryEditor.ts';
 import type { useContentLibrary } from './useContentLibrary.ts';
 
 interface CommandOptions {
+  timezone?: string;
   editor: ReturnType<typeof useEntryEditor>;
   library: ReturnType<typeof useContentLibrary>;
   refresh: () => Promise<unknown>;
@@ -12,7 +14,7 @@ interface CommandOptions {
 }
 
 /** Editing transitions stay together; views receive commands instead of session internals. */
-export function contentCommands({ editor, library, refresh, notify,onError=notify }: CommandOptions) {
+export function contentCommands({ editor, library, refresh, notify,onError=notify,timezone='Asia/Shanghai' }: CommandOptions) {
   const refreshDisplay=()=>{void refresh().catch(error=>onError('操作已完成，列表刷新失败：'+error.message));};
   const { session, persist, adopt } = editor;
   const current = () => session.record;
@@ -115,13 +117,14 @@ export function contentCommands({ editor, library, refresh, notify,onError=notif
     const remote=done.result;
     if (current()?.id === row.id&&!adopt(remote,checkpoint)) await editor.showConflict(current()!);
   }
-  async function schedule() {
+  async function schedule(occurrence?: 'earlier' | 'later') {
+    const dueAt = zonedDateTime(editor.scheduleDueAt, timezone, occurrence);
     const row = await persist();
     if (!row) return;
     await waitJob(await api('schedule', {
       id: row.id,
       revision: row.revision,
-      dueAt: new Date(editor.scheduleDueAt).toISOString(),
+      dueAt,
     }),()=>{});
     editor.setScheduleDueAt('');
     refreshDisplay();

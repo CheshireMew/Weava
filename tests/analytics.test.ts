@@ -6,7 +6,7 @@ import { Analytics } from '@weava/core';
 import { deviceInfo, referral } from '../packages/core/src/analytics-dimensions.ts';
 import { dayStart, analyticsReport } from '../packages/core/src/analytics-reports.ts';
 
-const root = 'D:/Tools/cache/weava/tests/analytics-' + Date.now();
+const root = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/analytics-' + Date.now();
 const windows =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 const iphone =

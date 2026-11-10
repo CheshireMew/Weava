@@ -1,4 +1,7 @@
 (() => {
+  const messages=JSON.parse(document.getElementById('weava-i18n')?.textContent||'{}');
+  const t=(text,values={})=>(messages[text]||text).replace(/\{(\w+)\}/g,(match,key)=>values[key]===undefined?match:String(values[key]));
+
   const menu = document.querySelector('.menu-button');
   const navigation = document.getElementById(menu?.getAttribute('aria-controls'));
   const closeMenu = (restoreFocus = false) => {
@@ -25,17 +28,17 @@
     const trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'lightbox-trigger';
-    trigger.setAttribute('aria-label', image.alt ? '放大图片：' + image.alt : '放大图片');
+    trigger.setAttribute('aria-label', image.alt ? t('放大图片：{name}',{name:image.alt}) : t('放大图片'));
     trigger.setAttribute('aria-haspopup', 'dialog');
     image.replaceWith(trigger);
     trigger.append(image);
     trigger.addEventListener('click', () => {
       const dialog = document.createElement('dialog');
       dialog.className = 'lightbox';
-      dialog.setAttribute('aria-label', image.alt || '图片预览');
+      dialog.setAttribute('aria-label', image.alt || t('图片预览'));
       const close = document.createElement('button');
       close.textContent = '×';
-      close.setAttribute('aria-label', '关闭');
+      close.setAttribute('aria-label', t('关闭'));
       const large = document.createElement('img');
       large.src = image.currentSrc || image.src;
       large.alt = image.alt;

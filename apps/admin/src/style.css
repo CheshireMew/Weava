@@ -196,10 +196,10 @@ button.primary, .button.primary, .icon-primary { background: var(--accent); bord
 .icon-primary { width: 42px; height: 42px; padding: 0; }
 
 .entry-list { overflow: auto; flex: 1 1 0; min-height: 0; min-width: 0; width: 100%; max-width: 1000px; margin-inline: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-radius: 11px; }
-.publication-row { display: flex; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--line); }
+.publication-row { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; border-bottom: 1px solid var(--line); }
 .publication-row:last-child { border-bottom: 0; }
 .publication-row.checked { background: var(--accent-soft); }
-.publication-open { display: flex; align-items: center; gap: 20px; width: 100%; min-width: 0; min-height: 116px; padding: 24px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: start; justify-content: flex-start; }
+.publication-open { display: flex; flex: 1 1 200px; align-items: center; gap: 20px; width: auto; min-width: 0; min-height: 116px; padding: 24px; border: 0; border-radius: 0; background: transparent; color: var(--ink); text-align: start; justify-content: flex-start; }
 .publication-open:hover { background: var(--surface-soft); }
 .publication-cover { display: grid; place-items: center; width: 100px; height: 68px; flex-shrink: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fafafa; color: #909090; }
 .publication-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -1631,7 +1631,7 @@ button.primary:active:not(:disabled), .icon-primary:active:not(:disabled) { back
 .article-editor .editor-more > summary svg { margin: 0; }
 .article-editor .editor-more .action-menu-items { right: auto; left: 0; top: auto; bottom: calc(100% + 8px); width: 196px; border-radius: 10px; box-shadow: 0 4px 20px #00000012; }
 .editor-menu-status { padding: 6px 8px 12px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }
-.article-editor .editor-toolbar-slot { width: 100%; max-width: var(--writing-width); margin-inline: auto; padding: 0 var(--writing-inset); }
+.article-editor .editor-toolbar-slot { width: 100%; max-width: 1104px; margin-inline: auto; padding: 0 24px; }
 .article-editor .editor-toolbar-slot > .format-toolbar { justify-content: flex-start; flex-wrap: nowrap; width: 100%; margin: auto; border: 0; padding: 3px 0; height: 46px; min-height: 46px; flex-basis: 46px; gap: 4px; overflow-x: auto; }
 .article-editor .editor-toolbar-slot .format-toolbar > * { flex-shrink: 0; }
 .article-editor .format-toolbar button { min-width: 38px; min-height: 38px; padding: 8px; color: #454545; }
@@ -1836,11 +1836,16 @@ form > .dialog-actions { margin-top: 24px; }
 
 
 /* Fixed groups keep visual and Markdown controls in the same positions. */
-.article-editor .editor-toolbar-slot > .format-toolbar.grouped-toolbar { flex-wrap: wrap; height: auto; min-height: 46px; flex-basis: auto; overflow: visible; gap: 3px; }
-.format-toolbar.grouped-toolbar { flex-wrap: wrap; overflow: visible; }
-.grouped-toolbar .toolbar-menu-label { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.article-editor .grouped-toolbar .toolbar-divider { margin-inline: 5px; }
-.grouped-toolbar > button[aria-label='常用内容'] { white-space: nowrap; font-size: 13px; }
+.article-editor .editor-toolbar-slot > .format-toolbar.grouped-toolbar { flex-wrap: nowrap; height: 48px; min-height: 48px; flex-basis: 48px; justify-content: safe center; gap: 0; }
+.format-toolbar.grouped-toolbar { flex-wrap: nowrap; height: 50px; min-height: 50px; flex-basis: 50px; overflow-x: auto; overflow-y: hidden; gap: 0; }
+.grouped-toolbar .toolbar-group { display: inline-flex; align-items: center; gap: 2px; flex: none; white-space: nowrap; }
+.grouped-toolbar .toolbar-menu-label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.article-editor .grouped-toolbar button { min-width: 34px; min-height: 36px; padding: 8px; }
+.article-editor .grouped-toolbar .editor-mode-toggle { width: 36px; min-width: 36px; }
+.article-editor .grouped-toolbar button svg { width: 18px; height: 18px; }
+.grouped-toolbar .toolbar-menu-label > svg:last-child { width: 12px; height: 12px; }
+.article-editor .grouped-toolbar .toolbar-divider { height: 20px; margin-inline: 9px; }
+.grouped-toolbar button[aria-label='常用内容'] { white-space: nowrap; font-size: 13px; }
 .admin-popover.writing-format-menu { width: min(260px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 24px)); overflow-y: auto; padding: 6px; }
 .writing-format-menu > button, .writing-menu-section > button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 4px; text-align: left; background: transparent; }
 .writing-format-menu button:hover { background: var(--surface-secondary); }
@@ -1848,7 +1853,10 @@ form > .dialog-actions { margin-top: 24px; }
 .writing-palette { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); padding: 10px 4px; }
 .writing-palette > button { width: 24px; min-width: 24px; height: 26px; padding: 0; border: 1px solid #bbb; border-radius: 4px; font-weight: 700; }
 .writing-palette > button:last-child { width: auto; padding-inline: 5px; font-size: 11px; font-weight: 400; }
-.writing-menu-section { border-top: 1px solid var(--line); padding-top: 4px; }
+.writing-palette-menu > .writing-palette { border: 0; padding-block: 6px; }
+.admin-popover.writing-alignment-menu { width: auto; }
+.writing-alignment-options { display: flex; gap: 4px; }
+.writing-alignment-options > button { display: inline-flex; align-items: center; justify-content: center; width: 38px; padding: 8px; }
 .editor-details { margin-block: 1.5em; border-block: 1px solid var(--line); padding: 1em 0; }
 .editor-details > summary { font-weight: 600; cursor: pointer; }
 .editor-details > summary button { margin-left: 12px; padding: 2px 8px; font-size: 12px; font-weight: 400; }
@@ -1863,3 +1871,18 @@ form > .dialog-actions { margin-top: 24px; }
 .writing-snippet-list > div { display: flex; align-items: center; gap: 8px; padding-block: 10px; border-bottom: 1px solid var(--line); }
 .writing-snippet-list span { flex: 1; overflow-wrap: anywhere; }
 .writing-snippets-dialog .visual-editor { min-height: 160px; max-height: 45vh; overflow: auto; }
+
+.publication-schedules { order: 5; flex: 1 0 100%; padding: 0 24px 16px; font-size: 13px; color: var(--ink-secondary); }
+.publication-schedules > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.comment-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px; margin-block: 16px; }
+.comment-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 16px; }
+.backup-inventory-item { padding-block: 16px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.backup-inventory-item:last-child { border-bottom: 0; }
+.analytics-collection-health { margin-block: 12px; font-size: 13px; }
+.analytics-collection-health > summary { cursor: pointer; width: fit-content; }
+.analytics-discovery { margin-block: 16px; }
+.analytics-discovery > summary { cursor: pointer; }
+.data-table-scroll { width: 100%; overflow-x: auto; }
+.data-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
+.data-table-scroll th, .data-table-scroll td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .publication-open { flex-basis: 150px; } .publication-schedules { padding-inline: 14px; } }

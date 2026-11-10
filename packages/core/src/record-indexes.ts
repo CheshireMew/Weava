@@ -19,7 +19,7 @@ export function indexRecord(
   }
   indexMediaRecord(db, scope, id, value);
   indexListRecord(db, scope, id, value, revision, timestamp);
-  indexAuthoredMedia(db, scope, id, value);
+  indexAuthoredMedia(db, scope, id, scope==='entry-trash'?value.entry:value);
   if (scope === 'entry') indexRevisionMedia(db, revision, value);
   if (scope === 'media')
     db.prepare(

@@ -26,6 +26,9 @@ export function registerMigrationCommands({
   request,
   wait,
 }: CliContext) {
+  const markdown=program.command('markdown');
+  markdown.command('export').requiredOption('--output <folder>').option('--budget-mib <size>','本次输出体积上限；大于 1 GiB 须明确提高','1024').option('--wait').action(async options=>output(await wait(await request('export/markdown',{path:resolve(options.output),budgetBytes:Number(options.budgetMib)*1048576}),!!options.wait)));
+  for(const action of ['preview','import'])markdown.command(action).requiredOption('--input <folder>').option('--type <type>').option('--merge').option('--settings').option('--review <review>','导入时必须使用预检返回的凭据').option('--budget-mib <size>','本次处理体积上限','1024').option('--wait').action(async options=>{if(action==='import'&&!options.review)throw new Error('请先 preview，再提供 --review。');output(await wait(await request(action==='preview'?'import/markdown/preview':'import/markdown',{path:resolve(options.input),options:{...(options.type?{type:options.type}:{}),merge:!!options.merge,settings:!!options.settings,budgetBytes:Number(options.budgetMib)*1048576,...(options.review?{review:options.review}:{})}}),!!options.wait));});
   const migrate = program.command('migrate');
   migrate.command('library')
     .option('--dry-run', '检查加密旧站转换，不保存')

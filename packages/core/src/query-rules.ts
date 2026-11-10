@@ -14,6 +14,7 @@ const title = {
   catalog: 'sort_title',
 } as const;
 export const querySorts = {
+  relevance: {field:'publishedAt', direction:-1, draft:'l.published_at DESC', catalog:'sort_date'},
   title,
   '-title': {
     ...title,

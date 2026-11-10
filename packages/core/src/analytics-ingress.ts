@@ -38,18 +38,25 @@ export function analyticsIngressPolicy(): AnalyticsIngressPolicy {
 export class AnalyticsIngress {
   private checkedAt = -Infinity;
   private capacityError = '';
+  private usedBytes(){return (Number(this.db.pragma('page_count',{simple:true}))-Number(this.db.pragma('freelist_count',{simple:true})))*Number(this.db.pragma('page_size',{simple:true}));}
   constructor(private db: Database.Database, private root: string, private policy=analyticsIngressPolicy(), private clock=Date.now) {
     if(!db.prepare("SELECT 1 FROM sqlite_master WHERE name='analytics_ingress'").get())db.exec(`CREATE TABLE analytics_ingress(id TEXT PRIMARY KEY,requests INTEGER NOT NULL,events INTEGER NOT NULL,reset_at INTEGER NOT NULL);
       CREATE INDEX analytics_ingress_expiry ON analytics_ingress(reset_at);`);
+  }
+  status(){
+    const clock=this.clock();let reason='',bytes=0,freeBytes=0;
+    try{this.capacity(clock);}catch(error:any){reason=error.message;}
+    try{const disk=statfsSync(this.root);freeBytes=disk.bavail*disk.bsize;for(const suffix of ['','-wal','-shm']){const path=join(this.root,'analytics.sqlite'+suffix);try{bytes+=statSync(path).size;}catch(error:any){if(error.code!=='ENOENT')throw error;}}}catch{reason||='无法核实磁盘容量。';}
+    const today=this.db.prepare("SELECT events,reset_at FROM analytics_ingress WHERE id='all:day' AND reset_at>?").get(clock) as {events:number;reset_at:number}|undefined;
+    if((today?.events??0)>=this.policy.dailyEvents)reason||='今日统计采集已达到数量上限，次日自动恢复。';
+    return {collecting:!reason,reason,bytes:this.usedBytes(),allocatedBytes:bytes,maximumBytes:this.policy.maximumBytes,freeBytes,minimumFreeBytes:this.policy.minimumFreeBytes,dailyEvents:today?.events??0,dailyLimit:this.policy.dailyEvents,resetAt:today?.reset_at??null};
   }
   private capacity(now: number) {
     if(now-this.checkedAt>=1000 || now<this.checkedAt) {
       this.checkedAt=now;
       try {
         const fs=statfsSync(this.root);
-        const bytes=['analytics.sqlite','analytics.sqlite-wal','analytics.sqlite-shm'].reduce((sum,name)=>{
-          try{return sum+statSync(join(this.root,name)).size;}catch(error:any){if(error.code==='ENOENT')return sum;throw error;}
-        },0);
+        const bytes=this.usedBytes();
         this.capacityError=fs.bavail*fs.bsize<this.policy.minimumFreeBytes?'统计采集已暂停：磁盘剩余空间不足。':bytes>=this.policy.maximumBytes?'统计采集已暂停：统计数据库已达到容量上限。':'';
       }catch{this.capacityError='统计采集已暂停：无法核实磁盘容量。';}
     }

@@ -12,6 +12,7 @@ import { useManagedRecord } from './EditSessions.tsx';
 
 import { SiteSeoFields } from './SeoFields.tsx';
 import { useSelectors } from './Selectors.tsx';
+import {MediaUploadSettings} from './MediaUploadSettings.tsx';
 import { SiteInfoSettings } from './SiteInfoSettings.tsx';
 import type { SiteInfo } from '../../../packages/contracts/src/site-info.ts';
 import TaxonomyManager, { useTaxonomyEditor } from './TaxonomyManager.tsx';
@@ -117,6 +118,7 @@ export default function SettingsPanel({
             </label>
           ))}
           <div className="form-columns site-locale">
+            <label>RSS 内容<select value={value.rssMode ?? 'summary'} onChange={event => set({rssMode:event.target.value as 'summary' | 'full'})}><option value="summary">摘要</option><option value="full">全文</option></select></label>
             <SettingChoice label="语言" value={value.language} choices={{ 'zh-CN': '简体中文', 'zh-TW': '繁體中文', en: 'English', 'en-US': 'English (US)', ja: '日本語' }} onChange={language => set({ language })} />
             <SettingChoice label="时区" value={value.timezone} choices={{ 'Asia/Shanghai': '北京时间', 'Asia/Hong_Kong': '香港时间', 'Asia/Taipei': '台北时间', 'Asia/Tokyo': '东京时间', UTC: '协调世界时', 'America/New_York': '纽约时间', 'Europe/London': '伦敦时间' }} onChange={timezone => set({ timezone })} />
           </div>
@@ -128,6 +130,7 @@ export default function SettingsPanel({
         </section>
 </> },
         { id: 'about', label: '关于本站', content: <SiteInfoSettings section="about" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
+        { id: 'media', label: '媒体上传', content: <MediaUploadSettings value={value} onChange={set}/> },
         { id: 'friends', label: '友情链接', content: <SiteInfoSettings section="friends" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
         { id: 'appearance', label: '外观', content: <>        <section className="form-card">
           <h2>主题</h2>

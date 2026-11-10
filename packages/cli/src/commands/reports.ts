@@ -19,6 +19,16 @@ export function registerReportsCommands({
   wait,
 }: CliContext) {
   const seo = program.command('seo');
+  const comments=program.command('comments');
+  comments.command('list').option('--status <status>','all、pending、visible、hidden','all').option('--query <text>').option('--author <name>').option('--path <path>').option('--start <date>').option('--end <date>').option('--page <page>','页码','1').action(async options=>output(await request('comments?'+new URLSearchParams(Object.fromEntries(Object.entries({status:options.status,q:options.query,author:options.author,path:options.path,start:options.start,end:options.end,page:options.page}).filter(([,value])=>value!==undefined) as [string,string][])))));
+  comments.command('moderate').requiredOption('--input <file>','包含 items、expectedStatus 及目标 status 的 JSON').action(async options=>output(await request('comments/moderate',JSON.parse(readFileSync(resolve(options.input),'utf8')))));
+  const events=program.command('events');
+  events.command('list').option('--after <sequence>','起始序号','0').option('--types <types>','逗号分隔的事件类型').action(async options=>output(await request('events?'+new URLSearchParams({after:options.after,...(options.types?{types:options.types}:{})}))));
+  events.command('consumers').action(async()=>output(await request('events/consumers')));
+  events.command('register').requiredOption('--id <id>').option('--after <sequence>','起始序号','0').option('--types <types>').action(async options=>output(await request('events/consumers',{id:options.id,after:Number(options.after),...(options.types?{types:options.types.split(',')}:{})})));
+  events.command('claim').requiredOption('--id <id>').action(async options=>output(await request('events/claim',{id:options.id})));
+  events.command('finish').requiredOption('--id <id>').requiredOption('--token <token>').option('--error <message>','报告失败并等待退避重试').action(async options=>output(await request('events/finish',{id:options.id,token:options.token,...(options.error?{error:options.error}:{})})));
+  events.command('retry').requiredOption('--id <id>').action(async options=>output(await request('events/retry',{id:options.id})));
 
   seo
     .command('audit')
@@ -50,6 +60,14 @@ export function registerReportsCommands({
   const searchData = program.command('search-data');
 
   const analytics = program.command('analytics');
+  analytics.command('health').action(async()=>output(await request('analytics/health')));
+  const archive=analytics.command('archive');
+  archive.command('preview').requiredOption('--before <date>','UTC 截止日期').action(async options=>output(await request('analytics/archive/preview',{before:options.before})));
+  archive.command('apply').requiredOption('--before <date>').requiredOption('--review <review>').option('--budget-mib <size>','本次归档文件体积上限','1024').option('--wait').action(async options=>output(await wait(await request('analytics/archive',{before:options.before,review:options.review,budgetBytes:Number(options.budgetMib)*1048576}),!!options.wait)));
+  archive.command('list').action(async()=>output(await request('analytics/archives')));
+  archive.command('days').requiredOption('--start <date>').requiredOption('--end <date>').option('--page <page>','页码','1').action(async options=>output(await request('analytics/archive/days?'+new URLSearchParams({start:options.start,end:options.end,page:options.page}))));
+  archive.command('restore').requiredOption('--id <id>').option('--wait').action(async options=>output(await wait(await request('analytics/archive/restore',{id:options.id}),!!options.wait)));
+  analytics.command('discovery').option('--dataset <dataset>','search 或 missing','search').option('--start <date>').option('--end <date>').option('--page <page>','页码','1').action(async options=>output(await request('analytics/discovery?'+new URLSearchParams({dataset:options.dataset,page:options.page,...(options.start?{start:options.start}:{}),...(options.end?{end:options.end}:{})}))));
 
   analytics
     .command('wordpress-verify')

@@ -7,6 +7,7 @@ import {loadSiteRenderer} from '../../../packages/core/src/site-render.ts';
 import {migrateWebsite} from '../../../packages/core/src/site-migrations.ts';
 import {readJobLog} from '../../../packages/core/src/job-logs.ts';
 import {httpRequests} from '../../../packages/core/src/http-lifecycle.ts';
+import {queueAutomaticBackup} from '../../../packages/core/src/backup-management.ts';
 const root=resolve(process.env.WEAVA_SITE??resolve(process.env.WEAVA_FRAMEWORK??process.cwd(),'../WeavaSites/demo'));
 const runtimeFile=join(root,'runtime.json');
 if(existsSync(runtimeFile)){
@@ -44,7 +45,7 @@ const initialization=Promise.all([siteExtension,siteRenderer]).then(async([manag
 });
 void initialization.catch(error=>{console.error('网站初始化失败',error);process.exitCode=1;setTimeout(()=>process.exit(1),10);});
 atomicJson(runtimeFile,state);
-const tick=async()=>{if(maintenance||!ready)return;site.recoverJobs();jobs.pump();if(features.includes('content'))jobs.refreshSchedule();};
+const tick=async()=>{if(maintenance||!ready)return;site.recoverJobs();queueAutomaticBackup(site,jobs);jobs.pump();if(features.includes('content'))jobs.refreshSchedule();};
 const watch=setInterval(()=>{void tick().catch(e=>console.error(e));},5000);watch.unref();
 const geoWatch=setInterval(()=>{if(!maintenance&&actualAnalytics)void actualAnalytics.geo.update(false).catch(()=>{});},86400000);geoWatch.unref();
 let stopping=false;

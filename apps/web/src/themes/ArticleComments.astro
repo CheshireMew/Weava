@@ -1,31 +1,33 @@
 ---
+import {textFor} from '@weava/contracts';
 import type { ArticleComment } from '@weava/core';
 interface Props { allowComments?: boolean; items: ArticleComment[]; hasMore: boolean; language: string; timezone: string; guestbook?: boolean; }
 const { items, hasMore, language, timezone, allowComments = true, guestbook = false } = Astro.props;
+const t=textFor(language);
 const noun = guestbook ? '留言' : '评论';
 const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 ---
 <section id="comments" class="nl-comments" aria-labelledby="comments-heading" data-comment-noun={noun}>
-  <div class="nl-comments-heading"><h2 id="comments-heading">{noun}</h2><select aria-label={noun + '排序'} data-comment-sort><option value="latest">最新</option><option value="oldest">最早</option></select></div>
+  <div class="nl-comments-heading"><h2 id="comments-heading">{t(noun)}</h2><select aria-label={t(noun + '排序')} data-comment-sort><option value="latest">{t("最新")}</option><option value="oldest">{t("最早")}</option></select></div>
   <form class="nl-comment-form" data-comment-form hidden={!allowComments} data-closed={!allowComments ? "true" : undefined}>
-    <span class="nl-comment-avatar" aria-hidden="true">我</span>
+    <span class="nl-comment-avatar" aria-hidden="true">{t("我")}</span>
     <div class="nl-comment-inputs">
       <input type="hidden" name="parentId" value="" />
-      <p data-reply-target hidden><span></span> <button type="button" data-cancel-reply>取消回复</button></p>
-      <textarea name="body" aria-label={noun + '内容'} placeholder={'写下你的' + noun + '…'} required maxlength="4000" rows="3"></textarea>
+      <p data-reply-target hidden><span></span> <button type="button" data-cancel-reply>{t("取消回复")}</button></p>
+      <textarea name="body" aria-label={t(noun + '内容')} placeholder={t('写下你的' + noun + '…')} required maxlength="4000" rows="3"></textarea>
       <div class="nl-comment-fields">
-        <input name="author" aria-label="称呼" placeholder="你的称呼" autocomplete="nickname" required maxlength="40" />
-        <div class="nl-captcha" data-captcha-row hidden><button type="button" data-refresh-captcha aria-label="更换验证码"><img data-captcha-image alt="评论验证码" width="180" height="58" /><span>换一张</span></button><input name="captcha" aria-label="验证码" placeholder="验证码" autocomplete="off" spellcheck="false" maxlength="8" required disabled /></div>
-        <button type="submit" class="nl-submit-comment" disabled>{'发布' + noun}</button>
+        <input name="author" aria-label={t("称呼")} placeholder={t("你的称呼")} autocomplete="nickname" required maxlength="40" />
+        <div class="nl-captcha" data-captcha-row hidden><button type="button" data-refresh-captcha aria-label={t("更换验证码")}><img data-captcha-image alt={t("评论验证码")} width="180" height="58" /><span>{t("换一张")}</span></button><input name="captcha" aria-label={t("验证码")} placeholder={t("验证码")} autocomplete="off" spellcheck="false" maxlength="8" required disabled /></div>
+        <button type="submit" class="nl-submit-comment" disabled>{t('发布' + noun)}</button>
       </div>
       <p class="nl-comment-message" data-comment-message role="status" aria-live="polite"></p>
-      <noscript><p>启用 JavaScript 后可加载验证码并发表评论。</p></noscript>
+      <noscript><p>{t("启用 JavaScript 后可加载验证码并发表评论。")}</p></noscript>
     </div>
   </form>
-  {!allowComments && <p>这篇内容已关闭新{noun}。</p>}
+  {!allowComments && <p>{t('这篇内容已关闭新'+noun+'。')}</p>}
   <div class="nl-comment-list" data-comment-list>
-    {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{[...comment.author][0]}</span><div class="nl-comment-content"><header><strong>{comment.author}</strong>{comment.isOwner&&<span class="comment-owner">站主</span>}<time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header>{comment.replyTo&&<small>回复 {comment.replyTo}</small>}<p>{comment.body}</p><div class="nl-comment-actions"><button type="button" data-comment-like={comment.id} aria-label={'点赞 ' + comment.author + ' 的评论'} aria-pressed={comment.liked ? 'true' : 'false'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 10H3v11h4M7 10l5-8c2 0 3 2 2 4l-1 4h6a2 2 0 0 1 2 2l-2 7a3 3 0 0 1-3 2H7Z" /></svg><span data-comment-like-label>{comment.liked ? '已赞' : '点赞'}</span><span data-comment-like-count hidden={!comment.likes}>{comment.likes ?? 0}</span></button>{allowComments&&<button type="button" data-reply-id={comment.id} data-reply-author={comment.author}>回复</button>}</div></div></article>)}
+    {items.map((comment) => <article class="nl-comment" data-comment-id={comment.id}><span class="nl-comment-avatar" aria-hidden="true">{[...comment.author][0]}</span><div class="nl-comment-content"><header><strong>{comment.author}</strong>{comment.isOwner&&<span class="comment-owner">{t("站主")}</span>}<time datetime={comment.createdAt}>{date(comment.createdAt)}</time></header>{comment.replyTo&&<small>{t('回复 {name}',{name:comment.replyTo})}</small>}<p>{comment.body}</p><div class="nl-comment-actions"><button type="button" data-comment-like={comment.id} aria-label={t('点赞 {name} 的评论',{name:comment.author})} aria-pressed={comment.liked ? 'true' : 'false'}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M7 10H3v11h4M7 10l5-8c2 0 3 2 2 4l-1 4h6a2 2 0 0 1 2 2l-2 7a3 3 0 0 1-3 2H7Z" /></svg><span data-comment-like-label>{t(comment.liked ? '已赞' : '点赞')}</span><span data-comment-like-count hidden={!comment.likes}>{comment.likes ?? 0}</span></button>{allowComments&&<button type="button" data-reply-id={comment.id} data-reply-author={comment.author}>{t("回复")}</button>}</div></div></article>)}
   </div>
-  <p class="nl-empty-comments" data-empty-comments hidden={items.length > 0}>暂无{noun}</p>
-  <button type="button" class="nl-load-comments" data-load-comments hidden={!hasMore}>更多{noun}</button>
+  <p class="nl-empty-comments" data-empty-comments hidden={items.length > 0}>{t('暂无'+noun)}</p>
+  <button type="button" class="nl-load-comments" data-load-comments hidden={!hasMore}>{t('更多'+noun)}</button>
 </section>

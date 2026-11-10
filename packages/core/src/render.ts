@@ -1,3 +1,4 @@
+import {textFor} from '@weava/contracts';
 import type { Block, Entry, FieldDefinition, PublishedEntry, Release } from '@weava/contracts';
 import {
   fieldVisible,
@@ -93,6 +94,7 @@ export function renderFields(
   values: Record<string, any>,
   release: Release,
 ): string {
+  const t=textFor(release.settings.language);
   const rows = defs.flatMap((d) => {
     if (!fieldVisible(d, values)) return [];
     const value = values[d.key];
@@ -113,7 +115,7 @@ export function renderFields(
           case 'richtext':
             return renderDocument({ version: 1, format: 'markdown', source: v });
           case 'boolean':
-            return v ? '是' : '否';
+            return t(v ? '是' : '否');
           case 'group':
             return renderFields(d.fields ?? [], v, release);
           default:
@@ -146,6 +148,7 @@ export function renderBlocks(
   custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {},
   options: RenderOptions = {},
 ): string {
+  const t=textFor(release.settings.language);
   const render = (items: Block[]): string =>
     items
       .map((b): string => {
@@ -167,7 +170,7 @@ export function renderBlocks(
             case 'hero':
               return `<section class="hero block"><span class="eyebrow">${e(p.eyebrow ?? '')}</span><h1 data-weava-edit="${e(b.id)}:title">${e(p.title ?? entry?.title ?? '')}</h1><p data-weava-edit="${e(b.id)}:description">${e(p.description ?? '')}</p>${p.buttonLabel ? `<a class="button" href="${e(p.buttonUrl ?? '/')}">${e(p.buttonLabel)}</a>` : ''}${p.image ? `<img src="${e(p.image)}" alt="${e(p.alt)}" width="1200" height="600">` : ''}</section>`;
             case 'button':
-              return `<div class="block"><a class="button" href="${e(p.url ?? '/')}">${e(p.label ?? '了解更多')}</a></div>`;
+              return `<div class="block"><a class="button" href="${e(p.url ?? '/')}">${e(p.label ?? t('了解更多'))}</a></div>`;
             case 'image-text':
               return `<section class="image-text block"><img src="${e(p.src)}" alt="${e(p.alt)}" loading="lazy"><div><h2>${e(p.title)}</h2>${text()}</div></section>`;
             case 'container':
@@ -181,7 +184,7 @@ export function renderBlocks(
             case 'video':
               return `<figure class="block"><video src="${e(p.src)}" poster="${e(p.poster ?? '')}" controls preload="metadata" playsinline></video>${p.caption ? `<figcaption>${e(p.caption)}</figcaption>` : ''}</figure>`;
             case 'attachment':
-              return `<p class="block"><a href="${e(p.url)}" download>${e(p.label ?? '下载附件')}</a></p>`;
+              return `<p class="block"><a href="${e(p.url)}" download>${e(p.label ?? t('下载附件'))}</a></p>`;
             case 'content-list':
             case 'cards': {
               const key = String(p.pageKey || 'page');
@@ -236,14 +239,14 @@ export function renderBlocks(
                               : field.type === 'select'
                                 ? field.options
                                 : undefined;
-                        return `<label>${e(field.label)}${choices ? `<select aria-label="${e(field.label)}" name="field.${e(field.key)}"><option value="">全部</option>${choices.map((choice) => `<option value="${e(choice)}"${choice === value ? ' selected' : ''}>${field.type === 'boolean' ? (choice === 'true' ? '是' : '否') : e(choice)}</option>`).join('')}</select>` : `<input aria-label="${e(field.label)}" name="field.${e(field.key)}" type="${field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}" value="${e(value)}">`}</label>`;
+                        return `<label>${e(field.label)}${choices ? `<select aria-label="${e(field.label)}" name="field.${e(field.key)}"><option value="">${e(t("全部"))}</option>${choices.map((choice) => `<option value="${e(choice)}"${choice === value ? ' selected' : ''}>${field.type === 'boolean' ? (t(choice === 'true' ? '是' : '否')) : e(choice)}</option>`).join('')}</select>` : `<input aria-label="${e(field.label)}" name="field.${e(field.key)}" type="${field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}" value="${e(value)}">`}</label>`;
                       })
-                      .join('')}<button type="submit">筛选</button></form>`
+                      .join('')}<button type="submit">${e(t("筛选"))}</button></form>`
                   : '';
               const links = options.url ? pageLinks(result, options.url, key, entry) : null;
               const pagination =
                 links && result.pages > 1
-                  ? `<nav class="pagination" aria-label="列表分页">${links.previous ? `<a rel="prev" href="${e(links.previous)}">上一页</a>` : ''}<span>${page} / ${result.pages}</span>${links.next ? `<a rel="next" href="${e(links.next)}">下一页</a>` : ''}</nav>`
+                  ? `<nav class="pagination" aria-label="${e(t("列表分页"))}">${links.previous ? `<a rel="prev" href="${e(links.previous)}">${e(t("上一页"))}</a>` : ''}<span>${page} / ${result.pages}</span>${links.next ? `<a rel="next" href="${e(links.next)}">${e(t("下一页"))}</a>` : ''}</nav>`
                   : '';
               return `<section class="block">${p.title ? `<h2>${e(p.title)}</h2>` : ''}${controls}${cards(result.items, release.types)}${pagination}</section>`;
             }
@@ -308,7 +311,7 @@ export function renderBlocks(
                     dateStyle: 'medium',
                   }).format(new Date(entry.publishedAt))
                 : '';
-              return `<header class="article-heading"><h1>${e(entry.title)}</h1>${entry.visibility === 'private' ? '<span>私密</span>' : ''}<div class="meta">${e(entry.author)}${date ? ' · ' + e(date) : ''}</div>${entry.cover && p.cover !== 'hide' ? `<img class="cover" src="${e(entry.cover)}" alt="">` : ''}</header>`;
+              return `<header class="article-heading"><h1>${e(entry.title)}</h1>${entry.visibility === 'private' ? `<span>${e(t('私密'))}</span>` : ''}<div class="meta">${e(entry.author)}${date ? ' · ' + e(date) : ''}</div>${entry.cover && p.cover !== 'hide' ? `<img class="cover" src="${e(entry.cover)}" alt="">` : ''}</header>`;
             }
             case 'entry-body': {
               if (!entry) return '';
@@ -336,7 +339,7 @@ export function renderBlocks(
                 : renderDocument(entry.document);
               const outline = articleOutline(html);
               return outline.items.length
-                ? `<nav class="document-outline" aria-label="正文目录">${outline.items.map((item) => `<a href="#${e(item.id)}" style="--outline-depth:${item.level - 2}">${e(item.title)}</a>`).join('')}</nav>`
+                ? `<nav class="document-outline" aria-label="${e(t('正文目录'))}">${outline.items.map((item) => `<a href="#${e(item.id)}" style="--outline-depth:${item.level - 2}">${e(item.title)}</a>`).join('')}</nav>`
                 : '';
             }
             case 'entry-fields': {
@@ -426,6 +429,7 @@ export function renderEntryTemplate(
   custom: Record<string, (block: Block, release: Release, entry?: Entry) => string> = {},
   options: RenderOptions = {},
 ) {
+  const t=textFor(release.settings.language);
   const template = layoutFor(entry, release);
   const nav = options.validation
     ? { before: '', after: '' }
@@ -440,7 +444,7 @@ export function renderEntryTemplate(
       editable: options.editTemplate,
       editBody: options.editTemplate ? false : options.editable,
     }) + renderEvidence(entry);
-  return `<div class="entry-template template-${e(template.id)}${entry.documentation ? ' has-documentation' : ''}" data-template="${e(template.id)}">${nav.before}${entry.documentation ? `<div class="doc-content">${body}</div>` : body}${nav.after}${related.length ? `<section class="related-content"><h2>相关内容</h2>${related.map((item) => `<a href="${e(item.path)}">${e(item.title)}</a>`).join('')}</section>` : ''}</div>`;
+  return `<div class="entry-template template-${e(template.id)}${entry.documentation ? ' has-documentation' : ''}" data-template="${e(template.id)}">${nav.before}${entry.documentation ? `<div class="doc-content">${body}</div>` : body}${nav.after}${related.length ? `<section class="related-content"><h2>${e(t("相关内容"))}</h2>${related.map((item) => `<a href="${e(item.path)}">${e(item.title)}</a>`).join('')}</section>` : ''}</div>`;
 }
 export function renderSharedRegion(
   position: 'header' | 'before' | 'after' | 'footer',

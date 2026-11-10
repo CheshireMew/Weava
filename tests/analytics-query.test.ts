@@ -22,6 +22,12 @@ it('matches the previous report semantics for attributed sessions, filters, acti
       }
     })();
     const clock=Date.UTC(2026,10,3,12);
+    // Starting on actions avoids session attribution until a later section needs it.
+    const lazy=new URLSearchParams({start:'2026-10-31',end:'2026-11-03',section:'actions'});
+    const actions=analyticsReport(db,lazy,'UTC',clock),full=reference(db,lazy,'UTC',clock);
+    for(const key of ['views','visitors','sessions','clicks','previous','overview','lifetime','links','actions'] as const)expect(normalized(actions[key])).toEqual(normalized(full[key]));
+    db.prepare("UPDATE events SET label='changed after actions' WHERE id='event-0003'").run();
+    lazy.delete('section');expect(normalized(analyticsReport(db,lazy,'UTC',clock))).toEqual(normalized(reference(db,lazy,'UTC',clock)));
     const check=()=>{
       const selections:Record<string,string>[]=[{},{path:'/two/'},{country:'未知'},{channel:'ai-referral'},{device:'smartphone'},{country:'CN',browser:'Chrome'}];
       for(const timezone of ['Asia/Shanghai','America/New_York','UTC'])for(const filters of selections){

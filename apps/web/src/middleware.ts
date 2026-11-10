@@ -13,6 +13,7 @@ import { requestIdentity } from '@weava/core';
 import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
 import { assetResponse } from '../../../packages/core/src/asset-response.ts';
 import { releaseIndex } from '../../../packages/core/src/release-index.ts';
+import {localizeCodeControls} from '../../../packages/core/src/public-locale.ts';
 const compress = promisify(gzip);
 const developmentNonces = new WeakMap<Response, string>();
 const mime: Record<string, string> = {
@@ -152,12 +153,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
   }
   else if(!context.url.pathname.startsWith('/media/'))response.headers.set('Content-Security-Policy',(response.headers.get('Content-Security-Policy')??'')+"; frame-ancestors 'self'; base-uri 'self'");
   const programAsset=context.url.pathname.startsWith('/_admin/assets/')||context.url.pathname.startsWith('/_astro/');
+  if(response.status===404&&context.request.method==='GET'&&!admin&&!programAsset&&!/^\/(api|media|site-assets|__|_)/.test(context.url.pathname)&&response.headers.get('content-type')?.includes('text/html')&&features.includes('analytics')&&context.request.headers.get('dnt')!=='1'&&context.cookies.get('weava-exclude')?.value!=='1'&&!site.authenticate(context.cookies.get('weava-session')?.value??'')&&!site.release()?.entries.some(entry=>entry.path===context.url.pathname&&entry.visibility==='private')){
+    let peer='';try{peer=context.clientAddress;}catch{}
+    try{analytics.recordMissing(context.url.pathname,context.request.headers.get('referer')??'',context.request.headers.get('user-agent')??'',requestIdentity(context.request,peer).network,site.settings().value.timezone);}catch{}
+  }
   if (!admin && !programAsset && !context.url.pathname.startsWith('/media/') &&
       !context.url.pathname.startsWith('/api/') && response.status === 200 &&
       response.headers.get('content-type')?.includes('text/html')) {
     const release = site.visibleRelease();
     if (release) {
-      const html = await (await siteExtension).transformHtml(await response.text(), release, context.url);
+      const html = localizeCodeControls(await (await siteExtension).transformHtml(await response.text(), release, context.url),release.settings.language);
       const headers = new Headers(response.headers); headers.delete('Content-Length');
       response = new Response(html, { status: response.status, headers });
     }

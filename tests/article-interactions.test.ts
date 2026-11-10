@@ -10,14 +10,14 @@ const summary = {items:[comment], hasMore:false, likes:0, comments:1, liked:fals
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
 it('operates both article menus with keys, restores focus, and closes on outside navigation', () => {
   const window=new Window({url:'https://example.test/article/'});windows.push(window);
-  window.document.body.innerHTML=['top','bottom'].map(id=>`<div class="nl-more-wrap"><button data-article-action="more" aria-controls="${id}" aria-expanded="false">更多</button><div class="nl-more-menu" id="${id}" role="menu" hidden><button role="menuitem" tabindex="-1" data-article-action="copy">复制链接</button><button role="menuitem" tabindex="-1" data-article-action="print">打印文章</button></div></div>`).join('')+'<button id="outside">其它操作</button>';
+  window.document.body.innerHTML=['top','bottom'].map(id=>`<div class="nl-more-wrap"><button data-article-action="more" aria-controls="${id}" aria-expanded="false">更多</button><div class="nl-more-menu" id="${id}" role="menu" hidden><button role="menuitem" tabindex="-1" data-article-action="print">打印文章</button></div></div>`).join('')+'<button id="outside">其它操作</button>';
   window.eval(script);
   const triggers=[...window.document.querySelectorAll<HappyButton>('[data-article-action="more"]')];
   const element=(id:string)=>window.document.getElementById(id) as HappyHTMLElement;
   const key=(target:any,key:string)=>target.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
   for(const trigger of triggers){
     trigger.click();const menu=element(trigger.getAttribute('aria-controls')!);
-    expect(menu.hidden).toBe(false);expect(window.document.activeElement?.textContent).toBe('复制链接');
+    expect(menu.hidden).toBe(false);expect(window.document.activeElement?.textContent).toBe('打印文章');
     key(window.document.activeElement,'ArrowDown');expect(window.document.activeElement?.textContent).toBe('打印文章');
     key(window.document.activeElement,'Escape');expect(menu.hidden).toBe(true);expect(window.document.activeElement).toBe(trigger);expect(trigger.getAttribute('aria-expanded')).toBe('false');
     key(trigger,'ArrowUp');expect(window.document.activeElement?.textContent).toBe('打印文章');

@@ -1,0 +1,100 @@
+import {afterEach,expect,it} from 'vitest';
+import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,readdirSync,existsSync} from 'node:fs';
+import {join} from 'node:path';
+import sharp from 'sharp';
+import {Site,Analytics} from '@weava/core';
+import {entrySchema as parseEntry} from '@weava/contracts';
+import {exportMarkdownFolder,previewMarkdownFolder,importMarkdownFolder,parseMarkdownFile} from '../packages/core/src/markdown-folder.ts';
+import {prepareMedia} from '../packages/core/src/media.ts';
+import {saveBackupPolicy,queueAutomaticBackup,recordBackupVerification,backupInventory} from '../packages/core/src/backup-management.ts';
+import {createBackup,verifyBackup} from '../packages/core/src/backup.ts';
+import {previewMediaReplacement,applyMediaReplacement} from '../packages/core/src/media-replacement.ts';
+const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/functional-completion-20261110';
+mkdirSync(base,{recursive:true});
+const sites:Site[]=[],analytics:Analytics[]=[];
+afterEach(()=>{analytics.splice(0).forEach(item=>item.close());sites.splice(0).forEach(item=>item.close());});
+function fixture(){const root=mkdtempSync(join(base,'storage-'));const site=new Site(join(root,'site'));sites.push(site);site.saveType({id:'post',label:'文章',fields:[],pathPrefix:'/posts/',template:'article'},null);return {root,site};}
+it('round-trips a Markdown folder with dates, categories, private HTML content, blocks and local media',async()=>{
+  const {root,site}=fixture();
+  const image=await sharp({create:{width:2,height:2,channels:3,background:'red'}}).png().toBuffer();
+  const media=await prepareMedia(site,image,'picture.png',{optimize:false});site.store.put('media',media.id,media.value,null);
+  const first=site.saveEntry(parseEntry.parse({id:'first',kind:'content',title:'中文文章',path:'/posts/original/',author:'Author',categories:['分类'],tags:['标签'],publishedAt:'2026-10-01T00:00:00Z',cover:media.value.url,document:{version:1,format:'markdown',source:'## 标题\n\n![Image]('+media.value.url+')\n\n完整正文。'}}),null);
+  const html=site.saveEntry(parseEntry.parse({id:'html',kind:'content',title:'HTML',path:'/posts/html/',visibility:'private',document:{version:1,format:'html',source:'<p>Legacy <img src="'+media.value.url+'"></p>'}}),null);
+  site.saveEntry(parseEntry.parse({id:'block',kind:'page',title:'页面',path:'/page/',blocks:[{id:'body',type:'text',props:{text:'区块正文 ![]('+media.value.url+')'}}]}),null);
+  const output=join(root,'markdown');const result=exportMarkdownFolder(site,output);
+  expect(result).toMatchObject({entries:3,media:1});expect(()=>exportMarkdownFolder(site,output)).toThrow(/空的导出目录/);
+  const target=new Site(join(root,'target'));sites.push(target);
+  const preview=previewMarkdownFolder(target,output);expect(preview.entries).toHaveLength(3);expect(target.store.get('entry','first')).toBeNull();
+  await importMarkdownFolder(target,output,{review:preview.review});
+  expect(target.store.get('entry','first')?.value).toMatchObject({title:first.value.title,author:'Author',categories:['分类'],tags:['标签'],publishedAt:first.value.publishedAt,document:first.value.document,cover:first.value.cover});
+  expect(target.store.get('entry','html')?.value.document).toEqual(html.value.document);expect(target.store.get('entry','html')?.value.visibility).toBe('private');
+  expect(target.store.get('entry','block')?.value.blocks).toHaveLength(1);expect(target.store.list('media')).toHaveLength(1);expect(target.visibleRelease()).toBeNull();
+});
+it('imports ordinary Markdown files and refuses changed previews without partially saving entries',async()=>{
+  const {root,site}=fixture(),folder=join(root,'input');mkdirSync(folder);
+  writeFileSync(join(folder,'one.md'),'---\nid: one\ntitle: 第一篇\npath: /one/\n---\n# 正文\n[下一篇](two.md#section)');
+  writeFileSync(join(folder,'two.md'),'---\ncover: /default-covers/picsum-10.webp\n---\n# 第二篇\n\n完整正文');
+  const preview=previewMarkdownFolder(site,folder);writeFileSync(join(folder,'two.md'),'---\ncover: /default-covers/picsum-10.webp\n---\n# 已修改\n\n新正文');
+  await expect(importMarkdownFolder(site,folder,{review:preview.review})).rejects.toThrow(/重新预检/);expect(site.store.list('entry')).toHaveLength(0);
+  const fresh=previewMarkdownFolder(site,folder);await importMarkdownFolder(site,folder,{review:fresh.review});
+  expect(site.store.get('entry','one')?.value.document.source).toMatch(/entry:md-[a-f0-9]+#section/);
+});
+it('carries an existing SVG from a verified export without changing the normal upload formats',async()=>{
+  const {root,site}=fixture();mkdirSync(join(site.root,'media'),{recursive:true});
+  writeFileSync(join(site.root,'media','legacy.svg'),'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><rect width="20" height="20" fill="red"/></svg>');
+  site.saveEntry(parseEntry.parse({id:'svg',kind:'content',title:'SVG',path:'/svg/',document:{version:1,format:'markdown',source:'![Legacy](/media/legacy.svg)'}}),null);
+  const output=join(root,'markdown');expect(exportMarkdownFolder(site,output).media).toBe(1);
+  const target=new Site(join(root,'target'));sites.push(target);const preview=previewMarkdownFolder(target,output);await importMarkdownFolder(target,output,{review:preview.review});
+  const media=target.store.list('media')[0];expect(media.value.url).toMatch(/^\/media\/[a-f0-9]{24}\.svg$/);expect(target.store.get('entry','svg')?.value.document.source).toContain(media.value.url);expect(readFileSync(join(target.root,media.value.url.slice(1)),'utf8')).toContain('<svg');
+});
+it('archives and restores analytics details without changing lifetime counts, including distinct visitors across tiers',()=>{
+  const {site}=fixture(),stats=new Analytics(site.root);analytics.push(stats);
+  const insert=stats.raw.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+  for(const [id,kind,ts,visitor,session,path] of [['old-one','view','2026-11-01T01:00:00Z','visitor','session','/article/'],['old-two','view','2026-11-02T01:00:00Z','visitor','session2','/article/'],['old-click','click','2026-11-02T01:00:00Z','visitor','session2','/article/'],['new-one','view','2026-11-09T01:00:00Z','visitor','session3','/article/']])insert.run(id,kind,ts,path,visitor,session,'','','','','');
+  const params=new URLSearchParams('start=2026-11-01&end=2026-11-10');const lifetime=stats.report(params).lifetime,views=stats.viewTotals([{id:'article',path:'/article/'}]);
+  const preview=stats.previewArchive('2026-11-04');expect(preview.events).toBe(3);
+  const archived=stats.archive(preview.before,preview.review);expect(stats.archive(preview.before,preview.review)).toEqual(archived);
+  expect(stats.raw.prepare('SELECT COUNT(*) n FROM events').get()).toEqual({n:1});
+  expect(stats.report(params).lifetime).toEqual(lifetime);expect(stats.viewTotals([{id:'article',path:'/article/'}])).toEqual(views);
+  expect(stats.archiveDays('2026-11-01','2026-11-10').items).toHaveLength(2);expect(existsSync(archived.path)).toBe(true);
+  stats.restoreArchive(archived.id);expect(stats.raw.prepare('SELECT COUNT(*) n FROM events').get()).toEqual({n:4});expect(stats.report(params).lifetime).toEqual(lifetime);
+  expect(stats.archiveDays('2026-11-01','2026-11-10').items).toHaveLength(0);expect(stats.restoreArchive(archived.id)).toEqual({id:archived.id,restored:true});
+  const repeated=stats.previewArchive('2026-11-04'),second=stats.archive(repeated.before,repeated.review);expect(second.id).not.toBe(archived.id);stats.restoreArchive(second.id);expect(stats.report(params).lifetime).toEqual(lifetime);
+});
+it('requires explicit migration of an old analytics database and keeps its existing facts',()=>{
+  const {site}=fixture(),old=new Analytics(site.root);
+  old.raw.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)').run('old-schema','view','2026-11-01T00:00:00Z','/article/','visitor','session','','','','','');
+  old.raw.exec('DROP TABLE analytics_archives;DROP TABLE analytics_archive_days;DROP TABLE analytics_archive_visitors;DROP TABLE analytics_archive_sessions;DROP TABLE analytics_health;DROP TABLE search_events;DROP TABLE search_clicks;DROP TABLE missing_requests;UPDATE weava_analytics_schema SET version=1;');old.close();
+  expect(()=>new Analytics(site.root)).toThrow(/显式迁移/);
+  const migrated=new Analytics(site.root,{mode:'migrate'});analytics.push(migrated);
+  expect(migrated.raw.prepare('SELECT version FROM weava_analytics_schema').get()).toEqual({version:3});expect(migrated.lifetime().lifetimeViews).toBe(1);expect(migrated.collectionStatus().archives).toBe(0);
+});
+it('schedules one automatic backup per due date and does not backfill before a newly enabled policy',()=>{
+  const {site}=fixture();const row=saveBackupPolicy(site,{enabled:true,path:join(site.root,'..','backups'),time:'03:00'},null);
+  const start=Date.parse(row.updatedAt),due=new Date(start+86400000);const runner={enqueue:(operation:string,payload:any,key?:string)=>site.createJob(operation,payload,key)} as any;
+  expect(queueAutomaticBackup(site,runner,start)).toBeNull();
+  const queued=queueAutomaticBackup(site,runner,due.getTime());expect(queued?.operation).toBe('backup');
+  expect(queueAutomaticBackup(site,runner,due.getTime())).toBeNull();
+});
+it('checks a real backup and retains verification failures in the catalog',async()=>{
+  const {root,site}=fixture(),base=join(root,'backups');const backup=await createBackup(site,base);
+  verifyBackup(backup.path);recordBackupVerification(site,backup.path);
+  expect(backupInventory(site,base).items[0]).toMatchObject({path:backup.path,error:''});
+  expect(backupInventory(site,base).items[0].verifiedAt).toBeTruthy();
+  recordBackupVerification(site,backup.path,'Checksum mismatch');
+  expect(backupInventory(site,base).items[0].error).toBe('Checksum mismatch');
+});
+it('applies reviewed media replacements only to drafts and refuses changed revisions',async()=>{
+  const {site}=fixture();
+  const create=async(color:string)=>{const media=await prepareMedia(site,await sharp({create:{width:2,height:2,channels:3,background:color}}).png().toBuffer(),color+'.png',{optimize:false});site.store.put('media',media.id,media.value,null);return media;};
+  const from=await create('red'),to=await create('blue');
+  const row=site.saveEntry(parseEntry.parse({id:'replace',kind:'content',title:'原文',path:'/replace/',document:{version:1,format:'markdown',source:'![live]('+from.value.url+')'}}),null);site.publish({ids:[row.id]});
+  const input={fromId:from.id,toId:to.id},preview=previewMediaReplacement(site,input);expect(preview.items).toHaveLength(1);
+  const changed=site.saveEntry({...row.value,title:'修改标题'},row.revision);
+  expect(()=>applyMediaReplacement(site,{...input,review:preview.review})).toThrow(/重新预检/);
+  expect(site.store.get('entry',row.id)?.revision).toBe(changed.revision);
+  const fresh=previewMediaReplacement(site,input),result=applyMediaReplacement(site,{...input,review:fresh.review});
+  expect(site.store.get('entry',row.id)?.value.document.source).toContain(to.value.url);
+  expect(site.visibleRelease()?.entries[0].document.source).toContain(from.value.url);
+  expect(applyMediaReplacement(site,{...input,review:fresh.review})).toEqual(result);
+});

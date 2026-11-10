@@ -1,4 +1,5 @@
-import { isUploadFormat, mediaKind, mediaUploadMaxBytes } from '@weava/contracts';
+import { isUploadFormat, mediaKind, mediaUploadMaxBytes,mediaUploadLimit } from '@weava/contracts';
+import {assertUploadSize,uploadLimits} from './media-upload-policy.ts';
 
 import { mediaGroupSchema, WeavaError } from '@weava/contracts';
 import { load } from 'cheerio';
@@ -19,6 +20,7 @@ import sharp from 'sharp';
 import { digest, now } from '../../runtime-common/src/identity.ts';
 import { inside } from '../../runtime-common/src/paths.ts';
 import { BoundedCache } from './cache.ts';
+import {defaultCoverVariants} from '../../runtime-common/src/default-covers.ts';
 import { digestFile } from './file-io.ts';
 import { validateMediaFormat } from './media-format.ts';
 import { imageDerivatives } from './media-images.ts';
@@ -372,6 +374,14 @@ export function imageAttributes(
           height: display.height,
           sizes: display.sizes ?? `${display.width}px`,
         };
+  const defaults = defaultCoverVariants(src);
+  if (defaults) return {
+    src: (defaults.find(variant => variant.width >= displayWidth) ?? defaults.at(-1)!).url,
+    srcset: defaults.map(variant => `${variant.url} ${variant.width}w`).join(', '),
+    width: 1200, height: 675,
+    sizes: typeof display === 'number' ? `${display}px` : display.sizes ?? `${display.width}px`,
+    ...dimensions,
+  };
   const key = JSON.stringify(display) + ':' + src;
   const cache = imageCache(site),
     old = cache.attributes.get(key);
@@ -400,7 +410,7 @@ export function imageAttributes(
   return { ...result };
 }
 export function responsiveImages(site: Site, html: string) {
-  if (!html.includes('/media/')) return html;
+  if (!html.includes('/media/') && !html.includes('/default-covers/')) return html;
   const cache = imageCache(site),
     key = digest(html),
     old = cache.html.get(key);
@@ -426,8 +436,7 @@ export function responsiveImages(site: Site, html: string) {
   return cache.html.set(key, result, result.length * 2);
 }
 export function stageMedia(site: Site, data: Buffer, name: string) {
-  if (!data.length || data.length > mediaUploadMaxBytes)
-    throw new WeavaError('附件大小需要在 32 MB 以内。');
+  assertUploadSize(site,name,data.length);
   const ext = extname(name).toLowerCase();
   if (!isUploadFormat(name)) throw new WeavaError('不支持这个附件格式。');
   validateMediaFormat(data, ext);
@@ -435,9 +444,9 @@ export function stageMedia(site: Site, data: Buffer, name: string) {
   if (!existsSync(path)) writeFileSync(path, data);
   return { path, name };
 }
-export function validateMediaFile(file: string, name: string) {
+export function validateMediaFile(file: string, name: string, maximum=mediaUploadMaxBytes) {
   const size = statSync(file).size;
-  if (!size || size > mediaUploadMaxBytes) throw new WeavaError('附件大小需要在 32 MB 以内。');
+  if (!size || size > maximum) throw new WeavaError('附件大小需要在 '+maximum/1048576+' MB 以内。');
   const fd = openSync(file, 'r'),
     buffer = Buffer.allocUnsafe(65536),
     ext = extname(name).toLowerCase();
@@ -463,8 +472,8 @@ export interface PrepareMediaOptions {
   optimize?: boolean;
 }
 export async function prepareMedia(site: Site, data: Buffer | string, name: string, options: PrepareMediaOptions = {}) {
-  const size = options.validatedSize ?? (typeof data === 'string' ? validateMediaFile(data, name) : data.length);
-  if (!size || size > mediaUploadMaxBytes) throw new WeavaError('附件大小需要在 32 MB 以内。');
+  const size = options.validatedSize ?? (typeof data === 'string' ? validateMediaFile(data, name,mediaUploadLimit(name,uploadLimits(site))) : data.length);
+  assertUploadSize(site,name,size);
   if (typeof data !== 'string') validateMediaFormat(data, extname(name).toLowerCase());
   const hash = options.hash ?? (typeof data === 'string' ? digestFile(data) : digest(data)),
     id = hash.slice(0, 24);

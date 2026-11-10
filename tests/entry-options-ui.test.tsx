@@ -3,13 +3,13 @@ import {contentCommands} from '../apps/admin/src/content-commands.ts';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { entrySchema } from '@weava/contracts';
+import { entrySchema,zonedDateTime } from '@weava/contracts';
 import { EntryOptionsBar } from '../apps/admin/src/EntryOptionsBar.tsx';
 import { EntrySettings } from '../apps/admin/src/EntrySettings.tsx';
 
 const mocks = vi.hoisted(() => ({ media: vi.fn(), content: vi.fn(), api: vi.fn() }));
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: mocks.media, content: mocks.content }) }));
-vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
+vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api, waitJob: async (job: unknown) => job }));
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -36,7 +36,8 @@ async function click(label: string) {
 it('keeps five compact entry settings controls and opens taxonomy choices directly', async () => {
   const current = model();
   await act(async () => root.render(<EntryOptionsBar model={current} onMore={vi.fn()} />));
-  expect(host.querySelectorAll('[role="group"] > button')).toHaveLength(5);
+  expect(host.querySelectorAll('[role="group"] > button[aria-label^="设置"]')).toHaveLength(5);
+  expect(host.querySelectorAll('[role="group"] > button')).toHaveLength(6);
   expect(host.querySelector('aside')).toBeNull();
   expect(document.querySelector('[role="dialog"]')).toBeNull();
   await click('设置分类');
@@ -72,7 +73,7 @@ it('keeps scheduling tied to the saved revision after moving it into publication
   await act(async () => root.render(<EntryOptionsBar model={current} onMore={vi.fn()} />));
   await click('设置发布选项'); await click('安排发布');
   expect(current.persist).toHaveBeenCalledTimes(1);
-  expect(mocks.api).toHaveBeenCalledWith('schedule', { id: 'article', revision: 7, dueAt: new Date(current.scheduleDueAt).toISOString() });
+  expect(mocks.api).toHaveBeenCalledWith('schedule', { id: 'article', revision: 7, dueAt: zonedDateTime(current.scheduleDueAt,'Asia/Shanghai') });
   expect(current.setScheduleDueAt).toHaveBeenCalledWith('');
   expect(current.notify).toHaveBeenCalledWith('定时发布已安排');
 });
@@ -81,6 +82,8 @@ it('groups secondary settings and removes the indexing checkbox without resettin
   await act(async () => root.render(<EntrySettings model={current} mode="more" />));
   expect(host.querySelectorAll('[role="tab"]')).toHaveLength(4);
   expect(host.textContent).not.toContain('选择分类'); expect(host.textContent).not.toContain('选择封面');
+  expect(host.querySelector('[data-field-path="author"]')).toBeNull();
+  expect(host.querySelector('[data-field-path="path"] input')).not.toBeNull();
   expect(current.update).not.toHaveBeenCalled();
   await click('搜索与分享');
   expect(host.textContent).not.toContain('允许搜索引擎收录');

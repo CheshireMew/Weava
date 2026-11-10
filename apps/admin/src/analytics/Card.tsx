@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { ReportPeriod } from './ReportPeriod.tsx';
 
 export const AnalyticsExportContext = createContext<string | null>(null);
-const datasets: Record<string, string> = { '流量趋势':'daily', '页面排行':'pages', '访问来源':'sources', '国家 / 地区':'countries', '浏览器':'browsers', '操作系统':'os', '设备类型':'devices', '设备型号':'models', '最新访客':'visitors', '链接点击':'links', '关键动作':'actions', '推广链接':'campaigns', '爬虫请求':'crawlers', '累计浏览':'lifetime', '全球访客分布':'countries' };
+const datasets: Record<string, string> = { '流量趋势':'daily', '页面排行':'pages', '访问来源':'sources', '国家 / 地区':'countries', '浏览器':'browsers', '操作系统':'os', '设备类型':'devices', '设备型号':'models', '最新访客':'visitors', '链接点击':'links', '关键动作':'actions', '推广链接':'campaigns', '爬虫请求':'crawlers', '累计浏览':'lifetime' };
 export function Card({
   title,
   children,

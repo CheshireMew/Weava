@@ -33,6 +33,8 @@ export function serveTasks(root:string) {
     if(operation.startsWith('analytics-')){
       const analytics=await stats(),params=new URLSearchParams(payload.query);
       if(operation==='analytics-report')return analytics.report(params,payload.timezone);
+      if(operation==='analytics-discovery')return analytics.discovery(params,payload.timezone);
+      if(operation==='analytics-archive-preview')return analytics.previewArchive(payload.before);
       if(operation==='analytics-realtime')return analytics.realtime(params);
       if(operation==='analytics-visitor')return analytics.visitor(payload.id,params,payload.timezone);
       if(operation==='analytics-export')return analytics.export(params,payload.timezone);

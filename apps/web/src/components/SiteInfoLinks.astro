@@ -1,8 +1,10 @@
 ---
+import {textFor} from '@weava/contracts';
 import type { Release } from '@weava/contracts';
 interface Props { release: Release }
+const t=textFor(Astro.props.release.settings.language);
 const entries = Astro.props.release.entries.filter(entry => entry.visibility !== 'private' && ['about', 'friends'].includes(entry.source?.siteInfoRole));
 ---
-{entries.length > 0 && <nav class="site-info-links" aria-label="网站信息">{entries.map(entry => <a href={entry.path}>{entry.title}</a>)}</nav>}
+{entries.length > 0 && <nav class="site-info-links" aria-label={t("网站信息")}>{entries.map(entry => <a href={entry.path}>{entry.title}</a>)}</nav>}
 <style>.site-info-links{display:flex;justify-content:center;flex-wrap:wrap;gap:24px;padding:24px 20px;font-size:14px}.site-info-links a{color:inherit;text-decoration:none}.site-info-links a:hover{text-decoration:underline}</style>
 <style is:global>.site-information{max-width:760px;margin-inline:auto}.site-information .site-friend-links{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(240px,100%),1fr));gap:20px}.site-friend-links li{border:1px solid #e4e4e4;border-radius:8px;padding:20px}.site-friend-links li>a{font-size:18px;font-weight:600}.site-friend-links li>p{margin:8px 0 0;color:#666;font-size:14px}</style>

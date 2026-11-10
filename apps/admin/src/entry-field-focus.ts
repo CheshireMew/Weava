@@ -1,11 +1,11 @@
 /** Route editable validation errors to their owning surface. Other errors stay readable text. */
 export function entryFieldSection(path: string) {
   const key = path.split('.')[0];
-  if (['path', 'author'].includes(key)) return 'information';
+  if (key === 'path') return 'information';
   if (['description', 'editorial'].includes(key)) return 'presentation';
   if (key === 'seo') return 'sharing';
   if (key === 'compatibility') return 'advanced';
-  if (['title', 'document', 'blocks'].includes(key) || path.startsWith('fields.')) return 'writing';
+  if (['title', 'author', 'document', 'blocks'].includes(key) || path.startsWith('fields.')) return 'writing';
   return null;
 }
 

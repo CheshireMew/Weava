@@ -1,4 +1,5 @@
-import { isUploadFormat, mediaUploadMaxBytes } from '@weava/contracts';
+import { isUploadFormat,mediaUploadLimit } from '@weava/contracts';
+import {api} from './api.ts';
 import { adminApi } from '@weava/contracts/api';
 import { adminQueries } from './query-cache.ts';
 import { affectedQueries } from './query-effects.ts';
@@ -8,9 +9,10 @@ export async function uploadFile(
   onProgress: (message: string) => void,
   options: { groupId?: string } = {},
 ) {
-  if (file.size < 1 || file.size > mediaUploadMaxBytes)
-    throw new Error('附件大小需要在 32 MB 以内。');
+  if (file.size < 1) throw new Error('附件为空，请选择有内容的文件。');
   if (!isUploadFormat(file.name)) throw new Error('不支持这个文件格式。');
+  const maximum=mediaUploadLimit(file.name,await api('media/limits'));
+  if(file.size>maximum)throw new Error('附件大小需要在 '+maximum/1048576+' MB 以内。');
   onProgress('上传 0%');
   const row = await new Promise<ReturnType<typeof adminApi.uploadMediaFile.response.parse>>(
     (resolve, reject) => {
@@ -21,7 +23,7 @@ export async function uploadFile(
       });
       request.open('POST', `/api/admin/v1/media/file?${query}`);
       request.setRequestHeader('Content-Type', 'application/octet-stream');
-      request.timeout = 120000;
+      request.timeout = Math.min(3600000,Math.max(120000,Math.ceil(file.size/131072)*1000));
       request.upload.onprogress = (event) =>
         onProgress(event.loaded >= file.size
           ? '正在保存原文件…'

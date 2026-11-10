@@ -16,7 +16,7 @@ export function requiredFeature(path:string):FeatureId|undefined{
      /^\/api\/v1\/(?:content|search)(?:\/|$)/.test(path)||['/rss.xml','/search/','/sitemap.xml'].includes(path)||path.startsWith('/__preview/'))return 'content';
 }
 export function operationFeature(operation:string):FeatureId|undefined{
- if(['import-json','import-source','seo-audit','seo-audits'].includes(operation))return 'content';
+ if(['import-json','import-source','seo-audit','seo-audits'].includes(operation)||operation.startsWith('markdown-'))return 'content';
  if(operation.startsWith('analytics-'))return 'analytics';
  if(['media','media-edit','media-variant','media-optimize','media-references','legacy-media-stage'].includes(operation))return 'media';
  if(['publish','archive-history','restore-history','import-wxr','preflight-wxr','publication-review','publication-plan-review','schedule-create','plan-save','withdraw','entry-delete','archive-plan','archive-contents'].includes(operation))return 'content';

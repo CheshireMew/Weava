@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
 import { entrySchema } from '@weava/contracts';
-import { duplicateContent, deleteContent } from '../packages/core/src/entry-actions.ts';
+import { duplicateContent, deleteContent,restoreTrashedContent,purgeTrashedContent } from '../packages/core/src/entry-actions.ts';
+import {entryCover} from '../packages/core/src/entry-cover.ts';
 
 // The action boundary only needs records and their list index; use SQLite in memory.
 const databases: Database.Database[] = [];
@@ -12,6 +13,7 @@ function fixture() {
   const put = (scope: string, id: string, value: any, revision = 1) => db.prepare('INSERT OR REPLACE INTO records VALUES(?,?,?,?)').run(scope, id, revision, JSON.stringify(value));
   const store = {
     raw: db,
+    put: (scope:string,id:string,value:any) => {put(scope,id,value);return {id,revision:1,value};},
     get: (scope: string, id: string) => {
       const row = db.prepare('SELECT * FROM records WHERE scope=? AND id=?').get(scope, id) as any;
       return row ? { id, revision: row.revision, value: JSON.parse(row.data) } : null;
@@ -53,14 +55,39 @@ it('duplicates the full content into an independent draft with a new address and
   expect(duplicateContent(site, 'page', 1).value).toMatchObject({ kind: 'page', status: 'draft' });
 });
 
+it('gives an imageless template copy its own stable default cover without changing the template', () => {
+  const {site, original, put} = fixture();
+  const template = {...original, cover:'', blocks:[], document:{version:1 as const,format:'markdown' as const,source:'---\n\n作者签名'}};
+  put('entry', template.id, template);
+  const copy = duplicateContent(site, template.id, 1), cover = entryCover(copy.value);
+  expect(cover).toMatch(/^\/default-covers\/picsum-\d+\.webp$/);
+  expect(entryCover({...copy.value,title:'新文章标题'})).toBe(cover);
+  expect(copy.value.document).toEqual(template.document); expect(copy.value.cover).toBe('');
+  expect(site.store.get('entry', template.id).value).toEqual(template);
+});
+
 it('removes only the chosen entry and its list index after successful withdrawal', () => {
   const { site, original, db } = fixture();
   const copy = duplicateContent(site, original.id, 1);
   expect(deleteContent(site, original.id, 1, null)).toEqual({ id: original.id });
   expect(site.withdraw).toHaveBeenCalledWith(original.id, 1, true, null);
   expect(site.store.get('entry', original.id)).toBeNull();
+  expect(site.store.get('entry-trash', original.id).value.entry).toEqual(original);
   expect(db.prepare('SELECT * FROM entry_list WHERE id=?').get(original.id)).toBeUndefined();
   expect(site.store.get('entry', copy.id)).not.toBeNull();
+});
+
+it('restores the original body as a draft and requires explicit confirmation and a current trash revision to purge',()=>{
+  const {site,original}=fixture();deleteContent(site,original.id,1);
+  expect(()=>restoreTrashedContent(site,original.id,2)).toThrow(/变化/);
+  const restored=restoreTrashedContent(site,original.id,1);
+  expect(restored.value).toMatchObject({document:original.document,visibility:'private',status:'draft'});
+  expect(restored.value.publishedAt).toBeUndefined();expect(site.store.get('entry-trash',original.id)).toBeNull();
+  deleteContent(site,original.id,1);
+  expect(()=>purgeTrashedContent(site,original.id,1,'')).toThrow(/明确/);
+  expect(site.store.get('entry-trash',original.id)).not.toBeNull();
+  expect(purgeTrashedContent(site,original.id,1,'永久删除')).toEqual({id:original.id});
+  expect(site.store.get('entry-trash',original.id)).toBeNull();
 });
 
 it('keeps records and indexes intact on conflicts, planned publication or withdrawal failure', () => {

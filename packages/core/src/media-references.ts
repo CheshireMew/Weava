@@ -40,16 +40,17 @@ export function mediaReferencesIn(value: unknown): Set<string> {
   };
   const visit = (item: unknown) => {
     if (typeof item === 'string') {
-      if (/[<&]/.test(item)) {
-        // HTML entities belong to the HTML parser, not decodeURIComponent.
-        html(item);
-      }
-      if(item.includes('](')||item.includes(']:')) visitMarkdown(item, token => {
+      if(item.includes('](')||item.includes(']:')) {visitMarkdown(item, token => {
         // Markdown-it also uses numeric attributes, such as an ordered list's start.
         for (const [, value] of token.attrs ?? []) if(typeof value==='string')scan(value);
         if (token.type === 'html_inline' || token.type === 'html_block') html(token.content);
         else if (!token.children?.length) scan(token.content);
-      });
+      });return;}
+      if (/[<&]/.test(item)) {
+        // Parse mixed Markdown before HTML so an ampersand does not hide image destinations.
+        html(item);
+        return;
+      }
       scan(item);
     } else if (Array.isArray(item)) item.forEach(visit);
     else if (item && typeof item === 'object') Object.values(item).forEach(visit);

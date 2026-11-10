@@ -19,11 +19,15 @@ it('opens a multi-entry review without refreshing content or issuing a publicati
  await act(async()=>model.task('publish',{ids:['one','two']}));
  expect(model.publication).toBe(review);expect(api).toHaveBeenCalledTimes(1);expect(waitJob).not.toHaveBeenCalled();expect(refresh).not.toHaveBeenCalled();
 });
-it('publishes one entry directly while keeping its revision checks in the submitted request',async()=>{
+it('reviews one article before publishing its frozen revision only after confirmation',async()=>{
+ const review={options:{candidateId:'reviewed-one',ids:['one'],revisions:{one:17}}};
+ vi.mocked(api).mockResolvedValue(review as any);
  vi.mocked(submitJob).mockResolvedValue({id:'direct',status:'complete',operation:'publish'});
  await act(async()=>model.task('publish',{ids:['one'],revisions:{one:17}}));
- expect(model.publication).toBeNull();expect(api).not.toHaveBeenCalled();
- expect(vi.mocked(submitJob).mock.calls[0].slice(0,2)).toEqual(['publish',{ids:['one'],revisions:{one:17}}]);expect(notify).toHaveBeenCalledWith('已发布');
+ expect(model.publication).toBe(review);expect(api).toHaveBeenCalledWith('publication',{ids:['one'],revisions:{one:17}});
+ expect(submitJob).not.toHaveBeenCalled();expect(notify).not.toHaveBeenCalled();
+ await act(async()=>model.task('publish',review.options,true));
+ expect(vi.mocked(submitJob).mock.calls[0].slice(0,2)).toEqual(['publish',review.options]);expect(notify).toHaveBeenCalledWith('已发布');
 });
 it('rejects duplicate submissions and releases controls as soon as the job is accepted',async()=>{
  let finish!:(value:any)=>void;vi.mocked(submitJob).mockReturnValue(new Promise(resolve=>finish=resolve));

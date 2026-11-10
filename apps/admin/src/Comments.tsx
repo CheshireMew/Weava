@@ -6,13 +6,25 @@ import { CommentSettings, type SiteSettingProps } from './SiteSettingControls.ts
 import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
 import { watchVisible } from './analytics/polling.ts';
 import { LoadingState } from './LoadingState.tsx';
+import {useDebouncedValue} from './useDebouncedValue.ts';
 
 type Row = ArticleComment & { title: string; path: string };
 export default function Comments(props: SiteSettingProps) {
   const { onError } = props;
   const [status, setStatus] = useState('all'), [page, setPage] = useState(1);
-  const query = useAdminQuery<{ items: Row[]; total: number; hasMore: boolean }>(`comments?status=${status}&page=${page}`);
+  const [filters,setFilters]=useState({q:'',author:'',path:'',start:'',end:''}),[selected,setSelected]=useState<string[]>([]),[bulkBusy,setBulkBusy]=useState(false);
+  const search=useDebouncedValue(filters.q);
+  const params=new URLSearchParams({status,page:String(page),...filters,q:search});
+  const query = useAdminQuery<{ items: Row[]; total: number; hasMore: boolean }>(`comments?${params}`);
   const data = query.data;
+  const filterKey=JSON.stringify({...filters,q:search,status,page});
+  useEffect(()=>setSelected([]),[filterKey]);
+  useEffect(()=>{if(data&&!data.items.length&&data.total>0&&page>1)setPage(Math.max(1,Math.ceil(data.total/30)));},[data,page]);
+  async function moderateSelected(status:'visible'|'hidden'){
+    const items=data?.items.filter(row=>selected.includes(row.id)).map(row=>({id:row.id,expectedStatus:savedStatuses[row.id]??row.status??'visible'}));
+    if(!items?.length)return;setBulkBusy(true);
+    try{await api('comments/moderate',{items,status});setSelected([]);await query.refresh();}catch(error:any){onError(error.message);}finally{setBulkBusy(false);}
+  }
   const [pending,setPending]=useState<Set<string>>(new Set()),active=useRef(new Set<string>());
   const [replyBusy,setReplyBusy]=useState(false),[savedStatuses,setSavedStatuses]=useState<Record<string,ArticleComment['status']>>({});
   useEffect(()=>setSavedStatuses(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>active.current.has(id)))),[data]);
@@ -50,10 +62,13 @@ export default function Comments(props: SiteSettingProps) {
       <CommentSettings {...props} />
       </div>
     </div>
+    <div className="comment-filters">{([['q','搜索评论'],['author','评论者称呼'],['path','文章网址'],['start','开始日期（UTC）'],['end','结束日期（UTC）']] as const).map(([key,label])=><label key={key}>{label}<input type={key==='start'||key==='end'?'date':'search'} value={filters[key]} onChange={event=>{setFilters(previous=>({...previous,[key]:event.target.value}));setPage(1);}}/></label>)}</div>
+    {data&&data.items.length>0&&<div className="comment-bulk"><label><input type="checkbox" aria-label="全选本页评论" disabled={bulkBusy||query.pending} checked={data.items.every(row=>selected.includes(row.id))} onChange={event=>setSelected(event.target.checked?data.items.map(row=>row.id):[])}/>全选本页</label>{selected.length>0&&<><span>已选 {selected.length} 条</span><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('visible')}>通过所选评论</button><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('hidden')}>隐藏所选评论</button></>}</div>}
     {reply&&!data?.items.some(row=>row.id===reply.parentId)&&composer('评论')}
     {data ? <>
       {!data.items.length && <p className="muted">暂无评论</p>}
       {data.items.map((original) => {const row={...original,status:savedStatuses[original.id]??original.status};return <article className="admin-comment form-card" key={row.id}>
+        <label><input type="checkbox" aria-label={'选择 '+row.author+' 的评论'} disabled={bulkBusy||query.pending} checked={selected.includes(row.id)} onChange={event=>setSelected(ids=>event.target.checked?[...ids,row.id]:ids.filter(id=>id!==row.id))}/>选择</label>
         <header><strong>{row.author}</strong>{row.isOwner&&<span className="comment-owner">站主</span>}<time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
         {row.path ? <a href={row.path + '#comments'} target="_blank" rel="noreferrer">{row.title}</a> : <span>{row.title}</span>}
         <p>{row.body}</p>

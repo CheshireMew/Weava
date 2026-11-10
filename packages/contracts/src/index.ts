@@ -3,6 +3,8 @@ import {contentSorts} from './content-query.ts';
 export {contentSorts,type ContentSort} from './content-query.ts';
 export { z };
 export * from './urls.ts';
+export * from './timezone.ts';
+export * from './site-locale.ts';
 export * from './blocks.ts';
 export * from './analytics.ts';
 export * from './fields.ts';
@@ -153,6 +155,7 @@ export const entrySchema = z.object({
   path: z.string().startsWith('/'),
   description: z.string().default(''),
   summaryMode: z.enum(['manual', 'marker', 'auto']).default('auto'),
+  rssMode: z.enum(['inherit', 'summary', 'full']).optional(),
   author: z.string().default(''),
   cover: z.string().default(''),
   categories: z.array(z.string()).default([]),
@@ -229,6 +232,8 @@ export { advertisementSlots, advertisementsSchema } from './advertisements.ts';
 export type { AdvertisementPosition, Advertisements } from './advertisements.ts';
 
 export interface Settings {
+  mediaUploadLimits?: import('./media-rules.ts').MediaUploadLimits;
+  rssMode?: 'summary' | 'full';
   featuredOrder?: string[];
   sidebar?: import('./site-presentation.ts').SiteSidebar;
   siteInfo?: import('./site-info.ts').SiteInfo;

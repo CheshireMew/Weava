@@ -27,9 +27,12 @@ export function queryAdminEntries(
     ...result,
     items: result.items.map((row) => {
       const entry = published.get(row.id);
+      const thumbnail = row.value.cover ? imageAttributes(site, row.value.cover, {width:100,height:68}) : undefined;
       return {
         ...row,
-        thumbnail: row.value.cover ? imageAttributes(site, row.value.cover, 240).src : '',
+        thumbnail: thumbnail?.src ?? '',
+        thumbnailSrcset: thumbnail?.srcset,
+        thumbnailSizes: thumbnail?.sizes,
         ...(entry
           ? {
               publication: { path: entry.path, publishedAt: entry.publishedAt },
@@ -55,6 +58,10 @@ export function adminEntry(site: Pick<Site, 'store' | 'terms'>, id: string) {
   };
 }
 export const contentTypes = (site: Pick<Site, 'store'>) => site.store.list('type');
+export function entryIdAtPath(site:Pick<Site,'store'|'settings'>,input:string){
+  const path=new URL(input,site.settings().value.domain).pathname;
+  return (site.store.raw.prepare("SELECT id FROM entry_list WHERE json_extract(summary,'$.path')=?").get(path) as {id:string}|undefined)?.id;
+}
 export function entryLabel(site: Pick<Site, 'store'>, id: string) {
   const entry = site.store.get('entry', id)?.value;
   return { title: entry?.title ?? id, path: entry?.path ?? '' };

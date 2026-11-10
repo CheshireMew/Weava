@@ -6,6 +6,7 @@ import {useState} from 'react';
 import {SavedViewControls} from './AuthoringControls.tsx';
 import {ContentEntries} from './ContentEntries.tsx';
 import {LoadingState} from './LoadingState.tsx';
+import {Trash} from './Trash.tsx';
 
 import type {ContentLibraryModel} from './content-models.ts';
 
@@ -54,7 +55,6 @@ export function ContentLibrary({ model, showBulkEditing = true, showSavedViews =
   const hasFilters = !!filter || status !== 'all' || visibility !== 'all' || !!libraryType || Object.values(fieldFilters).some(Boolean);
   const clearFilters=()=>{setFilter('');setStatus('all');setVisibility('all');setLibraryType('');setFieldFilters({});setLibraryPage(1);};
   const extraFilters=[
-    ...(!['all','published','draft'].includes(status)?[{key:'status',label:status==='changed'?'有未发布修改':'已归档',clear:()=>setStatus('all')}]:[]),
     ...(visibility!=='all'?[{key:'visibility',label:visibility==='private'?'私密':'公开',clear:()=>setVisibility('all')}]:[]),
     ...(libraryType?[{key:'type',label:selectedType?.value.label??libraryType,clear:()=>{setLibraryType('');setFieldFilters({});}}]:[]),
     ...Object.entries(fieldFilters).filter(([,value])=>!!value).map(([key,value])=>({key:'field.'+key,label:(selectedType?.value.fields.find(field=>field.key===key)?.label??key)+'：'+value,clear:()=>setFieldFilters(previous=>({...previous,[key]:''}))})),
@@ -73,7 +73,7 @@ export function ContentLibrary({ model, showBulkEditing = true, showSavedViews =
       </div>
       <div className="library-overview">
         <div className="library-status-tabs" role="group" aria-label="内容状态">
-          {Object.entries({ all: '全部', published: '已发布', draft: '草稿' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => setStatus(key)}>{label}</button>)}
+          {Object.entries({ all: '全部', published: '已发布', draft: '草稿', changed: '有未发布修改', scheduled:'已安排发布', 'schedule-failed':'定时发布失败', archived: '已归档' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => { setStatus(key); setLibraryPage(1); }}>{label}</button>)}
         </div>
         {!notes&&!selectedType&&types.length>1?<div className="library-create library-create-picker"><Popover label={createLabel} menu className="library-create-menu" trigger={<><Plus size={18}/>{createLabel}</>}>
           {types.map(type=><button type="button" role="menuitem" key={type.id} onClick={()=>void newEntry(type.id)}>{'新建'+type.value.label}</button>)}
@@ -83,20 +83,19 @@ export function ContentLibrary({ model, showBulkEditing = true, showSavedViews =
       </div>
       </div>
       <div className="library-tools">
+        <Trash/>
         <div className="library-search">
           <Search size={15} />
           <input
             aria-label="搜索内容"
-            placeholder="搜索标题或摘要"
+            placeholder="搜索标题、摘要或正文"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         <div className="library-filters">
           <Popover label="筛选内容" className="library-filter-popover" trigger={<><SlidersHorizontal size={17} aria-hidden="true" />筛选</>}><div className="library-secondary-filters">
-          <select aria-label="更多内容状态" value={status} onChange={event => { setStatus(event.target.value); setLibraryPage(1); }}>
-            <option value="all">全部状态</option><option value="published">已发布</option><option value="draft">草稿</option><option value="changed">有未发布修改</option><option value="archived">已归档</option>
-          </select><select
+          <select
             aria-label="内容可见性"
             value={visibility}
             onChange={(e) => setVisibility(e.target.value)}
@@ -201,7 +200,7 @@ export function ContentLibrary({ model, showBulkEditing = true, showSavedViews =
           onError={setError}
         /></Popover>}
       </div>
-      {(extraFilters.length>0||filter)&&<div className="library-active-filters" role="group" aria-label="已生效的筛选">
+      {hasFilters&&<div className="library-active-filters" role="group" aria-label="已生效的筛选">
         {extraFilters.map(item=><button type="button" key={item.key} onClick={item.clear} aria-label={'移除筛选：'+item.label}>{item.label}<X size={13} aria-hidden="true"/></button>)}
         <button type="button" className="library-clear-filters" onClick={clearFilters}>清除筛选</button>
       </div>}
@@ -229,7 +228,7 @@ export function ContentLibrary({ model, showBulkEditing = true, showSavedViews =
             {hasFilters
               ? '没有符合筛选条件的内容。'
               : '还没有内容，可以新建第一篇。'}
-          </p>{hasFilters && <button onClick={clearFilters}>清除筛选</button>}</div>
+          </p></div>
         )}
         {items.length > 0 && <ContentEntries model={model} selectable={selecting} showType={!libraryType && types.length > 1} />}
       </div>

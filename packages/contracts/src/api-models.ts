@@ -7,6 +7,8 @@ export { errorSchema };
 import { publicationPlanSchema, publicationPlanValueSchema } from './publication-plans.ts';
 import { advertisementsSchema } from './advertisements.ts';
 import {writingSnippetSchema} from './writing.ts';
+import {maximumMediaUploadBytes} from './media-rules.ts';
+export const mediaUploadLimits=z.object({image:z.number().int().min(1024).max(maximumMediaUploadBytes),video:z.number().int().min(1024).max(maximumMediaUploadBytes),audio:z.number().int().min(1024).max(maximumMediaUploadBytes),file:z.number().int().min(1024).max(maximumMediaUploadBytes),staging:z.number().int().min(1024).max(8*1024*1024*1024)}).refine(value=>value.staging>=Math.max(value.image,value.video,value.audio,value.file),'暂存容量不能小于最大的单文件限制。');
 import { blockSchema, entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, mediaGroupSchema, imagePresetSchema, imageSpecSchema, fieldSchema, fieldWidgetSchema, siteSeoSchema, type Navigation } from './index.ts';
 export { blockSchema, entrySchema, typeSchema, layoutSchema, contentViewSchema, creationTemplateSchema, mediaGroupSchema, imagePresetSchema, imageSpecSchema, fieldSchema, fieldWidgetSchema };
 export const id = z.string().min(1), revision = z.number().int().positive(), nullableRevision = revision.nullable();
@@ -18,14 +20,17 @@ export const page = <T extends z.ZodType>(items: T) => z.object({ items: z.array
 const navigation: z.ZodType<Navigation> = z.lazy(() => z.object({ label: z.string(), url: z.string(), children: z.array(navigation).optional() }));
 export const themeConfig = z.object({ accent: z.string(), background: z.string(), font: z.string(), width: z.number(), radius: z.number(), spacing: z.number() });
 export const termSchema = z.object({ id, kind: z.enum(['category','tag']), label: z.string(), slug: z.string(), parentId: z.string().optional() });
-export const settingsSchema = z.object({ featuredOrder:z.array(z.string()).max(1000).optional(),sidebar:sidebarSchema.optional(),siteInfo:siteInfoSchema.optional(),name: z.string(), domain: z.string(), language: z.string(), timezone: z.string(), description: z.string(), logo: z.string(), theme: z.string(), navigation: z.array(navigation), footer: z.string(), themeConfig, advertisements: advertisementsSchema.optional(),
+export const settingsSchema = z.object({ mediaUploadLimits:mediaUploadLimits.optional(),rssMode:z.enum(['summary','full']).optional(),featuredOrder:z.array(z.string()).max(1000).optional(),sidebar:sidebarSchema.optional(),siteInfo:siteInfoSchema.optional(),name: z.string(), domain: z.string(), language: z.string(), timezone: z.string(), description: z.string(), logo: z.string(), theme: z.string(), navigation: z.array(navigation), footer: z.string(), themeConfig, advertisements: advertisementsSchema.optional(),
   taxonomies: z.array(termSchema.partial().extend({ id, label: z.string(), description: z.string().optional() })), extensions: jsonObject, sourceUrl: z.string(), commentModeration: z.boolean().optional(), themeSettings: z.record(z.string(),themeConfig).optional(), seo: siteSeoSchema.optional(), regions: z.object({ header:z.string().optional(), before:z.string().optional(), after:z.string().optional(), footer:z.string().optional() }).optional() });
 export const entryRecord = record(entrySchema);
 export const referenceRecord = record(entrySchema.pick({ id:true, title:true, path:true, kind:true, type:true }));
 export const layoutRecord = record(layoutSchema).extend({ revision:nullableRevision,builtIn:z.boolean().optional() });
 export const entrySummarySchema = entrySchema.omit({ document:true, blocks:true, compatibility:true, source:true, fields:true }).extend({ fields: jsonObject.optional() });
 export const entrySummaryRecord = record(entrySummarySchema).extend({
+  schedules:z.array(z.object({id,revision,dueAt:z.string(),status:z.enum(['scheduled','running','failed']),error:z.string().optional()})).optional(),
   thumbnail:z.string().optional(),
+  thumbnailSrcset:z.string().optional(),
+  thumbnailSizes:z.string().optional(),
   publication:z.object({path:z.string(),publishedAt:z.string().optional()}).optional(),
   metrics:z.object({likes:z.number().int().nonnegative().optional(),comments:z.number().int().nonnegative().optional(),views:z.number().int().nonnegative().optional()}).optional(),
 });

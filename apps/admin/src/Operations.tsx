@@ -1,4 +1,4 @@
-import { useState, Suspense } from 'react';
+import { useState, useRef, Suspense } from 'react';
 import {retryableLazy as lazy} from './ErrorBoundary.tsx';
 import { api } from './api.ts';
 import { Dialog } from './Dialog.tsx';
@@ -7,6 +7,8 @@ import { operationLabels, jobStatusLabels } from './admin-labels.ts';
 import {RollbackDialog} from './RollbackDialog.tsx';
 import {TemporaryMaintenance} from './TemporaryMaintenance.tsx';
 import {LoadingState} from './LoadingState.tsx';
+import {MarkdownExchange} from './MarkdownExchange.tsx';
+import BackupManager from './BackupManager.tsx';
 import {startTask,awaitTask,useBackgroundTasks,taskPending} from './background-tasks.ts';
 const ImportManager = lazy(() => import('./ImportManager.tsx'));
 const ExtensionManager = lazy(() => import('./ExtensionManager.tsx'));
@@ -21,33 +23,28 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
   busy?: boolean;
   pending?: (operation:string)=>boolean;
 }) {
-  const [path, setPath] = useState(() => { try { return localStorage.getItem('weava-backup-path') || 'D:/Tools/weava/backups'; } catch { return 'D:/Tools/weava/backups'; } });
-  const [verify, setVerify] = useState(''), [usage, setUsage] = useState<any>(null);
-  const [dialog, setDialog] = useState<'location' | 'verify' | null>(null), [nextPath, setNextPath] = useState('');
+  const [usage, setUsage] = useState<any>(null);
   const [rollbackId,setRollbackId]=useState<string|null>(null);
   const [readingUsage,setReadingUsage]=useState(false);
+  const usageRequest=useRef(false);
   const scans=useBackgroundTasks('storage'),scan=scans.find(task=>taskPending(task));
   async function inspectUsage(){
+    if(usageRequest.current||scan)return;
+    usageRequest.current=true;
     setReadingUsage(true);
     try{
       setUsage(await api('maintenance'));
-      const job=scan?.job??await startTask('maintenance/scan',{}, {scope:'storage',label:'扫描存储占用'});
+      const job=await startTask('maintenance/scan',{}, {scope:'storage',label:'扫描存储占用'});
       void awaitTask(job.id).then(()=>api('maintenance').then(setUsage)).catch(error=>onError(error.message));
-    }catch(error:any){onError(error.message);}finally{setReadingUsage(false);}
+    }catch(error:any){onError(error.message);}finally{usageRequest.current=false;setReadingUsage(false);}
   }
   const size = (n: number) => (n / 1048576).toFixed(1) + ' MB';
   const contentEnabled = !state.features || state.features.includes('content');
   return <div className="panel operations-panel">
     <div className="panel-title"><h1>备份与维护</h1><button onClick={refresh}>刷新</button></div>
     <PanelSections label="备份与维护分类" sections={[
-      { id: 'backup', label: '备份', content: <section className="form-card settings-form">
-        <h2>完整备份</h2><p>保存网站内容、设置和媒体文件，以便恢复整个网站。</p>
-        <div className="backup-location"><span>保存位置：{path}</span><button onClick={() => { setNextPath(path); setDialog('location'); }}>更改位置</button></div>
-        <div className="inline"><button className="primary" disabled={pending('backup') || !path.trim()} onClick={() => { try { localStorage.setItem('weava-backup-path', path); } catch {} return task('backup', { path }); }}>创建备份</button>
-        <button disabled={pending('verify')} onClick={() => setDialog('verify')}>检查已有备份</button>
-        </div>
-      </section> },
-      ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<LoadingState label="载入导入工具" />}><ImportManager refresh={refresh} /></Suspense> },
+      { id: 'backup', label: '备份', content: <Suspense fallback={<LoadingState label="读取备份"/>}><BackupManager onError={onError}/></Suspense> },
+      ...(contentEnabled ? [{ id: 'import', label: '导入与导出', content: <Suspense fallback={<LoadingState label="载入导入工具" />}><ImportManager refresh={refresh} /><MarkdownExchange/></Suspense> },
       { id: 'publication', label: '发布记录', content: <>
         <section className="form-card"><h2>网站更新</h2>
           <p>一次发布已有公开内容和网站设置的修改。新文章请在编辑页发布。</p>
@@ -71,7 +68,7 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
       </section> },
       { id: 'maintenance', label: '维护', content: <>
         <section className="form-card"><h2>空间占用</h2>
-          <button disabled={readingUsage} onClick={()=>void inspectUsage()}>检查占用</button>
+          <button disabled={readingUsage||!!scan} onClick={()=>void inspectUsage()}>检查占用</button>
           {usage && <>
             <p>内容 {size(usage.databaseBytes)} · 访问统计 {size(usage.analyticsBytes)} · {usage.scan?.checkedAt?'媒体':'已登记媒体'} {size(usage.media.bytes)}</p>
             {scan&&<p role="status">正在后台核对文件和历史引用，可继续使用网站。</p>}
@@ -86,17 +83,6 @@ export default function Operations({ state, task, refresh, onError, openLogs, bu
       </> },
     ]} />
     {rollbackId&&<RollbackDialog id={rollbackId} onClose={()=>setRollbackId(null)} onRestored={refresh} onError={onError}/>}
-    {dialog && <Dialog label={dialog === 'location' ? '更改备份位置' : '检查已有备份'} onClose={() => setDialog(null)}>
-      <div className="modal-title"><h2>{dialog === 'location' ? '更改备份位置' : '检查已有备份'}</h2><button onClick={() => setDialog(null)}>关闭</button></div>
-      <form onSubmit={event => {
-        event.preventDefault();
-        if (dialog === 'location') { setPath(nextPath.trim()); try { localStorage.setItem('weava-backup-path', nextPath.trim()); } catch {} }
-        else task('verify', { path: verify.trim() });
-        setDialog(null);
-      }}>
-        <label>{dialog === 'location' ? '文件夹' : '备份所在文件夹'}<input data-autofocus required value={dialog === 'location' ? nextPath : verify} onChange={event => dialog === 'location' ? setNextPath(event.target.value) : setVerify(event.target.value)} /></label>
-        <div className="dialog-actions"><button type="button" onClick={() => setDialog(null)}>取消</button><button disabled={!(dialog === 'location' ? nextPath : verify).trim()}>{dialog === 'location' ? '使用此位置' : '检查备份是否完整'}</button></div>
-      </form>
-    </Dialog>}
+
   </div>;
 }

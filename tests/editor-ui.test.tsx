@@ -8,8 +8,10 @@ import {renderDocument} from '../packages/core/src/documents.ts';
 import {load} from 'cheerio';
 import {markdownFormats} from './fixtures/markdown.ts';
 import {api} from '../apps/admin/src/api.ts';
-import {$getRoot,$isTextNode} from 'lexical';
+import {$getRoot,$isTextNode,CONTROLLED_TEXT_INSERTION_COMMAND,UNDO_COMMAND} from 'lexical';
 import {EditorView} from '@codemirror/view';
+import {exportMarkdown} from '../apps/admin/src/editor/transformers.tsx';
+import {MarkdownEditor} from '../apps/admin/src/editor/MarkdownEditor.tsx';
 
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/api.ts', () => ({api: vi.fn(async () => ({value: {path: '/guide/target/', title: '目标文章'}}))}));
@@ -40,11 +42,25 @@ it('loads large Markdown in complete blocks and flushes the last pending edit be
  expect(code.state.doc.toString().includes('最后输入')).toBe(true);expect(code.state.doc.toString().includes('[^ref]: **完整脚注**')).toBe(true);expect(error).not.toHaveBeenCalled();
  await clickFormat('切换为富文本');expect(host.querySelector('.visual-editor')).toBe(editable);
  await clickFormat('切换为 Markdown');const latest=EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-content')!)!;
+ changed.mockClear();
  await act(async()=>latest.dispatch({changes:{from:latest.state.doc.length,insert:'\n\n后来补充'}}));
+ expect(changed).not.toHaveBeenCalled();
  await clickFormat('撤销');expect(latest.state.doc.toString().includes('后来补充')).toBe(false);await clickFormat('重做');
  await clickFormat('切换为富文本');
  for(let i=0;i<100&&host.querySelector('[aria-busy="true"]');i++)await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
  expect(host.querySelector('.visual-editor')?.textContent?.includes('后来补充')).toBe(true);expect(error).not.toHaveBeenCalled();
+});
+
+it('keeps an asynchronous source upload when older long-document history is undone',async()=>{
+ const source='完整正文。'.repeat(10000);let update:(source:string)=>void=()=>{};
+ function Harness(){const[value,setValue]=useState(source);update=setValue;return <MarkdownEditor source={value} onChange={setValue} onMode={()=>{}} onMedia={async()=>null} onDrop={()=>{}} compact={false} snippets={false} uploading={false} onError={vi.fn()}/>;}
+ await act(async()=>root.render(<Harness/>));
+ for(let i=0;i<50&&!host.querySelector('.cm-content');i++)await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+ const code=EditorView.findFromDOM(host.querySelector<HTMLElement>('.cm-content')!)!;
+ await act(async()=>code.dispatch({changes:{from:source.length,insert:'新增文字'}}));
+ await clickFormat('撤销');await clickFormat('重做');
+ await act(async()=>update(code.state.doc.toString()+'\n\n![上传图片](/media/new.webp)'));
+ await clickFormat('撤销');expect(code.state.doc.toString().endsWith('![上传图片](/media/new.webp)')).toBe(true);
 });
 
 it('applies a palette format at the rich-text selection after its menu takes focus', async () => {
@@ -53,7 +69,7 @@ it('applies a palette format at the rich-text selection after its menu takes foc
   await act(async () => root.render(<Harness/>));
   const editable = host.querySelector('.visual-editor')!;
   await act(async () => {const text = document.createTreeWalker(editable.querySelector('p')!, NodeFilter.SHOW_TEXT).nextNode()!, range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 3); const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range); document.dispatchEvent(new Event('selectionchange'));});
-  const menu = host.querySelector<HTMLButtonElement>('[aria-label="更多格式"]')!;
+  const menu = host.querySelector<HTMLButtonElement>('[aria-label="高亮颜色"]')!;
   await act(async () => {menu.dispatchEvent(new MouseEvent('mousedown', {bubbles: true})); menu.click();});
   expect(saved).toBeUndefined();
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="高亮：黄色"]')!.click());
@@ -103,6 +119,28 @@ it('opens supported Markdown visually by default without changing its stored con
   expect(host.querySelector('[aria-label="段落格式"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="代码语言"]')).toBeNull();
   expect(changed).not.toHaveBeenCalled();
+});
+
+it.each(['markdown', 'lexical'] as const)('allows typing above a leading divider in %s without saving on open', async format => {
+  const value = format === 'markdown' ? {version: 1 as const, format, source: '---\n\n**作者签名**'} : importedDocument('<hr><p><strong>作者签名</strong></p>');
+  const changed = vi.fn();
+  function Harness() {const [document, setDocument] = useState(value); return <Editor value={document} outputFormat={format} onChange={next => {changed(next); setDocument(next);}} onMedia={async () => null} onError={error => {throw new Error(error);}}/>;}
+  await act(async () => root.render(<Harness/>));
+  const editable = host.querySelector<HTMLElement>('.visual-editor')!, paragraph = editable.firstElementChild!;
+  expect(paragraph.tagName).toBe('P'); expect(paragraph.textContent).toBe('');
+  expect(paragraph.nextElementSibling?.tagName).toBe('HR'); expect(changed).not.toHaveBeenCalled();
+  const editor = (editable as any).__lexicalEditor;
+  expect(editor.getEditorState().read(() => exportMarkdown())).toBe('---\n\n**作者签名**');
+  await act(async () => {
+    editable.dispatchEvent(new InputEvent('input', {bubbles: true}));
+    editor.update(() => $getRoot().selectStart(), {discrete: true});
+    editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND, '正文');
+  });
+  expect(editable.firstElementChild?.textContent).toBe('正文');
+  expect(renderDocument(changed.mock.lastCall![0])).toMatch(/正文[\s\S]*<hr[\s\S]*作者签名/);
+  await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
+  expect(editable.firstElementChild?.textContent).toBe(''); expect(editable.querySelectorAll('hr').length).toBe(1);
+  expect(changed.mock.lastCall![0]).toEqual(value);
 });
 
 it('opens legacy HTML as editable content without exposing source or rewriting it on open', async () => {

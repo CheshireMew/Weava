@@ -11,8 +11,12 @@ import {AnalyticsDetail} from './analytics/AnalyticsDetail.tsx';
 import {AnalyticsExportContext} from './analytics/Card.tsx';
 import {VisitorDetails} from './analytics/VisitorDetails.tsx';
 import {DateRangeMenu} from './analytics/DateRangeMenu.tsx';
+import {dateRange} from './analytics/date-ranges.ts';
 import './AnalyticsPanel.css';
 import {LoadingState} from './LoadingState.tsx';
+import {CollectionHealth} from './analytics/CollectionHealth.tsx';
+import {Discovery} from './analytics/Discovery.tsx';
+import {AnalyticsArchive} from './analytics/AnalyticsArchive.tsx';
 
 type Location = ReturnType<typeof reportLocation>;
 export default function AnalyticsPanel({ onError, timezone = 'Asia/Shanghai' }: { onError: (message: string) => void; timezone?: string }) {
@@ -36,15 +40,20 @@ function AnalyticsWorkspace({ route, navigate, onError, timezone }: { route: Loc
   const query = new URLSearchParams(route.query);
   if (data&&!model.stale) { query.set('start', data.range.start); query.set('end', data.range.end); }
   const appliedQuery = query.toString();
+  const defaults = dateRange('30', timezone);
+  const range = { start: query.get('start') || defaults.start, end: query.get('end') || defaults.end };
   const changeQuery = (query: string) => navigate(route.report, query, route.section);
   const changeRange = (start: string, end: string) => { const next = new URLSearchParams(appliedQuery); next.set('start', start); next.set('end', end); changeQuery(next.toString()); };
   const tabs = <div className="analytics-section-navigation"><TabList className="library-status-tabs analytics-tabs" label="统计报表" items={sections.map(([id,label])=>({id,label}))} selected={route.section} onSelect={key=>navigate(null,route.query,key)} idFor={key=>id+key} panelFor={()=>id+'panel'}/></div>;
   return <div className="panel analytics-panel">
-    <header className="panel-title"><h1>访问统计</h1><div className="analytics-header-actions"><AnalyticsControls model={model} report={route.report} query={appliedQuery} onChange={changeQuery} /><button disabled={loading || model.refreshing} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading || model.refreshing ? 'spin' : ''} />刷新</button></div></header>
+    <header className="panel-title"><h1>访问统计</h1><div className="analytics-header-actions">{route.report !== 'realtime' && <DateRangeMenu label="统计" {...range} timezone={data?.range.timezone || timezone} disabled={loading} onChange={changeRange} />}<AnalyticsControls model={model} report={route.report} query={appliedQuery} onChange={changeQuery} /><button disabled={loading || model.refreshing} onClick={() => model.load()} aria-label="刷新统计"><RefreshCw size={16} className={loading || model.refreshing ? 'spin' : ''} />刷新</button></div></header>
     {tabs}
+    <CollectionHealth/>
+    <AnalyticsArchive query={appliedQuery}/>
+    {!route.report&&route.section==='actions'&&<Discovery query={appliedQuery}/>}
     <AnalyticsFilterTags query={appliedQuery} onChange={changeQuery} />
     <section id={id + 'panel'} role="tabpanel" aria-labelledby={id + route.section} aria-busy={loading}>
-      {error && <div className="analytics-error" role="alert"><span>{error}</span><div className="analytics-error-actions">{model.start && model.end && <DateRangeMenu label="统计" start={model.start} end={model.end} timezone={timezone} onChange={changeRange} />}<button onClick={() => model.load()}>重试</button></div></div>}
+      {error && <div className="analytics-error" role="alert"><span>{error}</span><div className="analytics-error-actions"><button onClick={() => model.load()}>重试</button></div></div>}
       {!data && loading && <LoadingState label="读取统计" />}
       {data && <ReportWorkspace.Provider value={{ data, query: model.stale?model.loadedQuery:appliedQuery, loading, changeRange, navigate, openVisitor: (id, data) => setVisitor({ id, data }) }}>
         <AnalyticsExportContext.Provider value={!loading&&!model.stale ? appliedQuery : null}>

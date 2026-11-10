@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Site, mediaIdentity, mediaFile, pathWithin, createBackup, importSite, renderBlocks, validatePublicQuery, requestIdentity, readJobLog, queryDrafts, queryMedia } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
 import { adminApi, matchAdminApi } from '@weava/contracts/api';
-const sites: Site[] = [], base = 'D:/Tools/cache/weava/tests/architecture-' + Date.now(); let sequence = 0;
+const sites: Site[] = [], base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/architecture-' + Date.now(); let sequence = 0;
 function fixture() {
   const site = new Site(join(base,String(sequence++))); sites.push(site);
   site.saveType({id:'post',label:'文章',pathPrefix:'/posts/',template:'article',fields:[]},null);

@@ -106,6 +106,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
     && (!group || (group === '__ungrouped__' ? !item.groupId : item.groupId === group))
     && item.name.toLowerCase().includes(searchTerm.toLowerCase())
     && (item.status !== 'complete' || page === 1 && !result.items.some((row: any) => row.id === item.row?.id)));
+  const uploadFiles = (files: File[]) => startMediaUploads(files, group && group !== '__ungrouped__' ? group : undefined);
   const title = picker?.type === 'media' ? '选择媒体' : '选择内容';
   return (
     <Context.Provider
@@ -120,6 +121,21 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
           className="asset-dialog"
           label={title}
           onClose={() => finish(null)}
+          onPaste={event => {
+            if (picker.type !== 'media' || addressOpen || picker.kind && picker.kind !== 'image') return;
+            const clipboard = event.clipboardData;
+            const files = Array.from(clipboard.files);
+            if (!files.length) for (const item of Array.from(clipboard.items)) {
+              if (item.kind !== 'file') continue;
+              const file = item.getAsFile();
+              if (file) files.push(file);
+            }
+            const images = files.filter(file => file.type.startsWith('image/') || mediaKind(file.name) === 'image');
+            if (!images.length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            uploadFiles(images);
+          }}
         >
           <div className="modal-title">
             <h2>{title}</h2>
@@ -153,7 +169,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
                   multiple
                   accept={picker.kind === 'image' ? 'image/*' : undefined}
                   onChange={(event) => {
-                    startMediaUploads(Array.from(event.target.files ?? []), group && group !== '__ungrouped__' ? group : undefined);
+                    uploadFiles(Array.from(event.target.files ?? []));
                     event.target.value = '';
                   }}
                 />

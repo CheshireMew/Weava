@@ -38,11 +38,12 @@ export function EntrySettings({
   const selectors = useSelectors();
   if (!record) return null;
   const information = <>
+        <label>RSS 内容<select value={record.value.rssMode ?? 'inherit'} onChange={event => update({rssMode:event.target.value as Entry['rssMode']})}><option value="inherit">跟随网站</option><option value="summary">摘要</option><option value="full">全文</option></select></label>
         <label data-field-path="path">
           内容网址
           <input value={record.value.path} onChange={(e) => update({ path: e.target.value })} />
         </label>
-    {record.value.kind === 'content' && <>
+    {mode !== 'more' && record.value.kind === 'content' && <>
             <label data-field-path="author">
               作者
               <input

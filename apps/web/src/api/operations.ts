@@ -12,12 +12,16 @@ import {
   previewTemporaryCleanup,
 } from '../../../../packages/core/src/temporary-files.ts';
 import type { AdminHandlers, ApiServices } from './types.ts';
+import {backupPolicy,saveBackupPolicy,backupInventory} from '../../../../packages/core/src/backup-management.ts';
 
 export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>) {
   const { site, siteExtension, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    backupPolicy:async()=>{void jobs.warmBackground?.().catch(()=>{});return backupPolicy(site);},
+    saveBackupPolicy:async({body})=>saveBackupPolicy(site,body.value,body.revision),
+    backupInventory:async({query})=>backupInventory(site,query.path),
     cancelJob: async ({ body }) => jobs.cancel(body.id),
     previewTemporaryCleanup: async () => previewTemporaryCleanup(site),
     cleanupTemporaryFiles: async ({ body }) => cleanupTemporaryFiles(site, body.review),
@@ -42,6 +46,7 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
       return await (await siteExtension).setEnabled(data.id, data.enabled, data.revision ?? null);
     },
     maintenance: async () => {
+      void jobs.warmBackground?.().catch(()=>{});
       return storageOverview(site);
     },
     scanStorage:async ({},context)=>site.activeJobs().find(job=>job.operation==='storage-scan')??execute('storage-scan',{},context.request.headers.get('Idempotency-Key')??undefined),
@@ -110,6 +115,9 @@ export function operationsHandlers(services: Pick<ApiServices, 'site' | 'siteExt
     | 'cleanupTemporaryFiles'
     | 'logs'
     | 'backup'
+    | 'backupPolicy'
+    | 'saveBackupPolicy'
+    | 'backupInventory'
     | 'verify'
   >;
 }

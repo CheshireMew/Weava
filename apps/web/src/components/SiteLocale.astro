@@ -1,0 +1,6 @@
+---
+import {siteDictionary} from '@weava/contracts';
+interface Props{language:string}
+const messages=JSON.stringify(siteDictionary(Astro.props.language)).replaceAll('<','\\u003c');
+---
+<script id="weava-i18n" type="application/json" set:html={messages}/>

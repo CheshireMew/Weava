@@ -29,6 +29,13 @@ it('resolves a failed logout against the actual session and offers reauthenticat
 it('preserves the structured reason for a failed worker job',async()=>{
  await expect(waitJob({id:'failed',operation:'publish',status:'failed',message:'conflict',errorStatus:409,errorDetails:{revision:7}},()=>{})).rejects.toMatchObject({status:409,details:{jobId:'failed',cause:{revision:7}}});
 });
+it('refreshes analytics and health after an archive job finishes, retaining unrelated content',async()=>{
+ for(const path of ['analytics?section=overview','analytics/health','entry/unrelated'])await adminQueries.read(path,async()=>'before archive');
+ mocks.request.mockResolvedValueOnce({id:'archive',operation:'analytics-archive',status:'complete'});
+ await api.request('analytics/archive',{before:'2026-11-01',review:'review'});
+ for(const path of ['analytics?section=overview','analytics/health'])expect(await adminQueries.read(path,async()=>'after archive')).toBe('after archive');
+ expect(await adminQueries.read('entry/unrelated',async()=>'unnecessary read')).toBe('before archive');
+});
 it('invalidates affected display queries once after a write, including failed writes and typed calls', async () => {
   await adminQueries.read('entries', async () => 'old');
   const before = adminQueries.snapshot('entries').invalidation;

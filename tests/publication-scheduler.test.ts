@@ -23,7 +23,7 @@ it('runs a reviewed plan after unrelated media and draft edits without bypassing
 it('backfills due timestamps for an existing version 14 site without changing authored revisions',()=>{
  const site=create(),row=entry(site,'migrated'),time='2030-01-01T08:00:00+08:00';
  const scheduled=schedulePublication(site,row.id,row.revision,time,Date.parse('2029-01-01'));
- site.store.raw.exec('DROP TABLE publication_due; DROP TABLE archived_publication_objects; DROP TABLE staged_requests; ALTER TABLE media_uploads DROP COLUMN sha256; ALTER TABLE media_uploads DROP COLUMN verified; DELETE FROM schema_migrations WHERE version=15');
+ site.store.raw.exec('DROP TABLE publication_due; DROP TABLE archived_publication_objects; DROP TABLE staged_requests; DROP TABLE site_events; DROP TABLE event_consumers; ALTER TABLE media_uploads DROP COLUMN sha256; ALTER TABLE media_uploads DROP COLUMN verified; DELETE FROM schema_migrations WHERE version>=15');
  migrateStorage(site.store.raw,site.root,14);
  expect(duePublications(site.store,['publication-schedule'],Date.parse('2030-01-01T00:00:00Z'),10)).toEqual([{scope:'publication-schedule',id:scheduled.id,revision:scheduled.revision}]);
  expect(site.store.get('publication-schedule',scheduled.id)?.revision).toBe(scheduled.revision);

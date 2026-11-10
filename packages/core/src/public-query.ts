@@ -9,7 +9,7 @@ const loaded=new WeakMap<Database.Database,Release>();
 const matched=new WeakMap<Database.Database,{release:Release;query:string}>();
 function catalog(db:Database.Database,release:Release){
   if(loaded.get(db)===release)return;
-  const sorts=Object.keys(querySorts) as (keyof typeof querySorts)[];
+  const sorts=Object.keys(querySorts).filter(sort=>sort!=='relevance') as (keyof typeof querySorts)[];
   const orders=new Map<string,Map<string,number>>();
   for(const sort of sorts){
     const entries=[...release.entries].sort((a,b)=>compareContent(a,b,querySorts[sort]));orders.set(sort,new Map(entries.map((entry,index)=>[entry.id,index])));
@@ -31,20 +31,20 @@ export function queryPublicCatalog(db:Database.Database,release:Release,input:Co
     const terms=tokens(input.query).split(' ').filter(Boolean);
     if(!terms.length)return {items:[] as PublishedEntry[],page,pageSize,total:0,pages:0};
     const match=terms.map(term=>'"'+term.replaceAll('"','')+'"').join(' AND ');
-    if(release.entries.length<=8192){
+    {
       const old=matched.get(db);
       if(old?.release!==release||old.query!==match){
-        db.transaction(()=>{db.exec('CREATE TEMP TABLE IF NOT EXISTS weava_public_matches(id TEXT PRIMARY KEY);DELETE FROM weava_public_matches;');
-          db.prepare('INSERT OR IGNORE INTO weava_public_matches SELECT m.entry_id FROM publication_fts f JOIN publication_members m ON m.object_key=f.object_key WHERE publication_fts MATCH ? AND m.release_id=?').run(match,release.id);})();
+        db.transaction(()=>{db.exec('CREATE TEMP TABLE IF NOT EXISTS weava_public_matches(id TEXT PRIMARY KEY,score REAL NOT NULL);DELETE FROM weava_public_matches;');
+          db.prepare('INSERT OR IGNORE INTO weava_public_matches SELECT m.entry_id,bm25(publication_fts) FROM publication_fts f JOIN publication_members m ON m.object_key=f.object_key WHERE publication_fts MATCH ? AND m.release_id=?').run(match,release.id);})();
         matched.set(db,{release,query:match});
       }
       clauses.push('c.indexable=1 AND c.id IN (SELECT id FROM weava_public_matches)');
-    }else{
-      clauses.push('c.indexable=1 AND c.id IN (SELECT m.entry_id FROM publication_fts f JOIN publication_members m ON m.object_key=f.object_key WHERE publication_fts MATCH ? AND m.release_id=?)');args.push(match,release.id);
     }
   }
   const where=clauses.length?' WHERE '+clauses.join(' AND '):'';
   const total=(db.prepare('SELECT COUNT(*) n FROM weava_public_catalog c'+where).get(...args) as {n:number}).n;
-  const rows=db.prepare('SELECT c.id FROM weava_public_catalog c'+where+' ORDER BY c.'+order.catalog+' LIMIT ? OFFSET ?').all(...args,pageSize,(page-1)*pageSize) as {id:string}[];
+  const relevance = search && !!input.query?.trim() && (!input.sort || input.sort === 'relevance');
+  const sorting = relevance ? "CASE WHEN instr(lower(json_extract(c.metadata,'$.title')),?)>0 THEN 0 ELSE 1 END,(SELECT score FROM weava_public_matches WHERE id=c.id),c.sort_date,c.id" : 'c.' + order.catalog + ',c.id';
+  const rows=db.prepare('SELECT c.id FROM weava_public_catalog c'+where+' ORDER BY '+sorting+' LIMIT ? OFFSET ?').all(...args,...(relevance?[input.query!.normalize('NFKC').toLowerCase()]:[]),pageSize,(page-1)*pageSize) as {id:string}[];
   const entries=releaseIndex(release).byId;return {items:rows.map(row=>entries.get(row.id)!),page,pageSize,total,pages:Math.ceil(total/pageSize)};
 }

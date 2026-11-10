@@ -1,11 +1,12 @@
 import {afterEach,expect,it} from 'vitest';
 import {join} from 'node:path';
-import {Site,Analytics} from '@weava/core';
+import {Site,Analytics,imageAttributes} from '@weava/core';
 import {entrySchema,type ContentQuery} from '@weava/contracts';
 import {queryEntries,queryPublished} from '../packages/core/src/query.ts';
 import {newsletterCatalog,newsletterCover,newsletterRanking} from '../packages/core/src/newsletter.ts';
 import {entryCover} from '../packages/core/src/entry-cover.ts';
 import {existsSync,readFileSync} from 'node:fs';
+import {defaultCoverVariants} from '../packages/runtime-common/src/default-covers.ts';
 const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/public-query-'+Date.now();let sequence=0;const sites:Site[]=[];
 afterEach(()=>sites.splice(0).forEach(site=>site.close()));
 it('gives imageless articles stable local photos while preserving manual covers and first body images',()=>{
@@ -23,6 +24,12 @@ it('gives imageless articles stable local photos while preserving manual covers 
   expect(sources.licenseUrl).toBe('https://unsplash.com/license');
   for(const photo of sources.images)expect(existsSync(join('apps/web/public/default-covers',photo.file))).toBe(true);
   expect(sources.images.map((photo:any)=>'/default-covers/'+photo.file)).toContain(selected);
+  const image=imageAttributes({} as Site,selected,{width:100,height:68});
+  expect(image.src).toMatch(/\/thumbs\/picsum-\d+-240\.webp$/);expect(image.sizes).toBe('100px');
+  expect(image.srcset).toContain(selected+' 1200w');
+  const variants=defaultCoverVariants(selected)!;
+  for(const variant of variants)expect(existsSync('apps/web/public'+variant.url)).toBe(true);
+  expect(imageAttributes({} as Site,selected,960).src).toBe(selected);
 });
 function fixture(){const site=new Site(join(base,String(sequence++)));sites.push(site);
   site.saveType({id:'post',label:'Post',fields:[{key:'score',label:'Score',type:'number',filterable:true},{key:'flag',label:'Flag',type:'boolean',filterable:true}],pathPrefix:'/posts/',template:'article'},null);

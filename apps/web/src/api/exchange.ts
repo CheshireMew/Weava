@@ -14,6 +14,9 @@ export function exchangeHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    markdownExport:async({body},context)=>jobs.enqueue('markdown-export',body,context.request.headers.get('Idempotency-Key')??undefined),
+    markdownPreview:async({body},context)=>jobs.enqueue('markdown-preview',body,context.request.headers.get('Idempotency-Key')??undefined),
+    markdownImport:async({body},context)=>jobs.enqueue('markdown-import',body,context.request.headers.get('Idempotency-Key')??undefined),
     export: async () => exportResponse(site),
     exportFile: async () => exportResponse(site, true),
     stageImportSource: async ({ query }, context) => stageImportSource(site, context.request, query.name),
@@ -49,5 +52,5 @@ export function exchangeHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
         request.headers.get('Idempotency-Key') ?? undefined,
       );
     },
-  } satisfies Pick<AdminHandlers, 'export' | 'exportFile' | 'stageImportSource' | 'runImportSource' | 'import' | 'importRevisions' | 'importWxr'>;
+  } satisfies Pick<AdminHandlers, 'export' | 'exportFile' | 'stageImportSource' | 'runImportSource' | 'import' | 'importRevisions' | 'importWxr' | 'markdownExport' | 'markdownPreview' | 'markdownImport'>;
 }

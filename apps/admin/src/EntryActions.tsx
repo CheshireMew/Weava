@@ -44,7 +44,7 @@ export function EntryActions({ row, model, disabled }: { row: any; model: EntryA
     </div>, portalTarget)}
     {confirming && <Dialog label="删除内容" className="modal entry-delete-dialog" onClose={() => setConfirming(false)} dismissible={!pending}>
       <h2>删除“{title}”？</h2>
-      <p>删除后将从内容库移除，无法在内容库中恢复。已发布内容会同时从网站撤下。</p>
+      <p>内容将移入回收站，可以恢复为草稿。已发布内容会同时从网站撤下。</p>
       {error && <p role="alert" className="error">{error}</p>}
       <div className="entry-delete-actions">
         <button data-autofocus disabled={pending} onClick={() => setConfirming(false)}>取消</button>

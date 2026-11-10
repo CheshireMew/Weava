@@ -1,4 +1,5 @@
-import { isUploadFormat, mediaUploadMaxBytes } from '@weava/contracts';
+import { isUploadFormat,mediaUploadLimit } from '@weava/contracts';
+import {uploadLimits,assertUploadSize,assertUploadSpace} from './media-upload-policy.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, open, unlink } from 'node:fs/promises';
@@ -16,13 +17,15 @@ import { closeStagedRequest, expireUploads, registerStagedRequest, temporaryPath
 export async function receiveMediaFile(site: Site, request: Request, options: { name: string; groupId?: string }) {
   if (!options.name || options.name.length > 300 || !isUploadFormat(options.name)) throw new WeavaError('不支持这个附件格式。');
   if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/octet-stream') throw new WeavaError('上传需要二进制内容。', 415);
-  if (!request.body || Number(request.headers.get('content-length')) > mediaUploadMaxBytes) throw new WeavaError('附件大小需要在 32 MB 以内。', 413);
+  const maximum=mediaUploadLimit(options.name,uploadLimits(site)),announced=Number(request.headers.get('content-length'));
+  if (!request.body || announced > maximum) throw new WeavaError('附件大小需要在 '+maximum/1048576+' MB 以内。', 413);
+  assertUploadSpace(site.root,announced||maximum);
   if (options.groupId) {
     const group = site.store.get('media-group', options.groupId);
     if (!group || group.value.archived) throw new WeavaError('媒体分组不存在或已归档。');
   }
   const path = 'uploads/' + randomUUID() + '.bin',
-    stagedId = registerStagedRequest(site, path, 'media-file', Number(request.headers.get('content-length')) || mediaUploadMaxBytes),
+    stagedId = registerStagedRequest(site, path, 'media-file', announced || maximum),
     staging = temporaryPath(site, path),
     reader = request.body.getReader(), hash = createHash('sha256'),
     ext = extname(options.name).toLowerCase(), text = ['.txt', '.csv', '.srt', '.vtt'].includes(ext);
@@ -34,7 +37,7 @@ export async function receiveMediaFile(site: Site, request: Request, options: { 
       const { value, done } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > mediaUploadMaxBytes) { await reader.cancel(); throw new WeavaError('附件大小需要在 32 MB 以内。', 413); }
+      if (bytes > maximum) { await reader.cancel(); throw new WeavaError('附件大小需要在 '+maximum/1048576+' MB 以内。', 413); }
       const part = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
       if (header.length < 32) header = Buffer.concat([header, part.subarray(0, 32 - header.length)]);
       if (text) validateMediaFormat(part, ext);
@@ -106,8 +109,8 @@ export function beginMediaUpload(
   key?: string,
   sha256?: string,
 ) {
-  if (!Number.isSafeInteger(size) || size < 1 || size > mediaUploadMaxBytes)
-    throw new WeavaError('附件大小需要在 32 MB 以内。');
+  assertUploadSize(site,name,size);
+  assertUploadSpace(site.root,size);
   if (!name || name.length > 300 || !isUploadFormat(name))
     throw new WeavaError('不支持这个附件格式。');
   if (!sha256 || !/^([a-f0-9]{64})$/.test(sha256))
@@ -129,7 +132,8 @@ export function beginMediaUpload(
           "SELECT COUNT(*) count,COALESCE(SUM(size),0) bytes FROM media_uploads WHERE status NOT IN ('complete','purged')",
         )
         .get() as { count: number; bytes: number };
-      if (pending.count >= 128 || pending.bytes + size > 256 * 1024 * 1024)
+      const staged=(site.store.raw.prepare('SELECT COALESCE(SUM(bytes),0) bytes FROM staged_requests').get() as {bytes:number}).bytes;
+      if (pending.count >= 128 || pending.bytes + staged + size > uploadLimits(site).staging)
         throw new WeavaError(
           '未完成上传已达到容量上限，请在维护页面检查并清理不再需要的上传。',
           429,

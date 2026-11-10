@@ -28,7 +28,7 @@ export function EntryOptionsBar({ model, onMore }: { model: Pick<EntrySettingsMo
     try { const media = await selectors.media('image'); if (media) update({ cover: media.url }); }
     catch (error: any) { setError(error.message); }
   }
-  const option = (key: Option, icon: React.ReactNode, summary?: string) => <button type="button" key={key} aria-label={'设置' + labels[key]} aria-haspopup="dialog" aria-expanded={open === key} aria-controls={open === key ? popupId : undefined}
+  const option = (key: Option, icon: React.ReactNode, summary?: string) => <button type="button" key={key} data-field-path={key === 'author' ? 'author' : undefined} aria-label={'设置' + labels[key]} aria-haspopup="dialog" aria-expanded={open === key} aria-controls={open === key ? popupId : undefined}
     onClick={event => { trigger.current = event.currentTarget; setOpen(current => current === key ? null : key); }}>
     {icon}<span>{labels[key]}</span>{summary && <span className="entry-option-value">{summary}</span>}<ChevronDown size={12} aria-hidden="true" />
   </button>;

@@ -15,11 +15,16 @@ import {
 } from '../../../../packages/core/src/media-upload.ts';
 import { cancelUpload } from '../../../../packages/core/src/temporary-files.ts';
 import type { AdminHandlers, ApiServices } from './types.ts';
+import {previewMediaReplacement,applyMediaReplacement} from '../../../../packages/core/src/media-replacement.ts';
+import {uploadLimits} from '../../../../packages/core/src/media-upload-policy.ts';
 export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const { site, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
     jobs.enqueue(operation, payload, key);
   return {
+    mediaLimits:async()=>uploadLimits(site),
+    previewMediaReplacement:async({body})=>previewMediaReplacement(site,body),
+    applyMediaReplacement:async({body})=>applyMediaReplacement(site,body),
     uploadMediaFile: async ({ query }, context) => receiveMediaFile(site, context.request, query),
     optimizeMedia: async ({ body }) => queueMediaOptimization(site, body.id),
     cancelUpload: async ({ body }) => cancelUpload(site, body.id),
@@ -104,6 +109,9 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     | 'mediaQuery'
     | 'mediaInfo'
     | 'mediaReferences'
+    | 'mediaLimits'
+    | 'previewMediaReplacement'
+    | 'applyMediaReplacement'
     | 'archiveMedia'
     | 'cropMedia'
     | 'groups'

@@ -6,6 +6,7 @@ import type {Site} from './site.ts';
 import {WeavaError} from '@weava/contracts';
 import {digest} from '../../runtime-common/src/identity.ts';
 import {inside,pathWithin} from '../../runtime-common/src/paths.ts';
+import {uploadLimits} from './media-upload-policy.ts';
 
 export interface StagedRequest {id:string;path:string;kind:string;bytes:number;expires:number;active_until:number;job_id:string|null}
 export function temporaryPath(site:Site,path:string){
@@ -19,7 +20,8 @@ export function registerStagedRequest(site:Site,path:string,kind:string,maximum:
   temporaryPath(site,path);
   return site.store.raw.transaction(()=>{
     const total=site.store.raw.prepare('SELECT COUNT(*) count,COALESCE(SUM(bytes),0) bytes FROM staged_requests').get() as {count:number;bytes:number};
-    if(total.count>=32||total.bytes+maximum>512*1024*1024)throw new WeavaError('暂存请求已达到容量上限，请在维护页面清理已结束的任务文件。',429);
+    const receiving=site.store.raw.prepare("SELECT COALESCE(SUM(size),0) bytes FROM media_uploads WHERE status NOT IN ('complete','purged','cancelled','expired')").get() as {bytes:number};
+    if(total.count>=32||total.bytes+receiving.bytes+maximum>uploadLimits(site).staging)throw new WeavaError('暂存请求已达到容量上限，请在维护页面清理已结束的任务文件。',429);
     const id=randomUUID();site.store.raw.prepare('INSERT INTO staged_requests VALUES(?,?,?,?,?,?,NULL)').run(id,path,kind,maximum,Date.now()+86400000,Date.now()+120000);
     return id;
   }).immediate();

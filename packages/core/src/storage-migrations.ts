@@ -201,4 +201,15 @@ export function migrateStorage(db: Database.Database, root: string, previousVers
     }
     db.exec("INSERT INTO schema_migrations VALUES(15,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
   }).immediate();
+  if (version.v < 16) db.transaction(() => {
+    db.exec("CREATE INDEX IF NOT EXISTS schedule_entry_status ON records(scope,json_extract(data,'$.entryId'),json_extract(data,'$.status')) WHERE scope='publication-schedule'");
+    migrateListRecords(db);
+    db.exec("INSERT INTO schema_migrations VALUES(16,strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+  }).immediate();
+  if(version.v<17)db.transaction(()=>{
+    db.exec(`CREATE TABLE site_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,type TEXT NOT NULL,created_at TEXT NOT NULL,data TEXT NOT NULL);
+      CREATE INDEX site_events_type ON site_events(type,seq);
+      CREATE TABLE event_consumers(id TEXT PRIMARY KEY,cursor INTEGER NOT NULL,types TEXT NOT NULL,token TEXT,until INTEGER NOT NULL DEFAULT 0,batch_to INTEGER NOT NULL DEFAULT 0,attempts INTEGER NOT NULL DEFAULT 0,retry_at INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '');
+      INSERT INTO schema_migrations VALUES(17,strftime('%Y-%m-%dT%H:%M:%fZ','now'));`);
+  }).immediate();
 }

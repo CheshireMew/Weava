@@ -27,6 +27,7 @@ import {CodeCopyPlugin} from './editor/CodeCopyPlugin.tsx';
 import {LargeMarkdownPlugin} from './editor/LargeMarkdownPlugin.tsx';
 import {LinkEditorPlugin} from './editor/LinkEditorPlugin.tsx';
 import {DocumentChangePlugin} from './editor/DocumentChangePlugin.tsx';
+import {DocumentStartPlugin} from './editor/DocumentStartPlugin.tsx';
 import {MarkdownEditor} from './editor/MarkdownEditor.tsx';
 import {supportsVisualEditing, importMarkdown} from './editor/markdown.ts';
 import {ButtonLinkNode, DetailsNode, FootnoteNode, WritingNodesPlugin} from './editor/WritingNodes.tsx';
@@ -156,6 +157,7 @@ export function Editor({
           onMedia={onMedia}
         />}
         <WritingNodesPlugin/>
+        <DocumentStartPlugin/>
         {loading!==null&&<p role="status">正在载入正文… {loading}%</p>}
         <div className="editor-canvas" aria-busy={loading!==null}>
           <RichTextPlugin

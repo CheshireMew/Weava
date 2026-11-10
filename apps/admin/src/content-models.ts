@@ -10,6 +10,7 @@ export type EntrySummary = ContentPage['items'][number];
 export type ContentCatalog = Pick<ContentState,'types'|'terms'|'entries'|'layouts'|'fieldWidgets'|'extensionBlocks'|'extensionBlockDefinitions'>;
 export type ContentWorkspaceData = ContentCatalog &
   Pick<ContentState, 'contentViews' | 'schedules' | 'features'> & {
+    timezone?: string;
     author: { name: string; logo: string };
   };
 export function workspaceData(state: ContentState | null): ContentWorkspaceData | null {
@@ -37,6 +38,7 @@ export function workspaceData(state: ContentState | null): ContentWorkspaceData 
     contentViews,
     schedules,
     features,
+    timezone: state.settings.value.timezone,
     author: { name: state.settings.value.name, logo: state.siteIcon ?? state.settings.value.logo },
   };
 }
@@ -56,13 +58,14 @@ export interface EntryRecoveryModel {
   useServer: () => Promise<void>;
 }
 export interface EntryScheduleModel {
+  timezone?: string;
   record: EntryRecord | null;
   busy: boolean;
   scheduleDueAt: string;
   setScheduleDueAt: (value: string) => void;
   items: ContentState['schedules'];
   setError: (message: string) => void;
-  create: () => Promise<void>;
+  create: (occurrence?: 'earlier' | 'later') => Promise<void>;
   cancel: (id: string, revision: number) => Promise<void>;
   retry: (id: string, revision: number) => Promise<void>;
 }
@@ -129,6 +132,7 @@ export type NoteEditorModel = Pick<
   | 'recovery'
 >;
 export interface ContentLibraryModel {
+  timezone?: string;
   record: EntryRecord | null;
   state: Pick<ContentState, 'types' | 'contentViews'>;
   tab: string;

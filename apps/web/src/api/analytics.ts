@@ -1,8 +1,15 @@
 import type { ApiServices, AdminHandlers } from './types.ts';
-export function analyticsHandlers(services: Pick<ApiServices, 'site' | 'analytics' | 'reports'>) {
-  const { site, analytics, reports } = services;
+export function analyticsHandlers(services: Pick<ApiServices, 'site' | 'analytics' | 'reports' | 'jobs'>) {
+  const { site, analytics, reports, jobs } = services;
 
   return {
+    previewAnalyticsArchive:async({body})=>reports.read('analytics-archive-preview',body),
+    archiveAnalytics:async({body},context)=>jobs.enqueue('analytics-archive',body,context.request.headers.get('Idempotency-Key')??undefined),
+    analyticsArchives:async()=>analytics.archives(),
+    analyticsArchiveDays:async({query})=>analytics.archiveDays(query.start,query.end,query.page),
+    restoreAnalyticsArchive:async({body},context)=>jobs.enqueue('analytics-restore',body,context.request.headers.get('Idempotency-Key')??undefined),
+    analyticsHealth:async()=>analytics.collectionStatus(),
+    analyticsDiscovery:async({query})=>reports.read('analytics-discovery',{query:new URLSearchParams(Object.fromEntries(Object.entries(query).map(([key,value])=>[key,String(value)]))).toString(),timezone:site.settings().value.timezone}),
     analytics: async ({}, context) => {
       const { url } = context;
       const value=await reports.read('analytics-report', {
@@ -36,7 +43,7 @@ export function analyticsHandlers(services: Pick<ApiServices, 'site' | 'analytic
       return analytics.geo.status();
     },
     updateGeo: async () => {
-      void analytics.geo.update().catch(() => {});
+      void analytics.geo.update(true).catch(() => {});
       return analytics.geo.status();
     },
     exportAnalytics: async ({}, context) => {
@@ -50,6 +57,6 @@ export function analyticsHandlers(services: Pick<ApiServices, 'site' | 'analytic
     },
   } satisfies Pick<
     AdminHandlers,
-    'analytics' | 'realtime' | 'visitor' | 'geo' | 'updateGeo' | 'exportAnalytics'
+    'analytics' | 'realtime' | 'visitor' | 'geo' | 'updateGeo' | 'exportAnalytics' | 'analyticsHealth' | 'analyticsDiscovery' | 'previewAnalyticsArchive' | 'archiveAnalytics' | 'analyticsArchives' | 'analyticsArchiveDays' | 'restoreAnalyticsArchive'
   >;
 }

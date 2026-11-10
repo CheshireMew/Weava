@@ -1,4 +1,5 @@
 ---
+import {textFor} from '@weava/contracts';
 import type {Release,PublishedEntry} from '@weava/contracts';
 import {isNote,renderNoteDocument,resolveContentLinks,imageAttributes,entryCover,responsiveImages} from '@weava/core';
 import {load} from 'cheerio';
@@ -6,6 +7,7 @@ import {site} from '../runtime.ts';
 interface Props {release:Release;items:PublishedEntry[];page?:number;pages?:number;previous?:string|null;next?:string|null;}
 const {release,items,page=1,pages=1,previous,next}=Astro.props;
 const {settings}=release;
+const t=textFor(settings.language);
 const date=(entry:PublishedEntry)=>entry.publishedAt?new Intl.DateTimeFormat(settings.language,{dateStyle:'medium',timeStyle:'short',timeZone:settings.timezone}).format(new Date(entry.publishedAt)):'';
 function noteContent(entry:PublishedEntry){
  const html=responsiveImages(site,resolveContentLinks(renderNoteDocument(entry.document),release)),$=load(html,null,false),text=$.text().replace(/\s+/g,' ').trim();
@@ -13,18 +15,18 @@ function noteContent(entry:PublishedEntry){
   excerpt:[...text].slice(0,180).join('')+(text.length>180?'…':''),image:$('img[src]').first().attr('src')};
 }
 ---
-<section class="notes-timeline" aria-label="随笔时间流">
+<section class="notes-timeline" aria-label={t("随笔时间流")}>
  {items.map(item=>{const note=isNote(item,release),author=item.author||settings.name,cover=note?'':entryCover(item),body=note?noteContent(item):null;return <article class:list={['timeline-item',note?'timeline-note':'timeline-article']} data-entry-id={item.id} data-content-format={note?'note':'article'}>
   <a class="timeline-avatar" href={item.path} tabindex="-1" aria-hidden="true">{settings.logo?<img {...imageAttributes(site,settings.logo,{width:32,height:32})} alt="" loading="lazy" decoding="async"/>:author.slice(0,1)}</a>
   <div class="timeline-content"><header class="timeline-byline"><strong>{author}</strong><a href={item.path}><time datetime={item.publishedAt}>{date(item)}</time></a></header>
-   {body?body.fold?<details class="timeline-note-details"><summary class:list={{'has-preview-image':!!body.image}}><span class="timeline-note-preview">{body.excerpt}</span>{body.image&&<img class="timeline-note-preview-image" {...imageAttributes(site,body.image,{width:96,height:72})} alt="" loading="lazy"/>}<span class="timeline-note-toggle"><span class="note-when-closed">展开笔记</span><span class="note-when-open">收起笔记</span></span></summary><div class="timeline-note-body prose" set:html={body.html}/></details>:<div class="timeline-note-body timeline-note-short prose" set:html={body.html}/>:<a class="timeline-article-card" href={item.path}>
+   {body?body.fold?<details class="timeline-note-details"><summary class:list={{'has-preview-image':!!body.image}}><span class="timeline-note-preview">{body.excerpt}</span>{body.image&&<img class="timeline-note-preview-image" {...imageAttributes(site,body.image,{width:96,height:72})} alt="" loading="lazy"/>}<span class="timeline-note-toggle"><span class="note-when-closed">{t("展开笔记")}</span><span class="note-when-open">{t("收起笔记")}</span></span></summary><div class="timeline-note-body prose" set:html={body.html}/></details>:<div class="timeline-note-body timeline-note-short prose" set:html={body.html}/>:<a class="timeline-article-card" href={item.path}>
     <div class="timeline-article-copy"><h2>{item.title}</h2>{item.description&&<p>{item.description}</p>}</div>
     {cover&&<img {...imageAttributes(site,cover,{width:112,height:80,sizes:'(max-width: 600px) 80px, 112px'})} alt="" loading="lazy"/>}
    </a>}
   </div>
  </article>;})}
- {!items.length&&<p class="timeline-empty">还没有发布随笔。</p>}
- {pages>1&&<nav class="pagination" aria-label="随笔分页">{previous&&<a href={previous} rel="prev">上一页</a>}<span>{page} / {pages}</span>{next&&<a href={next} rel="next">下一页</a>}</nav>}
+ {!items.length&&<p class="timeline-empty">{t("还没有发布随笔。")}</p>}
+ {pages>1&&<nav class="pagination" aria-label={t("随笔分页")}>{previous&&<a href={previous} rel="prev">{t("上一页")}</a>}<span>{page} / {pages}</span>{next&&<a href={next} rel="next">{t("下一页")}</a>}</nav>}
 </section>
 <style>
  .notes-timeline{max-width:680px;margin:0 auto;padding:0 0 40px}

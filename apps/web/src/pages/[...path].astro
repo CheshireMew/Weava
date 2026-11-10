@@ -1,4 +1,6 @@
 ---
+import SiteLocale from '../components/SiteLocale.astro';
+import {textFor} from '@weava/contracts';
 import {selectPublicPage} from '../../../../packages/core/src/public-page-selection.ts';
 import {publicDocumentResponse} from '../public-documents.ts';
 import {customPageResponse} from '../custom-page.ts';
@@ -17,6 +19,7 @@ import {
   feedLinks,
 } from '@weava/core';
 import '../styles/site.css';
+import SearchResults from '../components/SearchResults.astro';
 import Newsletter from '../themes/Newsletter.astro';
 import Library from '../themes/Library.astro';
 import NotesTimeline from '../components/NotesTimeline.astro';
@@ -42,13 +45,14 @@ const customResponse=await customPageResponse(Astro.request,Astro.url,release,en
 if(customResponse)return customResponse;
 const settings = release.settings,
   theme = settings.themeConfig;
+const t=textFor(settings.language);
 const isNotesIndex=entry?.kind==='page'&&entry.path===notesPath(release);
 const notesPage=paginate(isNotesIndex?notesTimeline(release):[],isNotesIndex?Number(Astro.url.searchParams.get('page')??1):1,20);
 const notesLinks=pageLinks(notesPage,Astro.url);
 const missing = !entry && Astro.url.pathname !== '/search/';
 if (missing) Astro.response.status = 404;
 const canonical = settings.domain.replace(/\/$/, '') + (entry?.path ?? Astro.url.pathname);
-const title = entry?.title ?? (missing ? '页面未找到' : '搜索');
+const title = entry?.title ?? (missing ? t('页面未找到') : t('搜索'));
 const description = entry?.description ?? settings.description;
 const content = responsiveImages(site, originalWordPressImages(
   entry ? renderEntryTemplate(entry, release, (await siteExtension)?.blocks, { url: Astro.url, editable: preview && Astro.url.searchParams.get('editor') === '1', editTemplate: preview && !!Astro.url.searchParams.get('layout') && release.layouts?.find((layout) => layout.id === Astro.url.searchParams.get('layout'))?.kind === 'template' }) : '', entry));
@@ -69,14 +73,14 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
 ---
 
 <!doctype html>
-{settings.theme === 'library' ? <Library release={release} entry={entry} metadata={metadata} preview={preview} missing={missing} results={results}/> : <>
-{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={metadata.canonical} schema={schema} metadata={metadata} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages }} preview={preview} missing={missing} owner={owner} /> : <>
+{settings.theme === 'library' ? <Library release={release} entry={entry} metadata={metadata} preview={preview} missing={missing} results={results} searchPagination={{...searchLinks,page:resultsPage.page,pages:resultsPage.pages,total:resultsPage.total}}/> : <>
+{settings.theme === 'newsletter' ? <Newsletter release={release} entry={entry} title={title} description={description} canonical={metadata.canonical} schema={schema} metadata={metadata} content={content} beforeRegion={beforeRegion} afterRegion={afterRegion} headerRegion={headerRegion} footerRegion={footerRegion} results={results} searchPagination={{ ...searchLinks, page: resultsPage.page, pages: resultsPage.pages, total: resultsPage.total }} preview={preview} missing={missing} owner={owner} /> : <>
 <html lang={settings.language}>
   <head
     ><meta charset="utf-8" /><meta
       name="viewport"
       content="width=device-width,initial-scale=1"
-    /><SeoHead metadata={metadata} />{feedLinks(entry, release).slice(1).map((link) => <link rel="alternate" type="application/rss+xml" title={link.title} href={link.url} />)}<link
+    /><SiteLocale language={settings.language}/><SeoHead metadata={metadata} />{feedLinks(entry, release).slice(1).map((link) => <link rel="alternate" type="application/rss+xml" title={link.title} href={link.url} />)}<link
       rel="alternate"
       type="application/rss+xml"
       href="/rss.xml"
@@ -88,7 +92,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
     data-article-id={interactive?entry?.id:undefined} data-canonical={canonical} data-language={settings.language} data-timezone={settings.timezone}
     data-track={!preview && !privateArticle && !missing ? 'true' : 'false'}
   >
-    <a class="skip" href="#main">跳到正文</a>
+    <a class="skip" href="#main">{t("跳到正文")}</a>
     {headerRegion ? <header class="wrap" set:html={headerRegion} /> : <header class="site-header wrap">
       <a class="brand" href="/"
         >{
@@ -98,10 +102,10 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
             <span class="brand-icon">w</span>
           )
         }{settings.name}</a
-      ><button class="menu-button" aria-expanded="false" aria-controls="nav">菜单</button><nav
-        id="nav" aria-label="主导航"
+      ><button class="menu-button" aria-expanded="false" aria-controls="nav">{t("菜单")}</button><nav
+        id="nav" aria-label={t("主导航")}
       >
-        <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label="搜索"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
+        <Fragment set:html={renderNavigation(settings.navigation, entry?.path, release)} /><a href="/search/" aria-label={t("搜索")}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg></a>
       </nav>
     </header>}
     <div class="wrap weava-advertisement-region"><Advertisement settings={settings} position="siteTop" /></div>
@@ -119,11 +123,9 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
         missing && (
           <section class="hero">
             <>
-              <h1>页面未找到</h1>
-              <p>这个地址还没有公开内容。</p>
-              <a href="/" class="button">
-                返回首页
-              </a>
+              <h1>{t("页面未找到")}</h1>
+              <p>{t("这个地址还没有公开内容。")}</p>
+              <a href="/" class="button">{t('返回首页')}</a>
             </>
           </section>
         )
@@ -132,29 +134,20 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
         Astro.url.pathname === '/search/' && (
           <section class="search-page">
             <>
-              <h1>搜索</h1>
+              <h1>{t("搜索")}</h1>
               <form method="get">
                 <>
                   <input
                     type="search"
                     name="q"
-                    placeholder="搜索文章、作品或资源"
-                    aria-label="搜索文章、作品或资源"
+                    placeholder={t("搜索文章、作品或资源")}
+                    aria-label={t("搜索文章、作品或资源")}
                     value={Astro.url.searchParams.get('q') ?? ''}
                   />
-                  <button class="button">搜索</button>
+                  <button class="button">{t("搜索")}</button>
                 </>
               </form>
-              <div class="search-results">
-                {results.map((r: any) => (
-                  <a href={r.path}>
-                    <h2>{r.title}</h2>
-                    <p>{r.description}</p>
-                  </a>
-                ))}
-              </div>
-              {Astro.url.searchParams.get('q') && !results.length && <p role="status">没有找到匹配的内容，请换个关键词。</p>}
-              {resultsPage.pages > 1 && <nav class="pagination" aria-label="搜索分页">{searchLinks.previous && <a rel="prev" href={searchLinks.previous}>上一页</a>}<span>{resultsPage.page} / {resultsPage.pages}</span>{searchLinks.next && <a rel="next" href={searchLinks.next}>下一页</a>}</nav>}
+              <SearchResults results={results} pagination={{...searchLinks,page:resultsPage.page,pages:resultsPage.pages,total:resultsPage.total}} language={settings.language}/>
             </>
           </section>
         )
@@ -164,7 +157,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
     <SiteInfoLinks release={release} />
     {footerRegion ? <footer class="wrap" set:html={footerRegion} /> : <footer class="wrap site-footer">
       <span>{settings.footer}</span>{(settings.sourceUrl || release.entries.some((e) => e.path === '/about/' && !e.source?.siteInfoRole)) &&
-        <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? '源代码' : '关于'}</a>}
+        <a href={settings.sourceUrl || '/about/'}>{settings.sourceUrl ? t('源代码') : t('关于')}</a>}
       <a href="/rss.xml">RSS</a>
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}

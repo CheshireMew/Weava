@@ -45,6 +45,7 @@ it('converts old categories to live queries and preserves article documents and 
 it('recognizes actual media URLs without srcset descriptors or truncated filenames',()=>{
   const refs=mediaReferencesIn('<img src="/media/name_(web).png" srcset="/media/small.webp 599w, /media/large.webp 1200w">');
   expect([...refs].sort()).toEqual(['/media/large.webp','/media/name_(web).png','/media/small.webp'].sort());
+  expect([...mediaReferencesIn('![Image](/media/name_(web).png?x=1&y=2) & <img src="/media/other.png">')].sort()).toEqual(['/media/name_(web).png','/media/other.png']);
 });
 it('preserves referral disclosures, code labels and section spacing while using current business settings',async()=>{
   const r=release();r.settings.extensions.crypto={config:{referrals:{binance:{url:'https://binance.com/join',code:'new-code',futuresCode:'new-futures'}}}};

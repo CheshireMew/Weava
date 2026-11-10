@@ -1,14 +1,16 @@
 ---
+import {textFor} from '@weava/contracts';
 import type {PublishedEntry,Release} from '@weava/contracts';
 import {renderNoteDocument,resolveContentLinks,imageAttributes,responsiveImages} from '@weava/core';
 import {site} from '../runtime.ts';
 interface Props{entry:PublishedEntry;release:Release;editUrl?:string;}
 const {entry,release,editUrl}=Astro.props,settings=release.settings;
+const t=textFor(settings.language);
 const date=new Intl.DateTimeFormat(settings.language,{dateStyle:'medium',timeStyle:'short',timeZone:settings.timezone}).format(new Date(entry.publishedAt??entry.createdAt??release.createdAt));
 const html=responsiveImages(site,resolveContentLinks(renderNoteDocument(entry.document),release));
 ---
 <article class="note-detail" data-note-body>
- <header><span class="note-detail-avatar">{settings.logo&&<img {...imageAttributes(site,settings.logo,{width:36,height:36})} alt="" decoding="async"/>}</span><div><strong>{entry.author||settings.name}</strong><time datetime={entry.publishedAt}>{date}</time></div>{editUrl&&<a href={editUrl}>编辑</a>}</header>
+ <header><span class="note-detail-avatar">{settings.logo&&<img {...imageAttributes(site,settings.logo,{width:36,height:36})} alt="" decoding="async"/>}</span><div><strong>{entry.author||settings.name}</strong><time datetime={entry.publishedAt}>{date}</time></div>{editUrl&&<a href={editUrl}>{t("编辑")}</a>}</header>
  <div class="prose" set:html={html}/>
 </article>
 <style>

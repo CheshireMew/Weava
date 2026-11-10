@@ -9,7 +9,7 @@ import { reportLocation } from '../apps/admin/src/analytics/report-navigation.ts
 import { VisitorDetails } from '../apps/admin/src/analytics/VisitorDetails.tsx';
 
 const mocks = vi.hoisted(() => ({ api: vi.fn(), fail: false }));
-vi.mock('../apps/admin/src/api.ts', () => ({ api: mocks.api }));
+vi.mock('../apps/admin/src/api.ts', () => ({ api: (path:string,...args:unknown[]) => path==='analytics/health'?Promise.resolve({collecting:true,reason:'',bytes:1024,maximumBytes:1073741824,freeBytes:10737418240,minimumFreeBytes:536870912,dailyEvents:1,dailyLimit:100000,resetAt:null,lastAcceptedAt:null}):mocks.api(path,...args) }));
 let host: HTMLDivElement, root: Root;
 function fixture(query = '') {
   const p = new URLSearchParams(query), start = p.get('start') || '2026-10-06', end = p.get('end') || '2026-11-04';
@@ -59,7 +59,7 @@ it('keeps visitor records readable during background refresh and offers retry wi
 });
 async function tab(name: string) { await click([...host.querySelectorAll('[role="tab"]')].find(node => node.textContent === name)!); }
 async function sevenDays() {
-  await click(host.querySelector('.analytics-card-footer .analytics-date-menu > button'));
+  await click(button('统计日期范围'));
   await click([...document.querySelectorAll('.analytics-date-choices button')].find(node => node.textContent === '近 7 天')!);
 }
 it('paginates sources in ten rows and retains the page on refresh while resetting for a new date range',async()=>{
@@ -75,7 +75,7 @@ it('paginates sources in ten rows and retains the page on refresh while resettin
  await click(button('刷新统计'));expect(card().querySelector('tbody tr')?.textContent).toContain('来源 11');
  await sevenDays();expect(card().querySelector('tbody tr')?.textContent).toContain('来源 1');expect(card().querySelector('.analytics-pagination')?.textContent).toContain('1 / 3');
 });
-const period = () => host.querySelector('.analytics-card-footer .analytics-date-menu')!.textContent;
+const period = () => host.querySelector('.analytics-header-actions .analytics-date-menu')!.textContent;
 async function source(value: string) {
   await click(button('筛选报表'));
   await act(async () => { const select = document.querySelector<HTMLSelectElement>('[aria-label="来源筛选"]')!; select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -102,17 +102,25 @@ it('keeps the native report groups and avoids loading every report into the over
   expect([...host.querySelectorAll('[role="tab"]')].map(node => node.textContent)).toEqual(['概览', '来源', '访客', '设备', '行为']);
   expect([...host.querySelectorAll('h2')].map(node => node.textContent)).toEqual(['搜索与 AI 来源趋势', '流量趋势', '流量概览', '页面排行']);
   expect(host.querySelector('[role="tablist"]')!.classList.contains('library-status-tabs')).toBe(true);
-  expect(host.querySelector('.panel-title .analytics-date-menu')).toBeNull();
+  expect(host.querySelectorAll('.panel-title .analytics-date-menu')).toHaveLength(1);
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   expect(host.querySelector('.analytics-toolbar')).toBeNull();
   expect(host.querySelector('.analytics-metrics')).toBeNull();
   expect(host.querySelector('.analytics-local-options')).toBeNull();
   expect(host.querySelector('.analytics-comparison')).toBeNull();
-  expect(host.querySelector('section[aria-label="流量趋势"] footer .analytics-date-menu')).not.toBeNull();
+  expect(host.querySelector('section[aria-label="流量趋势"] footer .analytics-date-menu')).toBeNull();
+  expect(host.querySelector('section[aria-label="流量趋势"] footer .analytics-report-period')?.textContent).toBe(period());
   expect(host.querySelector('input[type="date"]')).toBeNull();
   await tab('来源'); expect(host.textContent).not.toContain('搜索与 AI 来源趋势'); expect(host.textContent).toContain('全球访客分布');
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
+  const countries = host.querySelectorAll<HTMLAnchorElement>('a[href*="dataset=countries"]');
+  expect(countries).toHaveLength(1);expect(countries[0].getAttribute('aria-label')).toBe('导出国家 / 地区');
   await tab('设备'); expect(host.querySelectorAll('.analytics-section-grid > section')).toHaveLength(4);
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   await tab('访客'); expect(host.textContent).toContain('最新访客'); expect(host.textContent).toContain('当前在线');
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   await tab('行为'); expect(host.textContent).toContain('爬虫请求');
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   expect(mocks.api.mock.calls.filter(([path]) => path.startsWith('analytics?')).map(([path])=>new URLSearchParams(path.split('?')[1]).get('section'))).toEqual(['overview','sources','devices','visitors','actions']);
 });
 
@@ -132,6 +140,9 @@ it('shares the date and source filter across groups and detailed exports', async
   expect(period()).toContain('近 7 天');
   await source('search-referral');
   expect(host.querySelector('.analytics-filter-tags')!.textContent).toContain('搜索引擎');
+  expect(host.querySelectorAll('a[href*="dataset=countries"]')).toHaveLength(1);
+  expect(host.querySelector<HTMLAnchorElement>('a[href*="dataset=countries"]')!.href).toContain('channel=search-referral');
+  expect(host.querySelector<HTMLAnchorElement>('a[href*="dataset=countries"]')!.href).toContain('start=2026-10-29');
   await tab('概览');
   expect(period()).toContain('近 7 天');
   expect(host.querySelector('.analytics-filter-tags')!.textContent).toContain('搜索引擎');
@@ -141,6 +152,7 @@ it('shares the date and source filter across groups and detailed exports', async
   const url = host.querySelector<HTMLAnchorElement>('.analytics-export')!.href;
   expect(url).toContain('start=2026-10-29'); expect(url).toContain('channel=search-referral'); expect(url).toContain('dataset=daily');
   expect(host.querySelectorAll('a[href*="dataset=daily"]')).toHaveLength(1);
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   await click([...host.querySelectorAll('.analytics-view-switch button')].find(node => node.textContent === '数据')!);
   expect(host.querySelector('.analytics-trend tbody')!.textContent).toContain('2026-11-04');
   await click(host.querySelector('.analytics-report-heading a'));
@@ -153,6 +165,7 @@ it('keeps navigation and retry available after a query fails without exporting s
   expect(host.querySelector('[role="alert"]')!.textContent).toContain('暂时无法读取');
   expect(host.querySelectorAll('[role="tab"]')).toHaveLength(5);
   expect(button('统计日期范围')).not.toBeNull();
+  expect(host.querySelectorAll('.analytics-date-menu')).toHaveLength(1);
   expect(host.querySelector('.analytics-export')).toBeNull();
   expect(host.querySelector('.analytics-metrics')).toBeNull();
   mocks.fail = false;
@@ -173,7 +186,7 @@ it('restores the selected group, dates and filters from a refreshed URL or brows
 });
 
 it('submits custom native date fields as the shared reporting range', async () => {
-  await render(); await click(button('流量趋势日期范围'));
+  await render(); await click(button('统计日期范围'));
   await click([...document.querySelectorAll('button')].find(node => node.textContent === '自定义日期…')!);
   await act(async () => {
     const first = document.querySelector<HTMLInputElement>('.analytics-custom-range input[name="start"]')!;

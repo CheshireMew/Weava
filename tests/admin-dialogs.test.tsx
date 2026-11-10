@@ -40,6 +40,12 @@ function button(text: string, scope: ParentNode = document) { const node = [...s
 async function click(text: string, scope?: ParentNode) { await act(async () => button(text, scope).click()); }
 async function fill(selector: string, value: string) { await act(async () => { const node = document.querySelector<HTMLInputElement>(selector)!; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); }); }
 function dialog(name: string) { return document.querySelector<HTMLDialogElement>(`dialog[aria-label="${name}"]`)!; }
+function paste(target: Element, files: File[] = [], itemsOnly = false) {
+  const event = new Event('paste', {bubbles: true, cancelable: true});
+  Object.defineProperty(event, 'clipboardData', {value: {files: itemsOnly ? [] : files, items: files.map(file => ({kind: 'file', getAsFile: () => file})), getData: () => '剪贴板文字'}});
+  target.dispatchEvent(event);
+  return event;
+}
 
 it('copies exact code from sandboxed previews through the parent without enabling preview scripts', async()=>{
   const copy=vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue();
@@ -121,14 +127,53 @@ it('keeps media selection and closing available during upload and offers the ori
   expect(selected).toHaveBeenLastCalledWith(expect.objectContaining({url:'/media/original.png',kind:'image'}));
   expect(waitJob).not.toHaveBeenCalled();expect(uploadFile).toHaveBeenCalledTimes(1);
 });
-it('retries a failed background upload without locking the picker',async()=>{
+it.each([false, true])('uploads a pasted image once into the current group and leaves it selectable (items only: %s)', async itemsOnly => {
+  mocks.api.mockImplementation(async(path: string) => path === 'media/groups' ? [{id:'screenshots',value:{label:'截图'}}] : {items:[],total:0,pages:0});
+  vi.mocked(uploadFile).mockResolvedValue({id:'pasted',revision:1,updatedAt:'2026-11-10',value:{id:'pasted',name:'image.png',url:'/media/pasted.png',bytes:5,createdAt:'2026-11-10'}});
+  const selected = vi.fn(), image = new File(['image'], 'image.png', {type:'image/png'});
+  function Select() {const selectors = useSelectors(); return <button onClick={async () => selected(await selectors.media('image','screenshots'))}>选图</button>;}
+  await render(<Select/>); await click('选图');
+  let event!: Event;
+  await act(async () => {event = paste(dialog('选择媒体').querySelector('[aria-label="搜索媒体"]')!, [image], itemsOnly);});
+  expect(event.defaultPrevented).toBe(true); expect(uploadFile).toHaveBeenCalledTimes(1);
+  expect(uploadFile).toHaveBeenCalledWith(image, expect.any(Function), {groupId:'screenshots'});
+  expect(selected).not.toHaveBeenCalled(); expect(dialog('选择媒体').textContent).toContain('已上传');
+  await act(async () => dialog('选择媒体').querySelector<HTMLButtonElement>('.media-upload-select')!.click());
+  expect(selected).toHaveBeenCalledWith(expect.objectContaining({id:'pasted',url:'/media/pasted.png',kind:'image'}));
+});
+
+it('preserves text and URL paste and ignores images outside an active image or media picker', async () => {
+  function Select() {const selectors = useSelectors(); return <><button onClick={() => void selectors.media('image')}>选图</button><button onClick={() => void selectors.content()}>选内容</button></>;}
+  await render(<Select/>); await click('选图');
+  let event!: Event;
+  await act(async () => {event = paste(dialog('选择媒体').querySelector('[aria-label="搜索媒体"]')!);});
+  expect(event.defaultPrevented).toBe(false);
+  const image = new File(['image'], 'image.png', {type:'image/png'});
+  await act(async () => {event = paste(dialog('选择媒体'), [new File(['text'], 'note.txt', {type:'text/plain'})]);});
+  expect(event.defaultPrevented).toBe(false);
+  await click('粘贴网址');
+  await act(async () => {event = paste(dialog('粘贴媒体网址').querySelector('input')!, [image]);});
+  expect(event.defaultPrevented).toBe(false);
+  await click('取消', dialog('粘贴媒体网址')); await click('关闭', dialog('选择媒体')); await click('选内容');
+  await act(async () => {event = paste(dialog('选择内容').querySelector('input')!, [image]);});
+  expect(event.defaultPrevented).toBe(false);
+  await click('关闭', dialog('选择内容'));
+  await act(async () => {event = paste(host, [image]);});
+  expect(event.defaultPrevented).toBe(false); expect(uploadFile).not.toHaveBeenCalled();
+});
+
+it.each(['file', 'paste'] as const)('retries a failed background %s upload without locking the picker',async source=>{
   vi.mocked(uploadFile).mockRejectedValueOnce(new Error('网络中断')).mockResolvedValueOnce({id:'retried',revision:1,updatedAt:'2026-11-09',value:{name:'retry.png',url:'/media/retried.png',bytes:5,createdAt:'2026-11-09',optimization:{status:'pending'}}});
   const selected=vi.fn();
   function Select(){const selectors=useSelectors();return <button onClick={async()=>selected(await selectors.media('image'))}>选图</button>;}
   await render(<Select/>);await click('选图');
-  const field=dialog('选择媒体').querySelector<HTMLInputElement>('input[type="file"]')!;
-  Object.defineProperty(field,'files',{configurable:true,value:[new File(['image'],'retry.png')]});
-  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  const image=new File(['image'],'retry.png',{type:'image/png'});
+  if(source==='paste')await act(async()=>{paste(dialog('选择媒体'),[image]);});
+  else {
+    const field=dialog('选择媒体').querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(field,'files',{configurable:true,value:[image]});
+    await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  }
   expect(dialog('选择媒体').textContent).toContain('网络中断');expect(button('关闭',dialog('选择媒体')).disabled).toBe(false);
   await click('重试上传',dialog('选择媒体'));
   await act(async()=>dialog('选择媒体').querySelector<HTMLButtonElement>('.media-upload-select')!.click());
@@ -168,15 +213,71 @@ it('keeps merge choices when inspecting the original version and sends only the 
 });
 
 it('changes the backup folder only on confirmation and verifies using the entered folder', async () => {
-  const task = vi.fn(); await render(<Operations state={{ releases: [], jobs: [] }} task={task} refresh={vi.fn()} onError={vi.fn()} openLogs={vi.fn()} />);
+  let policy = {id:'site',revision:null as number|null,updatedAt:'',timezone:'Asia/Shanghai',value:{enabled:false,path:'D:/Tools/weava/backups',time:'03:00'}};
+  let loadPolicy!: (value: typeof policy) => void;
+  const loading = new Promise<typeof policy>(resolve => {loadPolicy = resolve;});
+  const jobs = new Map<string, any>();
+  mocks.api.mockImplementation(async (path: string, body?: any) => {
+    if(path==='backup/policy') {
+      if(!body)return loading;
+      policy={...policy,revision:(policy.revision??0)+1,value:body.value};
+      return policy;
+    }
+    if(path.startsWith('backup/inventory?'))return {path:new URLSearchParams(path.split('?')[1]).get('path'),items:[],jobs:[...jobs.values()]};
+    if(path.startsWith('job/'))return jobs.get(path.slice(4));
+    throw new Error('Unexpected backup request: '+path);
+  });
+  mocks.submitJob.mockImplementation(async (operation: string, payload: any) => {
+    const id='backup-check-'+jobs.size;
+    const job={id,operation,payload,status:'complete',createdAt:'2026-11-10T00:00:00Z',message:'已完成',result:{path:payload.path}};
+    jobs.set(id,job);
+    return {...job,status:'queued'};
+  });
+  const onError=vi.fn(),task=vi.fn();
+  await render(<Operations state={{ releases: [], jobs: [] }} task={task} refresh={vi.fn()} onError={onError} openLogs={vi.fn()} />);
+  await act(async()=>{await vi.dynamicImportSettled();});
+  expect(host.textContent).toContain('正在读取');expect(mocks.submitJob).not.toHaveBeenCalled();
+  await act(async()=>loadPolicy(policy));
   expect(host.querySelector('details')).toBeNull(); await click('更改位置'); await fill('dialog input', 'D:/Backups/test');
-  await click('取消', dialog('更改备份位置')); await click('创建备份'); expect(task).toHaveBeenLastCalledWith('backup', { path: 'D:/Tools/weava/backups' });
+  await click('取消', dialog('更改备份位置'));
+  expect(mocks.api.mock.calls.filter(([path,body])=>path==='backup/policy'&&body)).toHaveLength(0);
+  await click('创建备份'); expect(mocks.submitJob).toHaveBeenLastCalledWith('backup', { path: 'D:/Tools/weava/backups' },undefined);
+  await act(async()=>{await refreshBackgroundTasks();});
   await click('更改位置'); await fill('dialog input', 'D:/Backups/test');
   await act(async () => dialog('更改备份位置').querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
-  await click('创建备份'); expect(task).toHaveBeenLastCalledWith('backup', { path: 'D:/Backups/test' });
+  await click('创建备份'); expect(mocks.submitJob).toHaveBeenLastCalledWith('backup', { path: 'D:/Backups/test' },undefined);
+  expect(mocks.api).toHaveBeenCalledWith('backup/policy',{value:{...policy.value,path:'D:/Backups/test'},revision:null});
+  await act(async()=>{await refreshBackgroundTasks();});
   await click('检查已有备份'); await fill('dialog input', 'D:/Backups/existing');
   await act(async () => dialog('检查已有备份').querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
-  expect(task).toHaveBeenLastCalledWith('verify', { path: 'D:/Backups/existing' });
+  expect(mocks.submitJob).toHaveBeenLastCalledWith('verify', { path: 'D:/Backups/existing' },undefined);
+  await act(async()=>{await refreshBackgroundTasks();});
+  expect(mocks.submitJob).toHaveBeenCalledTimes(3);expect(task).not.toHaveBeenCalled();expect(onError).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('校验 · 已完成');
+});
+
+it('starts one storage scan for repeated clicks and refreshes its complete result once', async () => {
+  const overview={databaseBytes:100,analyticsBytes:0,uploadsBytes:0,importsBytes:0,pendingUploads:[],media:{count:1,bytes:4},versions:{count:1},releases:{count:0},backups:[],unreferenced:{count:0,bytes:0},scan:{checkedAt:null}};
+  let finishOverview!: (value:any)=>void,complete=false;
+  const initial=new Promise(resolve=>{finishOverview=resolve;});
+  let reads=0;
+  mocks.api.mockImplementation(async(path:string)=>{
+    if(path==='backup/policy')return {id:'site',revision:null,updatedAt:'',value:{enabled:false,path:'D:/Tools/weava/backups',time:'03:00'},timezone:'Asia/Shanghai'};
+    if(path.startsWith('backup/inventory'))return {path:'D:/Tools/weava/backups',items:[],jobs:[]};
+    if(path==='maintenance')return ++reads===1?initial:{...overview,scan:{checkedAt:'2026-11-10T00:00:00Z'}};
+    if(path==='job/scan-once')return {id:'scan-once',operation:'storage-scan',status:complete?'complete':'running',createdAt:'2026-11-10T00:00:00Z',message:'扫描文件'};
+    throw new Error('Unexpected scan request: '+path);
+  });
+  mocks.submitJob.mockResolvedValue({id:'scan-once',operation:'storage-scan',status:'queued'});
+  const onError=vi.fn();
+  await render(<Operations state={{features:[],releases:[],jobs:[]}} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()}/>);
+  await click('维护');
+  await act(async()=>{button('检查占用').click();button('检查占用').click();});
+  expect(reads).toBe(1);
+  await act(async()=>finishOverview(overview));
+  expect(mocks.submitJob).toHaveBeenCalledTimes(1);expect(button('检查占用').disabled).toBe(true);
+  complete=true;await act(async()=>{await refreshBackgroundTasks();});
+  expect(reads).toBe(2);expect(button('检查占用').disabled).toBe(false);expect(onError).not.toHaveBeenCalled();
 });
 
 it('cancels crop without saving and submits the selected crop once when confirmed', async () => {

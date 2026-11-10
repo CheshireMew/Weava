@@ -2,6 +2,7 @@ import type { Release } from '@weava/contracts';
 import { mediaKind } from '@weava/contracts';
 import type Database from 'better-sqlite3';
 import { entryCover } from './entry-cover.ts';
+import {documentText, blockSearchText} from './content-text.ts';
 export function listIndexSchema(db: Database.Database) {
   db.exec(`CREATE TABLE IF NOT EXISTS entry_list(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,summary TEXT NOT NULL,fields TEXT NOT NULL,kind TEXT NOT NULL,type TEXT NOT NULL,status TEXT NOT NULL,visibility TEXT NOT NULL,title TEXT NOT NULL,search TEXT NOT NULL,updated_at TEXT NOT NULL,published_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS entry_list_kind_type ON entry_list(kind,type,status,visibility);
@@ -39,7 +40,7 @@ export function indexListRecord(
       value.status,
       summary.visibility,
       summary.title,
-      normalized(summary.title + ' ' + (summary.description ?? '')),
+      normalized([summary.title, summary.description ?? '', blocks?.length ? blockSearchText(blocks) : document ? documentText(document) : '', ...(value.categories ?? []), ...(value.tags ?? [])].join(' ')),
       updatedAt,
       value.publishedAt ?? '',
     );

@@ -5,6 +5,7 @@ import { AutosaveStatus } from './AutosaveStatus.tsx';
 import { imagePoint as point } from './media-geometry.ts';
 import type { MediaGroup, MediaReferences } from './media-models.ts';
 import { MediaCrop } from './MediaCrop.tsx';
+import {MediaReplacement} from './MediaReplacement.tsx';
 import type { MediaEditor } from './useMediaEditor.ts';
 export function MediaDetails({
   editor,
@@ -175,6 +176,7 @@ export function MediaDetails({
       {references && (
         <section>
           <h3>引用位置</h3>
+          <MediaReplacement key={selected.id} id={selected.id} url={selected.value.url} onError={onError}/>
           {references.working.map((entry: any) => (
             <button key={entry.id} onClick={() => onOpen(entry.id)}>
               {entry.title}

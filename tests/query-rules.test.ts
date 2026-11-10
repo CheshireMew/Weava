@@ -14,6 +14,7 @@ import { indexListRecord } from '../packages/core/src/list-index.ts';
 import { queryEntries, queryDrafts, contentQuery } from '../packages/core/src/query.ts';
 import { queryPublicCatalog } from '../packages/core/src/public-query.ts';
 import { querySorts } from '../packages/core/src/query-rules.ts';
+import {SCHEMA_VERSION} from '../packages/core/src/schema-version.ts';
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach((db) => db.close()));
@@ -87,6 +88,25 @@ function fixture() {
   } as unknown as Site;
   return { db, site, release };
 }
+it('shows default covers for existing empty article summaries without reading bodies or rewriting records', () => {
+  const {db, site} = fixture();
+  db.prepare("UPDATE entry_list SET summary=json_set(summary,'$.cover','') WHERE id IN ('item-0','item-1','item-7')").run();
+  db.prepare("UPDATE entry_list SET summary=json_set(summary,'$.cover','/media/manual.png') WHERE id='item-2'").run();
+  const before = db.prepare('SELECT id,revision,summary FROM entry_list ORDER BY id').all();
+  const revisions = db.prepare('SELECT COUNT(*) n FROM revisions').get();
+  site.store.get = (() => {throw new Error('Listing must not read full records');}) as typeof site.store.get;
+  const rows = queryDrafts(site, {pageSize:20}).items, again = queryDrafts(site, {pageSize:20}).items;
+  for (const id of ['item-0','item-1']) {
+    const cover = rows.find(row => row.id === id)!.value.cover;
+    expect(cover).toMatch(/^\/default-covers\/picsum-\d+\.webp$/);
+    expect(again.find(row => row.id === id)!.value.cover).toBe(cover);
+  }
+  expect(rows.find(row => row.id === 'item-2')!.value.cover).toBe('/media/manual.png');
+  expect(rows.find(row => row.id === 'item-7')!.value.cover).toBe('');
+  expect(db.prepare('SELECT id,revision,summary FROM entry_list ORDER BY id').all()).toEqual(before);
+  expect(db.prepare('SELECT COUNT(*) n FROM revisions').get()).toEqual(revisions);
+});
+
 it('keeps author, taxonomy, fields, sorting and pagination consistent across all three query adapters', () => {
   const { db, site, release } = fixture(),
     ids = (result: { items: { id: string }[]; total: number }) => ({
@@ -118,7 +138,7 @@ it('keeps author, taxonomy, fields, sorting and pagination consistent across all
 it('applies the same validation at each query boundary and keeps versioned migrations in memory', () => {
   const { db, site, release } = fixture();
   expect(db.prepare('SELECT MAX(version) version FROM schema_migrations').get()).toEqual({
-    version: 14,
+    version: SCHEMA_VERSION,
   });
   for (const input of [
     { page: 0 },

@@ -1,0 +1,15 @@
+---
+import {textFor} from '@weava/contracts';
+import type {PublishedEntry} from '@weava/contracts';
+import {searchPresentation} from '../../../../packages/core/src/search-presentation.ts';
+interface Props {results:PublishedEntry[]; pagination:{page:number;pages:number;total:number;previous:string|null;next:string|null}; language:string;}
+const {results,pagination,language}=Astro.props;
+const t=textFor(language);
+const query=Astro.url.searchParams.get('q')??'';
+---
+<div class="search-results" data-search-query={query} data-search-total={pagination.total} data-search-page={pagination.page}>
+  {query && !results.length && <p role="status">{t("没有找到匹配的内容，请换个关键词。")}</p>}
+  {results.length>0 && <p role="status">{t('共 {count} 项结果',{count:pagination.total})}</p>}
+  {results.map(entry=>{const text=searchPresentation(entry,query);return <article><h2><a href={entry.path} data-search-result set:html={text.title}/></h2><p set:html={text.snippet}/></article>;})}
+</div>
+{pagination.pages>1 && <nav class="pagination" aria-label={t("搜索分页")}>{pagination.previous && <a href={pagination.previous} rel="prev">{t("上一页")}</a>}<span>{pagination.page} / {pagination.pages}</span>{pagination.next && <a href={pagination.next} rel="next">{t("下一页")}</a>}</nav>}
