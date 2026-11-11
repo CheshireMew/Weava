@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import {FormattingToolbar, ToolbarOutlet, type FormatAction} from './FormattingToolbar.tsx';
+import {FormattingToolbar, ToolbarOutlet, type FormatAction, type FormatState} from './FormattingToolbar.tsx';
 import {type SelectedMedia} from '../Selectors.tsx';
 import {$parentLink, OPEN_LINK_EDITOR_COMMAND} from './LinkEditorPlugin.tsx';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $createHeadingNode, $createQuoteNode, $isHeadingNode, type HeadingTagType } from '@lexical/rich-text';
-import { INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND } from '@lexical/list';
+import { INSERT_UNORDERED_LIST_COMMAND, INSERT_ORDERED_LIST_COMMAND, REMOVE_LIST_COMMAND, $isListNode } from '@lexical/list';
 import { $createCodeNode, $isCodeNode } from '@lexical/code';
 import {
   TableCellNode,
@@ -27,6 +27,7 @@ import {
   FORMAT_ELEMENT_COMMAND, $createTextNode, $isElementNode,
   UNDO_COMMAND,
   REDO_COMMAND,
+  CAN_UNDO_COMMAND, CAN_REDO_COMMAND, COMMAND_PRIORITY_LOW,
 } from 'lexical';
 
 import { MediaNode } from './nodes.tsx';
@@ -101,6 +102,12 @@ export function Toolbar({
   const [codeLanguage, setCodeLanguage] = useState('text');
   const [blockType, setBlockType] = useState('paragraph');
   const savedSelection = useRef<ReturnType<typeof $getSelection>>(null);
+  const [formatState,setFormatState]=useState<FormatState>({active:[],canUndo:false,canRedo:false});
+  useEffect(()=>{
+    const undo=editor.registerCommand(CAN_UNDO_COMMAND,canUndo=>{setFormatState(current=>({...current,canUndo}));return false;},COMMAND_PRIORITY_LOW);
+    const redo=editor.registerCommand(CAN_REDO_COMMAND,canRedo=>{setFormatState(current=>({...current,canRedo}));return false;},COMMAND_PRIORITY_LOW);
+    return ()=>{undo();redo();};
+  },[editor]);
   const [insert, setInsert] = useState<WritingInsert | 'snippets' | null>(null), [selected, setSelected] = useState('');
   const capture = () => {const selection = editor.getEditorState().read(() => $getSelection()?.clone() ?? null); if (selection) savedSelection.current = selection;};
   const restore = () => {if (savedSelection.current) $setSelection(savedSelection.current.clone());};
@@ -118,8 +125,17 @@ export function Toolbar({
       editor.registerUpdateListener(({ editorState }) =>
         editorState.read(() => {
           const selection = $getSelection();
-          if (!$isRangeSelection(selection)) {setLinkActive(false); return;}
-          savedSelection.current = selection.clone();
+          savedSelection.current = selection?.clone()??null;
+          if (!$isRangeSelection(selection)) {setLinkActive(false);setFormatState(current=>({...current,active:[],textSelection:!selection,alignment:'left'})); return;}
+          const active:FormatAction[]=(['bold','italic','strikethrough','underline','superscript','subscript'] as const).filter(format=>selection.hasFormat(format));
+          if(selection.hasFormat('code'))active.push('inline-code');
+          let element=selection.anchor.getNode().getParent();
+          while(element){
+            if($isListNode(element)){active.push(element.getListType()==='number'?'ordered':'bullet');break;}
+            element=element.getParent();
+          }
+          const alignment=selection.anchor.getNode().getTopLevelElement()?.getFormatType()||'left';
+          setFormatState(current=>({...current,active,textSelection:true,alignment}));
           setLinkActive(!!$parentLink(selection.anchor.getNode()));
           let parent = selection.anchor.getNode(); while (parent.getParent() && !['heading','quote','code','paragraph'].includes(parent.getType())) parent = parent.getParent()!;
           const type = parent.getType();
@@ -161,7 +177,7 @@ export function Toolbar({
       }
     });
     else if (command === 'quote' || command === 'code') block(blockType === command ? 'paragraph' : command);
-    else if (command === 'bullet' || command === 'ordered') editor.dispatchCommand(command === 'bullet' ? INSERT_UNORDERED_LIST_COMMAND : INSERT_ORDERED_LIST_COMMAND, undefined);
+    else if (command === 'bullet' || command === 'ordered') editor.dispatchCommand(formatState.active?.includes(command)?REMOVE_LIST_COMMAND:command === 'bullet' ? INSERT_UNORDERED_LIST_COMMAND : INSERT_ORDERED_LIST_COMMAND, undefined);
     else if (command === 'link') editor.dispatchCommand(OPEN_LINK_EDITOR_COMMAND, undefined);
     else if (command === 'video') captureLink();
     else if (command === 'table') editor.dispatchCommand(INSERT_TABLE_COMMAND, {rows: '3', columns: '3', includeHeaders: true});
@@ -177,7 +193,7 @@ export function Toolbar({
   }
   return (
     <ToolbarOutlet target={target}>
-      <FormattingToolbar mode="visual" disabled={disabled} compact={compact} snippets={snippets} uploading={uploading} onEdit={onEdit} linkActive={linkActive} onCapture={capture}
+      <FormattingToolbar mode="visual" disabled={disabled} compact={compact} snippets={snippets} uploading={uploading} onEdit={onEdit} linkActive={linkActive} formatState={formatState} onCapture={capture}
         onMode={() => onMode(()=>editor.getEditorState().read(() => exportMarkdown()))}
         onAction={action} blockType={blockType} onBlock={block}
         onCaptureBlock={() => {blockSelection.current = editor.getEditorState().read(() => $getSelection()?.clone() ?? null);}}

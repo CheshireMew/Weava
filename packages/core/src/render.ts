@@ -15,7 +15,7 @@ import { entryCover } from './entry-cover.ts';
 import { layoutFor } from './layouts.ts';
 import { pageLinks, queryEntries } from './query.ts';
 import { releaseIndex } from './release-index.ts';
-import { renderEvidence } from './seo.ts';
+import { renderAuthor, renderEvidence } from './seo.ts';
 import { wordpressArchivePage } from './wordpress-archives.ts';
 import { collectionEntries } from './collections.ts';
 export interface RenderOptions {
@@ -416,7 +416,7 @@ export function renderEntryBody(
   const next = { ...options, bodyDepth: 1, bodyStack: [...(options.bodyStack ?? []), entry.id] };
   let html = entry.blocks.length
     ? renderBlocks(entry.blocks, release, entry, custom, next)
-    : `<article class="prose">${(entry as PublishedEntry).html ?? renderDocument(entry.document)}</article>`;
+    : `<article class="prose">${resolveContentLinks((entry as PublishedEntry).html ?? renderDocument(entry.document), release, options.strict)}</article>`;
   const heading = (blocks: Block[]): boolean =>
     blocks.some((block) => block.type === 'entry-heading' || heading(block.children ?? []));
   if (heading(layoutFor(entry, release).blocks))
@@ -443,7 +443,7 @@ export function renderEntryTemplate(
       ...options,
       editable: options.editTemplate,
       editBody: options.editTemplate ? false : options.editable,
-    }) + renderEvidence(entry);
+    }) + renderEvidence(entry) + renderAuthor(entry, release.settings.language);
   return `<div class="entry-template template-${e(template.id)}${entry.documentation ? ' has-documentation' : ''}" data-template="${e(template.id)}">${nav.before}${entry.documentation ? `<div class="doc-content">${body}</div>` : body}${nav.after}${related.length ? `<section class="related-content"><h2>${e(t("相关内容"))}</h2>${related.map((item) => `<a href="${e(item.path)}">${e(item.title)}</a>`).join('')}</section>` : ''}</div>`;
 }
 export function renderSharedRegion(

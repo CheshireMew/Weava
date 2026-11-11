@@ -25,7 +25,8 @@ export function saveTerm(site: Pick<Site, 'store' | 'terms'>, input: Term, revis
   if (!term.id || !['category', 'tag'].includes(term.kind) || !term.label || !term.slug || /[/?#\\]/.test(term.slug))
     throw new WeavaError('分类或标签的名称、标识或网址无效。');
   const catalog = site.store.list('term');
-  if (catalog.some((row) => row.id !== term.id && row.value.kind === term.kind && (row.value.slug === term.slug || (row.value.label === term.label && row.value.parentId === term.parentId))))
+  const alias = (slug: string) => term.kind === 'category' && /^[a-z0-9-]+$/i.test(slug) ? slug.toLowerCase() : slug;
+  if (catalog.some((row) => row.id !== term.id && row.value.kind === term.kind && (alias(row.value.slug) === alias(term.slug) || (row.value.label === term.label && row.value.parentId === term.parentId))))
     throw new WeavaError('同类分类的名称或网址已存在。', 409);
   let parent = term.parentId;
   const seen = new Set([term.id]);
@@ -43,7 +44,7 @@ export function ensureTerm(site: Pick<Site, 'store' | 'terms'>, label: string, k
   if (existing) return existing.value as Term;
   const id = preferredId && !site.store.get('term', preferredId) ? preferredId : kind + '-' + digest(label).slice(0, 16);
   const term: Term = { id, kind, label, slug: label.trim().replace(/\s+/g, '-').replace(/[/?#\\]/g, '-') || id };
-  if (site.store.list('term').some((row) => row.value.kind === kind && row.value.slug === term.slug)) term.slug += '-' + digest(label).slice(0, 6);
+  if (site.store.list('term').some((row) => row.value.kind === kind && (kind === 'category' ? row.value.slug.toLowerCase() === term.slug.toLowerCase() : row.value.slug === term.slug))) term.slug += '-' + digest(label).slice(0, 6);
   return saveTerm(site, term, null).value as Term;
 }
 export function attachTerms(site: Pick<Site, 'store' | 'terms'>, entry: Entry, previous?: Entry): Entry {

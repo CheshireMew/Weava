@@ -43,8 +43,12 @@ function firstBodyImage(entry: Entry | PublishedEntry): string {
   return visit(entry.blocks);
 }
 
+export function contentCover(entry: Entry | PublishedEntry): string {
+  return entry.cover || firstBodyImage(entry);
+}
+
 /** Manual cover, first body image, then a stable local photo for imageless articles. */
 export function entryCover(entry: Entry | PublishedEntry, definition?:Pick<ContentType,'id'|'format'>): string {
   if(isNoteType(definition??{id:entry.type}))return '';
-  return entry.cover || firstBodyImage(entry) || defaultArticleCover(entry, definition);
+  return contentCover(entry) || defaultArticleCover(entry, definition);
 }

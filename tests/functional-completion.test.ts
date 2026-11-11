@@ -16,6 +16,8 @@ import {migrateAnalyticsDiscovery,collectSearch,discoveryReport} from '../packag
 import {AnalyticsIngress} from '../packages/core/src/analytics-ingress.ts';
 import {assertUploadSize} from '../packages/core/src/media-upload-policy.ts';
 import {defaultMediaUploadLimits} from '@weava/contracts';
+import {commentsHandlers} from '../apps/web/src/api/comments.ts';
+import {adminEntry} from '../packages/core/src/admin-content.ts';
 const databases:Database.Database[]=[];
 afterEach(()=>databases.splice(0).forEach(db=>db.close()));
 function fixture(){
@@ -73,6 +75,22 @@ it('filters scheduled and failed entries without confusing their current publica
   db.prepare("UPDATE records SET data=json_set(data,'$.status','failed','$.error','renderer failed') WHERE scope='publication-schedule'").run();
   expect(queryDrafts(site,{status:'schedule-failed'}).items[0].schedules?.[0].error).toBe('renderer failed');
 });
+it('partitions article groups without hiding changed publications, running schedules or failed drafts',()=>{
+  const {db,site,entry}=fixture();
+  const published=['published','changed','published-update'];
+  const scheduled=['scheduled','running'];
+  const drafts=['draft','archived','failed','cancelled'];
+  for(const id of [...published,...scheduled,...drafts]) {
+    indexListRecord(db,'entry',id,{...entry,id,title:id,status:id==='archived'?'archived':'draft'},2,'2026-11-11T00:00:00Z');
+    if(published.includes(id))db.prepare('INSERT INTO published_entry_revisions VALUES(?,?,?)').run('active',id,id==='changed'?1:2);
+    if(['scheduled','running','failed','cancelled','published-update'].includes(id))db.prepare('INSERT INTO records VALUES(?,?,?,?,?)').run('publication-schedule',id,1,JSON.stringify({entryId:id,status:id==='published-update'?'scheduled':id,dueAt:'2026-12-01T01:00:00Z'}),'');
+  }
+  db.prepare("INSERT INTO state(key,value) VALUES('release','active') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+  const ids=(group:'published'|'scheduled'|'draft')=>queryDrafts(site,{kind:'content',format:'article',group}).items.map(row=>row.id).sort();
+  expect(ids('published')).toEqual(published.sort());expect(ids('scheduled')).toEqual(scheduled.sort());expect(ids('draft')).toEqual(drafts.sort());
+  expect(queryDrafts(site,{group:'draft',query:'failed'}).items[0].schedules?.[0].status).toBe('failed');
+  expect(queryDrafts(site,{group:'published',pageSize:1,page:2})).toMatchObject({total:3,pages:3,items:[{id:'published'}]});
+});
 it('replaces exact media destinations across Markdown, HTML and fields while retaining similarly named files',()=>{
   const value={body:'![Image](/media/old.png) <img src="/media/old.png"> <a href="https://site.test/media/old.png#part">link</a> ![](/media/old.png-other.png)',fields:{image:'/media/old.png'},cover:'/media/old.png?size=large'};
   const result=replaceMediaUrls(value,'/media/old.png','/media/new.png','https://site.test');
@@ -80,6 +98,16 @@ it('replaces exact media destinations across Markdown, HTML and fields while ret
   const examples='`/media/old.png`\n\n```html\n<img src="/media/old.png">\n```\n\n<pre>/media/old.png</pre>\n\n![live](/media/old.png)';
   const protectedResult=replaceMediaUrls(examples,'/media/old.png','/media/new.png','https://site.test');
   expect(protectedResult.count).toBe(1);expect(protectedResult.value).toBe(examples.replace('![live](/media/old.png)','![live](/media/new.png)'));
+});
+it('reports publication from the active release even when the editable record is a draft',()=>{
+  const {db,site,entry}=fixture();let revision=1;
+  site.store.get=()=>({id:entry.id,revision,updatedAt:'',value:entry});
+  expect(adminEntry(site,entry.id).published).toBe(false);
+  db.prepare('INSERT INTO published_entry_revisions VALUES(?,?,?)').run('active',entry.id,1);
+  db.prepare("INSERT INTO state(key,value) VALUES('release','active') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+  expect(adminEntry(site,entry.id)).toMatchObject({published:true,hasChanges:false,value:{status:'draft'}});
+  revision=2;expect(adminEntry(site,entry.id)).toMatchObject({published:true,hasChanges:true});
+  db.prepare('DELETE FROM published_entry_revisions').run();expect(adminEntry(site,entry.id).published).toBe(false);
 });
 it('leases persistent external events, retries stable identities and rejects stale acknowledgements',()=>{
   const {db}=fixture();appendSiteEvent(db,'backup.failed',{jobId:'job'},'stable-event');appendSiteEvent(db,'backup.failed',{jobId:'job'},'stable-event');
@@ -100,6 +128,18 @@ it('filters comments and changes a reviewed batch atomically when all expected s
   expect(()=>engagement.moderateMany([{id:'a',expectedStatus:'pending'},{id:'b',expectedStatus:'visible'}],'visible')).toThrow(/变化/);
   expect(engagement.comments('pending').total).toBe(1);
   engagement.moderateMany([{id:'a',expectedStatus:'pending'},{id:'b',expectedStatus:'hidden'}],'visible');expect(engagement.comments('visible').total).toBe(2);
+});
+it('finds comments by article title, path, author or body through the single search field',async()=>{
+  const {db,site,entry}=fixture();indexListRecord(db,'entry',entry.id,entry,1,'');
+  site.store.get=(_scope:string,id:string)=>id===entry.id?{value:entry}:null;
+  const insert=db.prepare('INSERT INTO article_comments VALUES(?,?,?,?,?,?,?,?,?)');
+  insert.run('a',entry.id,'r1','net','client-aaaa','Alice','useful response','pending','2026-11-01T01:00:00Z');
+  insert.run('b','other','r2','net','client-bbbb','Bob','unrelated','visible','2026-11-02T01:00:00Z');
+  const handler=commentsHandlers({site,engagement:new Engagement(db,'test')}).comments;
+  for(const q of [entry.title,'/posts/first/','Alice','useful']){
+    const result=await handler({query:{q}} as any,{url:new URL('https://example.com/?status=pending')} as any);
+    expect(result.total).toBe(1);expect(result.items.map(row=>row.id)).toEqual(['a']);expect(result.items[0].title).toBe(entry.title);
+  }
 });
 it('records search results and successful result clicks once and keeps 404 aggregates separate',()=>{
   const {db}=fixture();migrateAnalyticsDiscovery(db);const allowed=new Set(['/article/']);

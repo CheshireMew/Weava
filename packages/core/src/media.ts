@@ -392,7 +392,7 @@ export function imageAttributes(
     ? { style: `object-position:${record.focalPoint.x}% ${record.focalPoint.y}%` }
     : {};
   if (!Array.isArray(record?.derivatives) || !record.derivatives.length)
-    return { src, ...position, ...dimensions };
+    return { src, ...(record?.width && record?.height ? { width: record.width, height: record.height } : {}), ...position, ...dimensions };
   const variants = record.derivatives
     .filter((d: any) => d.url && d.width)
     .sort((a: any, b: any) => a.width - b.width);

@@ -8,35 +8,27 @@ export function AnalyticsGeography({
 }: {
   model: Pick<
     AnalyticsView,
-    'data' | 'geo' | 'error' | 'geoBusy' | 'geoError' | 'filter' | 'updateGeo'
+    'data' | 'geo' | 'error' | 'geoBusy' | 'geoError' | 'updateGeo'
   >;
 }) {
-  const { data, geo, geoBusy, geoError, filter, updateGeo } = model;
+  const { data, geo, geoBusy, geoError, updateGeo } = model;
 
   return (
     <>
       {' '}
       <Card title="全球访客分布" dateRange>
-        <WorldMap rows={data.countries} onSelect={(v) => filter('country', v)} />
+        <WorldMap rows={data.countries} />
         <div className="analytics-geo-status">
           <span>
             <a href="https://db-ip.com" target="_blank" rel="noreferrer">
               IP Geolocation by DB-IP
-            </a>{' '}
-            · {geo?.available ? `地区库 ${geo.builtAt?.slice(0, 10) || ''}` : '地区库尚未就绪'}
+            </a>
           </span>
-          <button disabled={geoBusy || geo?.updating} onClick={updateGeo}>
-            {geo?.updating ? '正在下载…' : geo?.available ? '更新地区库' : '下载免费地区库'}
-          </button>
+          {!geo?.available&&!geo?.error&&<span role="status">正在准备地区统计…</span>}
         </div>
-        {geo?.error && (
+        {(geo?.error||geoError) && (
           <p role="status" className="analytics-note">
-            {geo.error}。可重试更新；已有地区库继续使用。
-          </p>
-        )}
-        {geoError && (
-          <p role="status" className="analytics-note">
-            {geoError}。地区库状态暂未更新。
+            {geo?.available?'地区统计暂时未能更新，已有统计仍可查看。':'地区统计暂时无法使用，其它统计不受影响。'}<button disabled={geoBusy||geo?.updating} onClick={updateGeo}>{geoBusy||geo?.updating?'正在重试…':'重试'}</button>
           </p>
         )}
       </Card>

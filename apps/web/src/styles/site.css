@@ -557,6 +557,13 @@ input::placeholder, textarea::placeholder { color: var(--site-muted, #526257); o
 .has-documentation > :is(.doc-content, .doc-pagination, .related-content) { grid-column: 2; min-width: 0; }
 @media (max-width: 800px) { .has-documentation { grid-template-columns: minmax(0, 1fr); } .has-documentation > .doc-navigation { position: static; grid-row: auto; max-height: none; } .has-documentation > :is(.doc-content, .doc-pagination, .related-content) { grid-column: 1; } }
 .doc-breadcrumbs { margin-block: 1rem; }
+.has-documentation:not(:has(> .doc-breadcrumbs)) > :is(.doc-navigation, .doc-content) { grid-row: 1; }
+@media (max-width: 800px) { .has-documentation:not(:has(> .doc-breadcrumbs)) > :is(.doc-navigation, .doc-content) { grid-row: auto; } }
+.doc-breadcrumbs { font-size: .9rem; overflow-wrap: anywhere; }
+.doc-breadcrumbs [aria-hidden] { margin-inline: .3rem; opacity: .55; }
+.entry-author, .entry-evidence { border-top: 1px solid var(--line, #ddd); margin-block-start: 2rem; padding-block-start: 1rem; }
+.entry-author h2, .entry-evidence h2 { font-size: 1.15em; margin-block: 0 .65rem; }
+.entry-author p { margin-block: .35rem; }
 .doc-pagination { display: flex; justify-content: space-between; gap: 1rem; margin-block: 2rem; }
 .related-content { display: grid; gap: .75rem; margin-block: 2rem; }
 .code-block { position: relative; margin-block: 1.5rem; min-width: 0; }

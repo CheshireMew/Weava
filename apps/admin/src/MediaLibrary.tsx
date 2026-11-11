@@ -5,6 +5,10 @@ import { MediaGroups } from './MediaGroups.tsx';
 import { LoadingState } from './LoadingState.tsx';
 import type { MediaEditor } from './useMediaEditor.ts';
 import type { useMediaLibrary } from './useMediaLibrary.ts';
+import type { MediaRecord } from './media-models.ts';
+import { Copy, MoreHorizontal, RotateCcw, Trash2 } from 'lucide-react';
+import { Popover } from './Popover.tsx';
+import { MediaDeleteDialog } from './MediaDeleteDialog.tsx';
 export function MediaLibrary({
   library,
   editor,
@@ -13,7 +17,7 @@ export function MediaLibrary({
   children,
 }: {
   library: ReturnType<typeof useMediaLibrary>;
-  editor: Pick<MediaEditor, 'mutateSelection' | 'choose'>;
+  editor: Pick<MediaEditor, 'mutateSelection' | 'choose' | 'remove'>;
   busy: boolean;
   onError: (message: string) => void;
   children: ReactNode;
@@ -27,8 +31,6 @@ export function MediaLibrary({
     setPage,
     archived,
     setArchived,
-    checked,
-    setChecked,
     group,
     setGroup,
     groups,
@@ -39,23 +41,30 @@ export function MediaLibrary({
   } = library;
   const [saving, setSaving] = useState(false),
     [feedback, setFeedback] = useState('');
-  const [moveTo, setMoveTo] = useState(''),
-    [managingGroups, setManagingGroups] = useState(false);
+  const [managingGroups, setManagingGroups] = useState(false);
+  const [deleting, setDeleting] = useState<MediaRecord | null>(null);
   useEffect(() => setFeedback(''), [searchTerm, kind, page, archived]);
-  const mark = async () => {
+  const restore = async (row: MediaRecord) => {
     setSaving(true);
     try {
-      await editor.mutateSelection(result.items.filter(row => checked.includes(row.id)), items =>
-        api('media/archive', {items, archived: !archived}));
+      await editor.mutateSelection([row], items =>
+        api('media/archive', {items, archived: false}));
+      setFeedback('媒体已恢复');
     } catch (error: any) {
       onError(error.message);
     } finally {
       setSaving(false);
     }
   };
+  async function remove(row: MediaRecord) {
+    const {cleanupPending} = await editor.remove(row);
+    setFeedback(cleanupPending ? '媒体已删除，暂时被占用的文件将在下次启动时重试清理。' : '媒体已删除');
+    setDeleting(null);
+  }
   return (
     <>
       <div className="media-filters">
+        {archived&&<button onClick={()=>{setArchived(false);setPage(1);}}>返回媒体库</button>}
         <input
           aria-label="搜索媒体库"
           placeholder="搜索媒体"
@@ -79,7 +88,7 @@ export function MediaLibrary({
           <option value="audio">音频</option>
           <option value="file">附件</option>
         </select>
-        <select
+        {groups.some(row=>!row.value.archived)||group ? <select
           aria-label="媒体分组筛选"
           value={group}
           onChange={(event) => {
@@ -95,59 +104,12 @@ export function MediaLibrary({
               {row.value.archived ? '（已归档）' : ''}
             </option>
           ))}
-        </select>
-        <button onClick={() => setManagingGroups(true)}>管理分组</button>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={archived}
-            onChange={(event) => {
-              setArchived(event.target.checked);
-              setPage(1);
-            }}
-          />
-          已归档
-        </label>
-        {checked.length > 0 && (
-          <button disabled={saving || busy} onClick={() => void mark()}>{archived ? '恢复所选' : '归档所选'}</button>
-        )}
+        </select> : null}
+        <Popover label="更多媒体操作" className="media-actions-menu" menu trigger={<MoreHorizontal size={18} aria-hidden="true" />}>
+          <button role="menuitem" onClick={()=>setManagingGroups(true)}>管理分组</button>
+          {!archived&&<button role="menuitem" onClick={()=>{setArchived(true);setGroup('');setPage(1);}}>查看已归档媒体</button>}
+        </Popover>
       </div>
-      {checked.length > 0 && (
-        <div className="media-filters">
-          <select
-            aria-label="移动所选到分组"
-            value={moveTo}
-            onChange={(event) => setMoveTo(event.target.value)}
-          >
-            <option value="">选择目标分组</option>
-            <option value="__ungrouped__">未分组</option>
-            {groups
-              .filter((row) => !row.value.archived)
-              .map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.value.label}
-                </option>
-              ))}
-          </select>
-          <button
-            disabled={!moveTo || saving || busy}
-            onClick={async () => {
-              setSaving(true);
-              try {
-                await editor.mutateSelection(result.items.filter(row => checked.includes(row.id)), items =>
-                  api('media/move', {items, groupId: moveTo === '__ungrouped__' ? null : moveTo}));
-                setFeedback('媒体分组已更新');
-              } catch (error: any) {
-                onError(error.message);
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
-            移动所选
-          </button>
-        </div>
-      )}
       {managingGroups && (
         <MediaGroups
           rows={groups}
@@ -156,34 +118,21 @@ export function MediaLibrary({
           onError={onError}
         />
       )}
+      {deleting && <MediaDeleteDialog key={deleting.id} row={deleting} onClose={() => setDeleting(null)} onDelete={remove} />}
       {feedback && <p role="status">{feedback}</p>}
       {loading && <LoadingState label="读取媒体列表" />}
       {!loading && !result.total && (
         <p role="status">
-          {query || kind || archived
-            ? '没有符合筛选条件的媒体。'
-            : '媒体库还是空的，可以上传第一个文件。'}
+          {query || kind || group
+            ? '没有符合条件的媒体。'
+            : archived ? '暂无已归档媒体。' : '暂无媒体，可上传文件添加。'}
         </p>
       )}
       <div className="media-workspace">
         <div>
           <div className="media-grid" aria-busy={loading}>
-            {result.items.map((row: any) => (
+            {result.items.map(row => (
               <article key={row.id}>
-                <label className="checkbox">
-                  <input
-                    type="checkbox"
-                    aria-label={'选择 ' + row.value.name}
-                    checked={checked.includes(row.id)}
-                    onChange={(event) =>
-                      setChecked(
-                        event.target.checked
-                          ? [...checked, row.id]
-                          : checked.filter((id) => id !== row.id),
-                      )
-                    }
-                  />
-                </label>
                 <button
                   className="media-open"
                   disabled={busy || saving || loading}
@@ -200,19 +149,33 @@ export function MediaLibrary({
                   )}
                   <strong>{row.value.name}</strong>
                 </button>
-                <small>{(row.value.bytes / 1024).toFixed(1)} KB</small>
-                <button
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(row.value.url);
-                      setFeedback('地址已复制');
-                    } catch {
-                      onError('无法复制地址，请检查浏览器的剪贴板权限。');
-                    }
-                  }}
-                >
-                  复制地址
-                </button>
+                <div className="media-card-footer">
+                  <small>{(row.value.bytes / 1024).toFixed(1)} KB</small>
+                  <div className="media-card-actions">
+                    <button
+                      type="button"
+                      aria-label="复制地址"
+                      title="复制地址"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(row.value.url);
+                          setFeedback('地址已复制');
+                        } catch {
+                          onError('无法复制地址，请检查浏览器的剪贴板权限。');
+                        }
+                      }}
+                    >
+                      <Copy size={16} aria-hidden="true" />
+                    </button>
+                    {archived && <button type="button" aria-label="恢复媒体" title="恢复媒体" disabled={saving || busy || loading} onClick={() => void restore(row)}>
+                      <RotateCcw size={16} aria-hidden="true" />
+                    </button>}
+                    <button type="button" className="media-delete-button" aria-label="删除媒体" title="删除媒体"
+                      disabled={saving || busy || loading} onClick={() => setDeleting(row)}>
+                      <Trash2 size={16} aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
               </article>
             ))}
           </div>

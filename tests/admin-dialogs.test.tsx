@@ -59,17 +59,31 @@ it('copies exact code from sandboxed previews through the parent without enablin
   expect(frame.getAttribute('sandbox')).toBe('allow-same-origin'); expect(frame.getAttribute('src')).toContain('embedded=1');
 });
 
-it('streams import files without reading them in the browser, reports server validation errors and accepts a corrected export',async()=>{
-  await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+it('checks and imports the selected file automatically, and never commits a failed check',async()=>{
+  const refresh=vi.fn(async()=>{});
+  await render(<ImportManager refresh={refresh}/>);
   const field=host.querySelector<HTMLInputElement>('input[type="file"]')!,read=vi.fn(()=>{throw new Error('must not read');});
   const choose=async()=>{Object.defineProperty(field,'files',{configurable:true,value:[{name:'source.json',size:30,text:read}]});await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));};
-  await choose();mocks.submitJob.mockRejectedValueOnce(new Error('这个文件不是有效的 JSON。'));await click('预检导入');
-  expect(host.textContent).toContain('不是有效的 JSON');expect(read).not.toHaveBeenCalled();
-  mocks.submitJob.mockResolvedValueOnce({id:'valid-import',status:'queued',operation:'import-source'});
-  mocks.api.mockResolvedValue({id:'valid-import',status:'complete',operation:'import-source',result:{format:'json',dryRun:true,created:[],updated:[],unchanged:[]}});
-  await choose();await click('预检导入');await act(async()=>refreshBackgroundTasks());
-  expect(mocks.submitJob).toHaveBeenLastCalledWith('import/source',expect.objectContaining({sourceId:'source-test',options:expect.objectContaining({dryRun:true})}),expect.any(String));
-  expect(host.textContent).toContain('预检结果');expect(host.querySelector('[role="alert"]')).toBeNull();expect(read).not.toHaveBeenCalled();
+  expect(host.querySelector('a[download]')?.getAttribute('href')).toBe('/api/admin/v1/export/file');
+  mocks.submitJob.mockRejectedValueOnce(new Error('这个文件不是有效的 JSON。'));
+  await choose();
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('不是有效的 JSON');
+  expect(mocks.submitJob).toHaveBeenCalledTimes(1);
+  expect(refresh).not.toHaveBeenCalled();
+  mocks.submitJob.mockResolvedValueOnce({id:'valid-check',status:'queued',operation:'import-source'})
+    .mockResolvedValueOnce({id:'valid-import',status:'queued',operation:'import-source'});
+  mocks.api.mockImplementation(async path=>path==='job/valid-check'
+    ? {id:'valid-check',status:'complete',operation:'import-source',result:{format:'json',dryRun:true,created:[],updated:[],unchanged:[]}}
+    : {id:'valid-import',status:'complete',operation:'import-source',result:{format:'json',dryRun:false}});
+  await choose();
+  expect(button('导入文件').disabled).toBe(true);
+  await act(async()=>refreshBackgroundTasks());
+  expect(mocks.submitJob).toHaveBeenLastCalledWith('import/source',{sourceId:'source-test',options:{mode:'create',dryRun:false}},expect.any(String));
+  await act(async()=>refreshBackgroundTasks());
+  expect(host.textContent).toContain('导入完成。新增内容已保存为草稿。');
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(read).not.toHaveBeenCalled();
+  expect(refresh).toHaveBeenCalledTimes(1);
 });
 it('shows the exact temporary cleanup preview and requires its explicit delete button',async()=>{
   const refresh=vi.fn(async()=>{}),onError=vi.fn();
@@ -84,9 +98,8 @@ it('renders actionable schema and import conflicts without empty error rows',asy
   await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
   const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(field,'files',{value:[{name:'source.json',size:100,text:async()=>'{"version":1,"entries":[]}' }]});
-  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
   mocks.api.mockRejectedValue(Object.assign(new Error('导入预检未通过'),{details:[{scope:'entries',id:'post',reason:'网址已被占用'},{path:['value','entries',0,'title'],code:'invalid_type'},{},null]}));
-  await click('预检导入');
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
   const lines=[...host.querySelectorAll('[role="alert"] li')].map(item=>item.textContent);
   expect(lines).toEqual(['内容 · post：网址已被占用','导入内容 · 内容 · 第 1 项 · 标题：数据类型不正确']);
 });
@@ -233,8 +246,8 @@ it('changes the backup folder only on confirmation and verifies using the entere
     jobs.set(id,job);
     return {...job,status:'queued'};
   });
-  const onError=vi.fn(),task=vi.fn();
-  await render(<Operations state={{ releases: [], jobs: [] }} task={task} refresh={vi.fn()} onError={onError} openLogs={vi.fn()} />);
+  const onError=vi.fn();
+  await render(<Operations contentEnabled refresh={vi.fn()} onError={onError} />);
   await act(async()=>{await vi.dynamicImportSettled();});
   expect(host.textContent).toContain('正在读取');expect(mocks.submitJob).not.toHaveBeenCalled();
   await act(async()=>loadPolicy(policy));
@@ -252,32 +265,8 @@ it('changes the backup folder only on confirmation and verifies using the entere
   await act(async () => dialog('检查已有备份').querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
   expect(mocks.submitJob).toHaveBeenLastCalledWith('verify', { path: 'D:/Backups/existing' },undefined);
   await act(async()=>{await refreshBackgroundTasks();});
-  expect(mocks.submitJob).toHaveBeenCalledTimes(3);expect(task).not.toHaveBeenCalled();expect(onError).not.toHaveBeenCalled();
-  expect(host.textContent).toContain('校验 · 已完成');
-});
-
-it('starts one storage scan for repeated clicks and refreshes its complete result once', async () => {
-  const overview={databaseBytes:100,analyticsBytes:0,uploadsBytes:0,importsBytes:0,pendingUploads:[],media:{count:1,bytes:4},versions:{count:1},releases:{count:0},backups:[],unreferenced:{count:0,bytes:0},scan:{checkedAt:null}};
-  let finishOverview!: (value:any)=>void,complete=false;
-  const initial=new Promise(resolve=>{finishOverview=resolve;});
-  let reads=0;
-  mocks.api.mockImplementation(async(path:string)=>{
-    if(path==='backup/policy')return {id:'site',revision:null,updatedAt:'',value:{enabled:false,path:'D:/Tools/weava/backups',time:'03:00'},timezone:'Asia/Shanghai'};
-    if(path.startsWith('backup/inventory'))return {path:'D:/Tools/weava/backups',items:[],jobs:[]};
-    if(path==='maintenance')return ++reads===1?initial:{...overview,scan:{checkedAt:'2026-11-10T00:00:00Z'}};
-    if(path==='job/scan-once')return {id:'scan-once',operation:'storage-scan',status:complete?'complete':'running',createdAt:'2026-11-10T00:00:00Z',message:'扫描文件'};
-    throw new Error('Unexpected scan request: '+path);
-  });
-  mocks.submitJob.mockResolvedValue({id:'scan-once',operation:'storage-scan',status:'queued'});
-  const onError=vi.fn();
-  await render(<Operations state={{features:[],releases:[],jobs:[]}} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()}/>);
-  await click('维护');
-  await act(async()=>{button('检查占用').click();button('检查占用').click();});
-  expect(reads).toBe(1);
-  await act(async()=>finishOverview(overview));
-  expect(mocks.submitJob).toHaveBeenCalledTimes(1);expect(button('检查占用').disabled).toBe(true);
-  complete=true;await act(async()=>{await refreshBackgroundTasks();});
-  expect(reads).toBe(2);expect(button('检查占用').disabled).toBe(false);expect(onError).not.toHaveBeenCalled();
+  expect(mocks.submitJob).toHaveBeenCalledTimes(3);expect(onError).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('备份校验完成');
 });
 
 it('cancels crop without saving and submits the selected crop once when confirmed', async () => {
@@ -297,16 +286,23 @@ it('cancels crop without saving and submits the selected crop once when confirme
   expect(dialog('裁切图片')).toBeNull(); expect(waitJob).toHaveBeenCalledTimes(1);
 });
 
-it('retains an import preflight across page changes and opens long explanations without committing',async()=>{
-  const report={format:'wxr',dryRun:true,content:1,pages:0,terms:0,attachments:[],comments:0,reviewRequired:[{id:'one',title:'旧文章',unresolved:['需检查视频']}],skipped:[],warnings:['说明一','说明二','说明三','说明四'],notes:[]};
-  mocks.submitJob.mockResolvedValue({id:'wxr-preview',status:'queued',operation:'preflight-wxr'});
-  mocks.api.mockImplementation(async path=>path==='job/wxr-preview'?{id:'wxr-preview',status:'complete',operation:'preflight-wxr',result:report}:[]);
+it('keeps importing when leaving the page and discloses WordPress conversion notes only on request',async()=>{
+  const review={fingerprint:'hash',revision:1,releaseId:null,options:'create'};
+  mocks.submitJob.mockResolvedValueOnce({id:'wxr-preview',status:'queued',operation:'preflight-wxr'})
+    .mockResolvedValueOnce({id:'wxr-commit',status:'queued',operation:'import-wxr'});
+  const done={id:'wxr-commit',status:'complete',operation:'import-wxr',result:{format:'wxr',dryRun:false,reviewRequired:[{id:'one',title:'旧文章',unresolved:['需检查视频']}],warnings:['转换说明']}};
+  mocks.api.mockImplementation(async path=>path==='job/wxr-preview'?{id:'wxr-preview',status:'complete',operation:'preflight-wxr',result:{dryRun:true,review}}:done);
   await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
   const field=host.querySelector<HTMLInputElement>('input[type="file"]')!;Object.defineProperty(field,'files',{value:[new File(['<rss/>'],'source.xml')]});
-  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));await click('预检导入');
-  await render(<p>其它页面</p>);await act(async()=>refreshBackgroundTasks());await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
-  expect(host.textContent).toContain('需检查视频');await click('查看详情（4 条）');expect(dialog('转换说明').textContent).toContain('说明四');
-  expect(mocks.submitJob).toHaveBeenCalledTimes(1);expect(mocks.submitJob).toHaveBeenCalledWith('import/source',expect.objectContaining({sourceId:'source-test',options:expect.objectContaining({dryRun:true})}),expect.any(String));
+  await act(async()=>field.dispatchEvent(new Event('change',{bubbles:true})));
+  await render(<p>其它页面</p>);
+  await act(async()=>refreshBackgroundTasks());
+  expect(mocks.submitJob).toHaveBeenLastCalledWith('import/source',{sourceId:'source-test',options:{mode:'create',downloadMedia:true,comments:true,dryRun:false,review}},expect.any(String));
+  await act(async()=>refreshBackgroundTasks());
+  await render(<ImportManager refresh={vi.fn(async()=>{})}/>);
+  expect(host.querySelector('details')?.open).toBe(false);
+  expect(host.querySelector('details')?.textContent).toContain('需检查视频');
+  expect(mocks.submitJob).toHaveBeenCalledTimes(2);
 });
 it('retains history task results after leaving the page and separates a completed archive from refresh errors',async()=>{
  const refresh=vi.fn().mockRejectedValue(new Error('断线'));

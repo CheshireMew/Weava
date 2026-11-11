@@ -16,10 +16,11 @@ export function $parentLink(node: LexicalNode | null): LinkNode | null {
 
 interface LinkPopup {
   mode: 'view' | 'edit'; key?: string; href: string; selection: RangeSelection | null;
+  context: string;
   anchor: Pick<DOMRectReadOnly, 'top' | 'bottom' | 'left' | 'right'>;
 }
 
-export function LinkEditorPlugin({onEdit, onError}: {onEdit: () => void; onError: (message: string) => void}) {
+export function LinkEditorPlugin({onEdit, onError, entryId}: {onEdit: () => void; onError: (message: string) => void; entryId?: string}) {
   const [editor] = useLexicalComposerContext(), selectors = useSelectors();
   const [state, setState] = useState<LinkPopup | null>(null), [url, setUrl] = useState('');
   const [resolved, setResolved] = useState<{source: string; path: string} | null>(null), [picking, setPicking] = useState(false);
@@ -45,7 +46,8 @@ export function LinkEditorPlugin({onEdit, onError}: {onEdit: () => void; onError
     }
     const href = node?.getURL() ?? '';
     dismissed.current = undefined; dirtyUrl.current = false; setUrl(href);
-    setState({mode, key: node?.getKey(), href, selection: range, anchor: {top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right}});
+    const context = (range?.getTextContent() || range?.anchor.getNode().getTopLevelElement()?.getTextContent() || '').trim().slice(0, 500);
+    setState({mode, key: node?.getKey(), href, selection: range, context, anchor: {top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right}});
   }, [editor]);
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export function LinkEditorPlugin({onEdit, onError}: {onEdit: () => void; onError
     if (state?.key) {setState({...state, mode: 'view'}); focusSaved(state.selection);}
     else {close(); focusSaved(state?.selection ?? null);}
   }
-  function apply(href: string) {
+  function apply(href: string, title = href.trim()) {
     if (!state || !href.trim()) return;
     const saved = state;
     onEdit();
@@ -114,7 +116,7 @@ export function LinkEditorPlugin({onEdit, onError}: {onEdit: () => void; onError
       }
       else if (saved.selection && $getNodeByKey(saved.selection.anchor.key) && $getNodeByKey(saved.selection.focus.key)) {
         $setSelection(saved.selection.clone());
-        if (saved.selection.isCollapsed()) $insertNodes([$createLinkNode(href.trim()).append($createTextNode(href.trim()))]);
+        if (saved.selection.isCollapsed()) $insertNodes([$createLinkNode(href.trim()).append($createTextNode(title))]);
         else $toggleLink(href.trim());
       }
     }, {tag: HISTORY_PUSH_TAG});
@@ -144,7 +146,8 @@ export function LinkEditorPlugin({onEdit, onError}: {onEdit: () => void; onError
       <input data-autofocus required aria-label="链接地址" placeholder="https://…" value={state.href.startsWith('entry:') && address === null && !dirtyUrl.current ? '' : url} onChange={event => {dirtyUrl.current = true; setUrl(event.target.value);}}/>
       <div className="editor-link-actions"><button type="button" onClick={() => {
         setPicking(true);
-        void selectors.content().then(content => {if (content) apply('entry:' + encodeURIComponent(content.id));}).catch(error => onError(error.message)).finally(() => setPicking(false));
+        const selection = entryId ? selectors.contentLink({id: entryId, context: state.context}) : selectors.content();
+        void selection.then(content => {if (content) apply('entry:' + encodeURIComponent(content.id), content.title);}).catch(error => onError(error.message)).finally(() => setPicking(false));
       }}>链接到内容</button><button type="button" onClick={cancel}>取消</button><button type="submit" className="primary">{state.key ? '保存' : '插入'}</button></div>
     </form>}
   </div>, portalTarget);

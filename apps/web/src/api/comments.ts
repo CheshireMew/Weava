@@ -1,4 +1,4 @@
-import { entryLabel,entryIdAtPath } from '../../../../packages/core/src/admin-content.ts';
+import { entryLabel,entryIdAtPath,commentEntryIds } from '../../../../packages/core/src/admin-content.ts';
 import type { AdminHandlers, ApiServices } from './types.ts';
 export function commentsHandlers(services: Pick<ApiServices, 'site' | 'engagement'>) {
   const { site, engagement } = services;
@@ -8,10 +8,11 @@ export function commentsHandlers(services: Pick<ApiServices, 'site' | 'engagemen
       const { url } = context;
       let entryId=query.entryId;
       if(query.path)entryId=entryIdAtPath(site,query.path)??'__missing__';
+      const matchingEntryIds=commentEntryIds(site,query.q);
       const result = engagement.comments(
         url.searchParams.get('status') ?? 'all',
         Number(url.searchParams.get('page')) || 1,
-        {query:query.q,author:query.author,entryId,start:query.start,end:query.end},
+        {query:query.q,matchingEntryIds,author:query.author,entryId,start:query.start,end:query.end},
       );
       return {
         ...result,

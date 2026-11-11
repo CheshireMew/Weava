@@ -7,7 +7,7 @@ import { useAdminQuery } from './useAdminQuery.ts';
 export const statePath = (panel: string, entryId?: string) =>
   `state?${new URLSearchParams({
     summary: '1',
-    panel: ['appearance', 'comments', 'operations'].includes(panel) ? panel : 'content',
+    panel: ['appearance', 'comments'].includes(panel) ? panel : 'content',
     ...(entryId ? { entryId } : {}),
   })}`;
 
@@ -42,6 +42,7 @@ export function useAdminState({
     const required: Record<string, NonNullable<ContentState['features']>[number]> = {
       content: 'content',
       notes: 'content',
+      trash: 'content',
       media: 'media',
       comments: 'engagement',
       analytics: 'analytics',

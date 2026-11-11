@@ -56,8 +56,8 @@ export default function AccountPanel({setError,notify,sessionGeneration}:{setErr
     <pre className="recovery-codes">{codes.join('\n')}</pre>
     <div className="account-actions"><button onClick={copyCodes}>复制恢复码</button><button onClick={downloadCodes}>下载恢复码</button></div>
     <p>网页登录已全部撤销。刚才使用过的验证器验证码不能重复使用，重新登录时请等待验证器显示下一组数字，或使用一个恢复码。</p>
-    <label><input type="checkbox" checked={savedCodes} onChange={event=>setSavedCodes(event.target.checked)}/>我已将恢复码保存在网站之外</label>
-    <button className="primary" disabled={!savedCodes} onClick={()=>window.location.reload()}>重新登录</button>
+    <label className="checkbox"><input type="checkbox" checked={savedCodes} onChange={event=>setSavedCodes(event.target.checked)}/>我已将恢复码保存在网站之外</label>
+    <div className="account-actions"><button className="primary" disabled={!savedCodes} onClick={()=>window.location.reload()}>重新登录</button></div>
   </section>;
   if(!account)return <section className="panel"><div className="panel-title"><h1>账户</h1></div>{loadError?<div className="panel-state" role="alert"><p>账户未能载入。</p><button onClick={()=>refresh().catch(error=>{setLoadError(error.message);setError(error.message);})}>重新读取账户</button></div>:<LoadingState label="读取账户" />}</section>;
   const proof={password,code:code||undefined},blocked=busy||!!cooldown.seconds;

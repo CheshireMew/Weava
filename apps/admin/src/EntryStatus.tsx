@@ -2,9 +2,7 @@ export function entryStatus(row: { published?: boolean; hasChanges?: boolean; va
   if (row.published) return row.hasChanges
     ? { key: 'changed', label: '有未发布修改' }
     : { key: 'published', label: '已发布' };
-  return row.value.status === 'archived'
-    ? { key: 'archived', label: '已归档' }
-    : { key: 'draft', label: '草稿' };
+  return { key: 'draft', label: '草稿' };
 }
 
 export function EntryStatus({ row }: { row: Parameters<typeof entryStatus>[0] }) {

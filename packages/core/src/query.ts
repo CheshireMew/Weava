@@ -10,7 +10,7 @@ export function queryPublished(site: Site, input: ContentQuery = {}, search = fa
   const release=site.visibleRelease(false,releaseId);
   return release?queryPublicCatalog(site.store.raw,release,input,search):paginate([],input.page??1,input.pageSize??24);
 }
-export function queryDrafts(site: Site, input: ContentQuery & { status?: string; visibility?: string; format?:'article'|'note' } = {}) {
+export function queryDrafts(site: Site, input: ContentQuery & { status?: string; visibility?: string; format?:'article'|'note'; group?:'published'|'scheduled'|'draft' } = {}) {
   const page=input.page??1,pageSize=input.pageSize??24;paginate([],page,pageSize);
   const types=site.store.list('type').map(row=>row.value as ContentType),terms=site.terms().map(row=>row.value as Term);
   validateQueryFields(input,types);
@@ -18,7 +18,11 @@ export function queryDrafts(site: Site, input: ContentQuery & { status?: string;
   const eq=(sql:string,value:any)=>{clauses.push(sql);args.push(value);};
   if(input.format){const ids=types.filter(type=>input.format==='note'?isNoteType(type):!isNoteType(type)).map(type=>type.id);if(ids.length){clauses.push('l.type IN ('+ids.map(()=>'?').join(',')+')');args.push(...ids);}else clauses.push('0=1');}
   if(input.visibility&&input.visibility!=='all')eq('l.visibility=?',input.visibility);
-  if(input.status==='published')clauses.push('p.entry_id IS NOT NULL');
+  const scheduled="EXISTS(SELECT 1 FROM records s WHERE s.scope='publication-schedule' AND json_extract(s.data,'$.entryId')=l.id AND json_extract(s.data,'$.status') IN ('scheduled','running'))";
+  if(input.group==='published')clauses.push('p.entry_id IS NOT NULL');
+  else if(input.group==='scheduled')clauses.push('p.entry_id IS NULL AND '+scheduled);
+  else if(input.group==='draft')clauses.push('p.entry_id IS NULL AND NOT '+scheduled);
+  else if(input.status==='published')clauses.push('p.entry_id IS NOT NULL');
   else if(input.status==='changed')clauses.push('p.entry_id IS NOT NULL AND p.revision<>l.revision');
   else if(input.status==='scheduled'||input.status==='schedule-failed')eq("EXISTS(SELECT 1 FROM records s WHERE s.scope='publication-schedule' AND json_extract(s.data,'$.entryId')=l.id AND json_extract(s.data,'$.status')=?)",input.status==='scheduled'?'scheduled':'failed');
   else if(input.status&&input.status!=='all')eq('p.entry_id IS NULL AND l.status=?',input.status);

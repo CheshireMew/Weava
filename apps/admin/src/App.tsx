@@ -6,7 +6,7 @@ import { useAdminShell, useSiteIcon } from './useAdminShell.ts';
 import { useAdminState } from './useAdminState.ts';
 import { useScheduleUpdates } from './useScheduleUpdates.ts';
 
-import { Check, Loader2, Menu } from 'lucide-react';
+import { Check, Menu } from 'lucide-react';
 
 import { api } from './api.ts';
 import {adminQueries} from './query-cache.ts';
@@ -16,7 +16,6 @@ import { FieldWidgetsProvider } from './Fields.tsx';
 
 import { Dialog } from './Dialog.tsx';
 import { useEditSessions } from './EditSessions.tsx';
-import { JobLogs } from './JobLogs.tsx';
 
 import { isNoteType } from '@weava/contracts';
 import { AdminNavigation, adminTabLabel } from './AdminNavigation.tsx';
@@ -37,7 +36,6 @@ import { usePublication } from './usePublication.ts';
 import { useSettingsApplication } from './useSettingsApplication.ts';
 import { useTransientMessage } from './useTransientMessage.ts';
 import { LoadingState } from './LoadingState.tsx';
-import { operationLabels } from './admin-labels.ts';
 import { MediaUploadFeedback } from './media-uploads.tsx';
 
 const panelModules = {
@@ -47,6 +45,7 @@ const panelModules = {
   analytics: () => import('./AnalyticsPanel.tsx'),
   comments: () => import('./Comments.tsx'),
   media: () => import('./MediaManager.tsx'),
+  trash: () => import('./Trash.tsx'),
 };
 const preloadPanel = (panel: string) => {
   const load = panelModules[panel as keyof typeof panelModules];
@@ -60,6 +59,7 @@ const AnalyticsPanel = lazy(panelModules.analytics);
 const Comments = lazy(panelModules.comments);
 
 const MediaManager = lazy(panelModules.media);
+const TrashPanel = lazy(panelModules.trash);
 export interface AppProps {
   authentication: AdminSession;
   error: string;
@@ -69,7 +69,7 @@ export function App({ authentication, error, setError }: AppProps) {
   const editors = useEditSessions();
   const { compact, menu, setMenu, toast, setToast, notify } = useAdminShell();
   const [tab, setTab] = useState(() => adminPanel(window.location.search)),
-    [logJob, setLogJob] = useState<string | null>(null);
+    [completedPublication, setCompletedPublication] = useState(0);
   const activeTab = useRef(tab);
   const { session } = authentication;
   const { state, statePanel, panelQuery, receiveState, receiveSchedules, refresh, sync } = useAdminState({
@@ -81,7 +81,7 @@ export function App({ authentication, error, setError }: AppProps) {
     currentEntry: () => workspace.navigation.current(),
   });
   const publicationController = usePublication(sync, setError, notify);
-  const { busy, job, setPublication, task } = publicationController;
+  const { busy, setPublication, task } = publicationController;
   const workspace = useContentWorkspace({
     state: workspaceData(state),
     receiveSchedules,
@@ -99,6 +99,11 @@ export function App({ authentication, error, setError }: AppProps) {
   const feedbackContext = tab + ':' + (record?.id ?? 'list');
   useTransientMessage(error, () => setError(''), feedbackContext, 0);
   useTransientMessage(toast, () => setToast(''), feedbackContext, 3000);
+  useEffect(() => {
+    if (!completedPublication) return;
+    notify('已发布');
+    document.querySelector<HTMLElement>('.library')?.focus({ preventScroll: true });
+  }, [completedPublication]);
   useSiteIcon(state?.siteIcon ?? state?.settings.value.logo);
   const settingsApplication = useSettingsApplication(sync, () => notify('已保存并生效', 2600),setError,!state?.features||state.features.includes('content'));
   useEffect(() => {
@@ -201,14 +206,7 @@ export function App({ authentication, error, setError }: AppProps) {
               </div>
             </header>
           )}
-          {job && !publicationController.publication && !error && (
-            <div className="toast operation-progress" role="status">
-              <Loader2 className="spin" size={15} aria-hidden="true" />
-              <span>{operationLabels[job.operation] ?? '处理操作'}…</span>
-              <button onClick={() => setLogJob(job.id)}>查看日志</button>
-            </div>
-          )}
-          {!state || (['appearance', 'operations'].includes(tab) && statePanel !== tab) ? (
+          {!state || (tab === 'appearance' && statePanel !== tab) ? (
             <div className="loading-screen">
               {panelQuery.error ? (
                 <button onClick={() => void panelQuery.refresh().catch(() => {})}>重新载入</button>
@@ -246,6 +244,7 @@ export function App({ authentication, error, setError }: AppProps) {
                     )}
                   </div>
                 )}
+                {tab === 'trash' && <Suspense fallback={<LoadingState label="载入回收站" />}><TrashPanel/></Suspense>}
                 {tab === 'media' && (
                   <Suspense fallback={<LoadingState label="载入媒体" />}>
                     <MediaManager
@@ -316,15 +315,11 @@ export function App({ authentication, error, setError }: AppProps) {
                 )}
                 {tab === 'operations' && (
                   <Operations
-                    state={state}
-                    busy={busy}
-                    pending={publicationController.pending}
-                    task={task}
+                    contentEnabled={!state.features || state.features.includes('content')}
                     refresh={async () => {
                       await refresh();
                     }}
                     onError={setError}
-                    openLogs={setLogJob}
                   />
                 )}
               </Suspense>
@@ -341,7 +336,7 @@ export function App({ authentication, error, setError }: AppProps) {
           </div>
         ) : (
           toast && (
-            <div className="toast" role="status" aria-live="polite" aria-atomic="true">
+            <div className="toast success-toast" role="status" aria-live="polite" aria-atomic="true">
               <Check size={17} strokeWidth={2} aria-hidden="true" />
               <span>{toast}</span>
             </div>
@@ -351,11 +346,19 @@ export function App({ authentication, error, setError }: AppProps) {
           model={publicationController}
           error={error}
           onPublished={async () => {
-            const row = workspace.navigation.current();
-            if (row) await workspace.navigation.select(row.id);
+            try {
+              await editors.flush();
+              if(tab==='content'){
+                workspace.library.setStatus('published');
+                workspace.library.setLibraryPage(1);
+              }
+              workspace.navigation.clear();
+              setCompletedPublication(value => value + 1);
+            } catch (error: any) {
+              setError('内容已发布，返回列表时保存后续修改失败：' + error.message);
+            }
           }}
         />
-        {logJob && <JobLogs key={logJob} id={logJob} onClose={() => setLogJob(null)} />}
         <Reauthentication
           model={authentication}
           setError={setError}

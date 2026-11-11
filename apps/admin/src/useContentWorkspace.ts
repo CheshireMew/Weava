@@ -135,6 +135,7 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
     await refresh().catch((error) => setError(error.message));
   }
   async function publish() {
+    if(editor.session.record?.value.status==='archived')editor.update({status:'draft'});
     const row = await persist();
     if (!row) return;
     const note = isNoteType(state?.types.find((type: any) => type.id === row.value.type)?.value);
@@ -149,13 +150,18 @@ export function useContentWorkspace(options: ContentWorkspaceOptions) {
       if (result?.status === 'complete') {
         if (editor.session.unchanged(checkpoint)) {
           editor.clear();
-          options.notify(row.value.status === 'published' ? '已更新' : '已发布');
+          options.notify((row.published??row.value.status === 'published') ? '笔记已更新发布' : '笔记已发布');
         } else if (editor.session.record?.id === row.id)
           setPublicationNotice('先前版本已发布，之后的修改仍保留在这里，尚未发布。');
       }
       return;
     }
     if (!row.value.title.trim()) throw new Error('请填写标题后再发布。');
+    const checkpoint=editor.session.checkpoint();
+    const check=await api('entry/check',{value:row.value});
+    if(!editor.session.unchanged(checkpoint))throw new Error('检查期间内容有新修改，请再次点击发布。');
+    editor.setContentCheck({...check,id:row.id});
+    if(!check.valid)return;
     await task('publish', { ids: [row.id], revisions: { [row.id]: row.revision } });
   }
   return contentViewModels({

@@ -2,10 +2,11 @@ import {siteText} from '@weava/contracts';
 import { load } from 'cheerio';
 import { WeavaError, schemaTypes, type Entry, type Release, type Seo } from '@weava/contracts';
 import { escape as e } from './documents.ts';
-import { layoutFor } from './layouts.ts';
 import { wordpressArchivePage, wordpressPagePath } from './wordpress-archives.ts';
 import { queryEntries } from './query.ts';
-import { entryCover } from './entry-cover.ts';
+import { contentCover } from './entry-cover.ts';
+import { publicPagination } from './public-pagination.ts';
+import { documentNavigation } from './editorial.ts';
 
 export interface PageMetadata {
   title: string; socialTitle: string; description: string; canonical: string; robots: string;
@@ -13,6 +14,7 @@ export interface PageMetadata {
   icon?: string;
   image: string; imageAlt: string; ogType: string; language: string; siteName: string;
   schema: Record<string, any>; indexable: boolean; pagination: Record<string, number>;
+  sources?: { title: string; description: string; image: string };
 }
 export type MetadataContribution = Partial<Seo> & { schema?: Record<string, any>[] };
 export function validDate(value: string) {
@@ -45,25 +47,31 @@ export function renderEvidence(entry: Entry) {
   return `<section class="prose entry-evidence" data-weava-evidence aria-label="来源与核验"><h2>来源与核验</h2><dl>${entry.evidence.map((item) =>
     `<div id="evidence-${e(item.id)}"><dt>${e(item.claim)}</dt><dd>${item.url ? `<a href="${e(item.url)}">${e(item.title || item.url)}</a>` : e(item.title || '来源待补充')} · ${e(evidenceCurrent(item) ? '已核验' : item.status === 'verified' ? '需要复核' : '待核验')}${item.verifiedAt ? ` · 核验 ${e(item.verifiedAt)}` : ''}${item.validUntil ? ` · 有效至 ${e(item.validUntil)}` : ''}</dd></div>`).join('')}</dl></section>`;
 }
-export function customEvidence(html: string, entry: Entry) {
-  if (!entry.evidence?.length) return html;
-  const $ = load(html); $('[data-weava-evidence]').remove();
-  ($('main').length ? $('main').first() : $('body')).append(renderEvidence(entry));
+export function renderAuthor(entry: Entry, language: string) {
+  const bio = entry.seo?.authorBio?.trim(), url = entry.seo?.authorUrl;
+  if (!entry.author.trim() || (!bio && !url)) return '';
+  const label = e(siteText(language, '关于作者')), name = e(entry.author);
+  return `<section class="prose entry-author" data-weava-author aria-label="${label}"><h2>${label}</h2><p><strong>${url ? `<a href="${e(url)}" rel="author">${name}</a>` : name}</strong></p>${bio ? `<p>${e(bio)}</p>` : ''}</section>`;
+}
+export function customEvidence(html: string, entry: Entry, language = 'zh-CN') {
+  const details = renderEvidence(entry) + renderAuthor(entry, language);
+  if (!details) return html;
+  const $ = load(html); $('[data-weava-evidence], [data-weava-author]').remove();
+  ($('main').length ? $('main').first() : $('body')).append(details);
   return $.html();
 }
 export function pageMetadata(entry: Entry | undefined, release: Release, url: URL, options: { preview?: boolean; missing?: boolean; html?: string; media?: boolean; contribution?: MetadataContribution } = {}): PageMetadata {
   const settings = release.settings, base = settings.domain.replace(/\/$/, ''), seo = { ...options.contribution, ...entry?.seo };
   const socialTitle = seo.title || entry?.title || siteText(settings.language,options.missing ? '页面未找到' : '搜索');
-  const description = seo.description ?? entry?.description ?? settings.description;
-  const pageKeys = new Set<string>(), visitedLayouts = new Set<string>();
-  const visit = (blocks: Entry['blocks']) => blocks.forEach((block) => {
-    if (['cards', 'content-list'].includes(block.type)) pageKeys.add(String(block.props.pageKey || 'page'));
-    if (block.type === 'shared' && !visitedLayouts.has(String(block.props.layoutId))) { visitedLayouts.add(String(block.props.layoutId)); visit(release.layouts?.find((layout) => layout.id === block.props.layoutId)?.blocks ?? []); }
-    visit(block.children ?? []);
-  });
-  visit(entry?.blocks ?? []);
-  if (entry) { const template = layoutFor(entry, release); visit(template.blocks); if (settings.theme === 'newsletter' && template.id === 'newsletter-archive') pageKeys.add('page'); }
-  for (const id of Object.values(settings.regions ?? {})) visit(release.layouts?.find((layout) => layout.id === id)?.blocks ?? []);
+  const contentType = release.types.find(type => type.id === entry?.type);
+  const templates = { ...settings.seo?.templates, ...contentType?.seoTemplates };
+  const contentDescription = entry?.description.trim() || (!entry || entry.path === '/' ? settings.description.trim() : '');
+  const variables: Record<string, string> = { title: entry?.title || socialTitle, description: contentDescription,
+    siteName: settings.name, type: contentType?.label || '', author: entry?.author || '',
+    page: '1' };
+  const expand = (template: string) => template.replace(/\{(title|description|siteName|type|author|page)\}/g, (_match, key: string) => variables[key]).replace(/\s+/g, ' ').trim();
+  let description = seo.description ?? contentDescription;
+  const lists = publicPagination(entry, release), pageKeys = new Set(lists.map(list => list.key));
   const canonicalUrl = new URL(webUrl(seo.canonical || entry?.path || url.pathname, base));
   const pagination: Record<string, number> = {};
   let filtered = url.pathname === '/search/';
@@ -80,9 +88,20 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     canonicalUrl.searchParams.delete('page');
     if (wordpressPage > 1) pagination.page = wordpressPage;
   }
+  if (!seo.canonical && lists.some(list => list.block?.type === 'collection')) {
+    const pathPage = /^(.*\/)page\/([1-9]\d*)\/$/.exec(entry!.path);
+    const value = url.searchParams.get('page') ?? pathPage?.[2] ?? '1';
+    const page = /^[1-9]\d*$/.test(value) ? Number(value) : 1;
+    canonicalUrl.pathname = wordpressPagePath(pathPage?.[1] ?? entry!.path, page);
+    canonicalUrl.searchParams.delete('page');
+    if (page > 1) pagination.page = page; else delete pagination.page;
+  }
   canonicalUrl.hash = '';
   canonicalUrl.searchParams.sort();
   const canonical = canonicalUrl.href;
+  variables.page = String(Math.max(1, ...Object.values(pagination)));
+  const templateDescription = entry && seo.description === undefined && templates.description ? expand(templates.description) : '';
+  if (templateDescription) description = templateDescription;
   const hidden = options.preview || entry?.visibility === 'private';
   const indexable = !hidden && !options.missing && !!entry && entry.indexable !== false && !filtered;
   let robots = hidden ? 'noindex,nofollow' : indexable ? 'index,follow' : 'noindex,follow';
@@ -91,7 +110,9 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     const inherited = sourceRobots.split(',').map((value: string) => value.trim()).filter((value: string) => /^(max-(image-preview|snippet|video-preview):|nosnippet$|noimageindex$|notranslate$)/i.test(value));
     if (inherited.length) robots += ',' + inherited.join(',');
   }
-  const image = seo.image || (entry ? entryCover(entry,release.types.find(type=>type.id===entry.type)) : '') || settings.seo?.image || '';
+  const cover = entry && !seo.image ? contentCover(entry) : '';
+  const pageImage = seo.image || cover;
+  const image = pageImage || settings.seo?.image || settings.logo || '';
   const imageUrl = image ? webUrl(image, base) : '';
   const type = seo.schemaType || release.types.find((type) => type.id === entry?.type)?.schemaType || (entry?.kind === 'content' && entry.type === 'post' ? 'Article' : 'WebPage');
   const article = ['Article', 'TechArticle'].includes(type);
@@ -100,12 +121,16 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
     url: webUrl(settings.seo.publisherUrl || '/', base), ...(settings.logo ? { image: webUrl(settings.logo, base) } : {}), ...(settings.seo.sameAs?.length ? { sameAs: settings.seo.sameAs.map((value) => webUrl(value, base)) } : {}) } : undefined;
   if (publisher) graph.push(publisher);
   const main: Record<string, any> = { '@type': type, '@id': canonical + '#content', name: socialTitle, url: canonical, description, inLanguage: settings.language,
-    isPartOf: { '@id': base + '/#website' }, ...(imageUrl ? { image: imageUrl } : {}), ...(publisher ? { publisher: { '@id': publisher['@id'] } } : {}) };
+    isPartOf: { '@id': base + '/#website' }, ...(pageImage ? { image: imageUrl } : {}), ...(publisher ? { publisher: { '@id': publisher['@id'] } } : {}) };
   if (article) Object.assign(main, { headline: socialTitle, datePublished: entry?.publishedAt, dateModified: (entry as any)?.modifiedAt ?? entry?.updatedAt,
-    ...(entry?.author ? { author: { '@type': seo.authorType || 'Person', name: entry.author, ...(seo.authorUrl ? { url: webUrl(seo.authorUrl, base) } : {}) } } : publisher ? { author: { '@id': publisher['@id'] } } : {}) });
+    ...(entry?.author ? { author: { '@type': seo.authorType || 'Person', name: entry.author, ...(seo.authorUrl ? { url: webUrl(seo.authorUrl, base) } : {}), ...(entry.seo?.authorBio?.trim() ? { description: entry.seo.authorBio.trim() } : {}) } } : publisher ? { author: { '@id': publisher['@id'] } } : {}) });
   const citations = entry?.evidence?.filter((item) => evidenceCurrent(item)).map((item) => ({ '@type': 'CreativeWork', name: item.title || item.claim, url: webUrl(item.url, base), dateModified: item.verifiedAt }));
   if (citations?.length) main.citation = citations;
   graph.push(main);
+  const navigation = entry?.documentation ? documentNavigation(entry, release) : null;
+  if (navigation?.breadcrumbs.length) graph.push({ '@type': 'BreadcrumbList', '@id': canonical + '#breadcrumbs',
+    itemListElement: [...navigation.breadcrumbs, entry!].map((item, index) => ({ '@type': 'ListItem', position: index + 1,
+      name: item.title, item: webUrl(item.path, base) })) });
   for (const node of options.contribution?.schema ?? []) {
     if (!node || typeof node !== 'object' || !node['@type']) continue;
     const existing = graph.findIndex((item) => node['@id'] ? item['@id'] === node['@id'] : item['@type'] === node['@type'] && item.url === node.url);
@@ -126,16 +151,24 @@ export function pageMetadata(entry: Entry | undefined, release: Release, url: UR
         ...(entry.publishedAt?{uploadDate:entry.publishedAt}:{})});
     });
   }
-  let title = seo.documentTitle || (socialTitle === settings.name ? socialTitle : `${socialTitle} · ${settings.name}`);
+  const templateTitle = entry && !seo.title && templates.title ? expand(templates.title) : '';
+  let title = seo.documentTitle || templateTitle || (socialTitle === settings.name ? socialTitle : `${socialTitle} · ${settings.name}`);
   if (wordpressPage && wordpressPage > 1) {
     const archive = entry!.source!.wordpressArchive;
     const result = queryEntries(release.entries.filter(entry => entry.visibility !== 'private'), { kind: 'content', type: archive.contentType,
       author: archive.author, category: archive.category, tag: archive.tag, pageSize: archive.pageSize }, release.types, release.terms);
     title = archive.titleTemplate ? archive.titleTemplate.replaceAll('{page}', String(wordpressPage)).replaceAll('{pages}', String(result.pages)) : `${title} - 第${wordpressPage}页`;
+  } else if (Object.keys(pagination).length && !seo.documentTitle && !templates.title?.includes('{page}')) {
+    title += ` · ${siteText(settings.language, '第 {page} 页', { page: variables.page })}`;
   }
   return { title, socialTitle, description, canonical, canonicalTag: entry?.source?.wordpressSeo?.canonicalPresent !== false, robots,
     image: imageUrl, imageAlt: seo.imageAlt || '', ogType: article ? 'article' : 'website', language: settings.language, siteName: settings.name, icon: settings.logo,
-    schema: { '@context': 'https://schema.org', '@graph': graph }, indexable, pagination };
+    schema: { '@context': 'https://schema.org', '@graph': graph }, indexable, pagination,
+    sources: {
+      title: entry?.seo?.documentTitle || entry?.seo?.title ? '单篇设置' : seo.documentTitle || seo.title ? '扩展设置' : templateTitle ? (contentType?.seoTemplates?.title ? '内容类型模板' : '网站默认模板') : '文章标题',
+      description: entry?.seo?.description !== undefined ? '单篇设置' : seo.description !== undefined ? '扩展设置' : templateDescription ? (contentType?.seoTemplates?.description ? '内容类型模板' : '网站默认模板') : entry?.description?.trim() ? '文章摘要' : description ? '网站简介' : '',
+      image: entry?.seo?.image ? '单篇设置' : seo.image ? '扩展设置' : cover ? '内容封面' : settings.seo?.image ? '网站默认图' : image ? '网站标志' : '',
+    } };
 }
 /** Apply the same metadata contract to full-document extension renders. */
 export function composeMetadata(html: string, meta: PageMetadata, options: { preview?: boolean; embedded?: boolean; track?: boolean; releaseId?: string } = {}) {

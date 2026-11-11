@@ -4,10 +4,10 @@ import type { AnalyticsReport, AnalyticsVisitor, AnalyticsVisitorDetail } from '
 import type { WordpressStatisticsSnapshot } from './wordpress-statistics.ts';
 import { normalizePath } from './paths.ts';
 import {dayStart,shiftDay} from './analytics-dates.ts';
-import { referral } from './analytics-dimensions.ts';
+import { referral, analyticsKnownSourceName, analyticsSourceChannel, analyticsSourceEngine, unrecordedAnalyticsSource } from './analytics-dimensions.ts';
 
 type Rows = WordpressStatisticsSnapshot['tables'];
-type Source = { id: string; timezone: string; tables: { [K in keyof Rows]: Rows[K]['rows'] }; paths: Map<number, string>; entries: Map<number, string> };
+type Source = { id: string; siteUrl: string; timezone: string; tables: { [K in keyof Rows]: Rows[K]['rows'] }; paths: Map<number, string>; entries: Map<number, string> };
 const cached = new WeakMap<Database.Database, { key: string; sources: Source[] }>();
 const lifetimes = new WeakMap<Source[], { views: number; visitors: number; pages: Map<string, number>; entries: Map<string, number> }>();
 const localDays = new Map<string, number>();
@@ -35,7 +35,7 @@ function sources(db: Database.Database): Source[] {
       paths.set(page.id, currentPaths.get(page.entryId) ?? page.path ?? pathOf(page.uri));
       if (page.entryId) mappedEntries.set(page.id, page.entryId);
     }
-    return { id: row.source_id, timezone: metadata.source.timezone, tables, paths, entries: mappedEntries } as Source;
+    return { id: row.source_id, siteUrl: metadata.source.siteUrl || '', timezone: metadata.source.timezone, tables, paths, entries: mappedEntries } as Source;
   });
   cached.set(db, { key, sources: result }); return result;
 }
@@ -47,20 +47,22 @@ function timestamp(at: string, timezone: string) {
   if (lower === undefined) { lower = Date.parse(dayStart(day, timezone)); if (localDays.size >= 1024) localDays.delete(localDays.keys().next().value!); localDays.set(key, lower); }
   return new Date(lower + (h * 3600 + m * 60 + s) * 1000).toISOString();
 }
-function visitorContext(v: Rows['visitors']['rows'][number]) {
-  const origin = referral(v.referrer || '');
+function visitorContext(v: Rows['visitors']['rows'][number], siteUrl: string) {
+  const origin = referral(v.referrer || '', siteUrl);
+  const engine = analyticsSourceEngine(origin.engine, v.sourceName || '');
   const channels: Record<string, string> = { direct: 'direct-or-unknown', search: 'search-referral', organic: 'search-referral', social: 'social', referral: 'referral', paid: 'paid', email: 'email' };
+  const source = analyticsKnownSourceName(v.sourceName || '', engine, origin.host);
   return { country: v.country || '', browser: v.browser || '未知', os: v.os || '未知', device: v.device || 'unknown', model: v.model || '未知',
-    channel: origin.channel === 'ai-referral' ? origin.channel : channels[v.sourceChannel || ''] || origin.channel,
-    source: v.sourceName && !/^direct$/i.test(v.sourceName) ? v.sourceName : origin.engine || v.referrer || '直接 / 未知',
-    host: v.referrer || null, engine: origin.engine };
+    channel: analyticsSourceChannel(channels[v.sourceChannel || ''] || origin.channel, source, origin.host),
+    source: source || unrecordedAnalyticsSource,
+    host: origin.host || null, engine };
 }
-function context(v: Rows['visitors']['rows'][number]) { let result = contexts.get(v); if (!result) { result = visitorContext(v); contexts.set(v, result); } return result; }
+function context(v: Rows['visitors']['rows'][number], siteUrl: string) { let result = contexts.get(v); if (!result) { result = visitorContext(v, siteUrl); contexts.set(v, result); } return result; }
 function select(source: Source, params: URLSearchParams, start: string, end: string) {
   const inRange = (day: string) => day >= start && day <= end;
   const path = params.get('path') ? normalizePath(params.get('path')!) : '';
   const filtered = ['country', 'browser', 'os', 'device', 'model', 'channel'].some(k => params.has(k));
-  const visitors = source.tables.visitors.filter(v => inRange(v.day) && Object.entries(context(v)).every(([k, value]) => !params.has(k) || (value || '未知') === params.get(k)));
+  const visitors = source.tables.visitors.filter(v => inRange(v.day) && Object.entries(context(v, source.siteUrl)).every(([k, value]) => !params.has(k) || (value || '未知') === params.get(k)));
   const ids = new Set(visitors.map(v => v.id));
   const relations = source.tables.relationships.filter(r => inRange(r.at.slice(0, 10)) && ids.has(r.visitorId) && (!path || source.paths.get(r.pageId) === path));
   const related = new Set(relations.map(r => r.visitorId));
@@ -132,7 +134,7 @@ export function wordpressLifetime(db: Database.Database, path?: string) {
 export function mergeWordpressAnalytics(db: Database.Database, native: AnalyticsReport, params: URLSearchParams): AnalyticsReport {
   const active = sources(db); if (!active.length) return native;
   const report = structuredClone(native), { start, end, previousStart, previousEnd, days } = report.range;
-  const pageRows = new Map(report.pages.map(p => [p.path, p])), sourceRows = new Map(report.sources.map(s => [JSON.stringify([s.channel, s.host, s.name]), s]));
+  const pageRows = new Map(report.pages.map(p => [p.path, p])), sourceRows = new Map(report.sources.map(s => [JSON.stringify([s.channel, s.name]), s]));
   const dimensionKeys = { countries: 'country', browsers: 'browser', operatingSystems: 'os', devices: 'device', models: 'model' } as const;
   const dimensions = Object.fromEntries(Object.keys(dimensionKeys).map(k => [k, new Map((report[k as keyof typeof dimensionKeys]).map(r => [r.name, r.visitors]))])) as Record<keyof typeof dimensionKeys, Map<string, number>>;
   let importedViews = 0;
@@ -165,16 +167,22 @@ export function mergeWordpressAnalytics(db: Database.Database, native: Analytics
     const relationsByVisitor = new Map<number, typeof selected.relations>();
     for (const row of selected.relations) { const list = relationsByVisitor.get(row.visitorId) ?? []; list.push(row); relationsByVisitor.set(row.visitorId, list); }
     const visitorRows: AnalyticsVisitor[] = selected.visitors.map(v => {
-      const info = context(v), visits = (relationsByVisitor.get(v.id) ?? []).sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
+      const info = context(v, source.siteUrl), visits = (relationsByVisitor.get(v.id) ?? []).sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id);
       for (const [key, field] of Object.entries(dimensionKeys)) { const map = dimensions[key as keyof typeof dimensionKeys], name = info[field as keyof typeof info] || '未知'; map.set(name, (map.get(name) ?? 0) + 1); }
       const first = v.firstPage ? source.paths.get(v.firstPage) : undefined, last = v.lastPage ? source.paths.get(v.lastPage) : undefined;
       const entryPath = first || source.paths.get(visits[0]?.pageId) || '', exitPath = last || source.paths.get(visits.at(-1)?.pageId!) || '';
       if (first && pageRows.has(first)) pageRows.get(first)!.entries++;
       if (last && pageRows.has(last)) pageRows.get(last)!.exits++;
       const views = selected.path ? visits.length : v.hits ?? visits.length;
-      const key = JSON.stringify([info.channel, info.host, info.source]);
-      let origin = sourceRows.get(key); if (!origin) { origin = { channel: info.channel, host: info.host, name: info.source, views: 0, sessions: null, visitors: 0 }; sourceRows.set(key, origin); }
-      origin.views += views; origin.visitors++; origin.sessions = null;
+      if (info.source !== unrecordedAnalyticsSource) {
+        const key = JSON.stringify([info.channel, info.source]);
+        let origin = sourceRows.get(key);
+        if (!origin) { origin = { channel: info.channel, host: info.host, name: info.source, views: 0, sessions: null, visitors: 0 }; sourceRows.set(key, origin); }
+        if (origin.host !== info.host) origin.host = null;
+        origin.views += views;
+        origin.visitors++;
+        origin.sessions = null;
+      }
       return { id: identity(source, v.id), views, sessions: null, firstSeen: timestamp(v.firstView || visits[0]?.at || v.day + ' 00:00:00', source.timezone), lastSeen: timestamp(v.lastView || visits.at(-1)?.at || v.day + ' 00:00:00', source.timezone), entryPath, exitPath, ...info, activeMs: null };
     });
     report.recentVisitors.push(...visitorRows); report.activeVisitors.push(...visitorRows);
@@ -186,7 +194,7 @@ export function mergeWordpressAnalytics(db: Database.Database, native: Analytics
       const period = select(source, params, lower, upper), hits = new Map<number, number>();
       for (const r of period.relations) hits.set(r.visitorId, (hits.get(r.visitorId) ?? 0) + 1);
       for (const v of period.visitors) {
-        const info = context(v); if (!info.engine) continue;
+        const info = context(v, source.siteUrl); if (!info.engine) continue;
         let engine = report.engines.find(e => e.name === info.engine);
         if (!engine) { engine = { name: info.engine, channel: info.channel, sessions: null, views: 0, daily: [], previousSessions: null, previousDaily: [], previousViews: 0 }; report.engines.push(engine); }
         const series = previous ? engine.previousDaily : engine.daily;
@@ -228,5 +236,5 @@ export function wordpressVisitor(db: Database.Database, id: string, params: URLS
     ...source.tables.relationships.filter(r => r.visitorId === visitor.id).map(r => ({ ...r, kind: 'view', label: '' })),
     ...source.tables.events.filter(r => r.visitorId === visitor.id).map(r => ({ ...r, kind: 'event', label: r.name })),
   ].filter(r => r.at.slice(0, 10) >= start && r.at.slice(0, 10) <= end && (!params.get('path') || source.paths.get(r.pageId!) === normalizePath(params.get('path')!))).sort((a, b) => b.at.localeCompare(a.at) || b.id - a.id);
-  return { id, start, end, timezone, page, pageSize, total: records.length, pages: Math.ceil(records.length / pageSize), events: records.slice((page - 1) * pageSize, page * pageSize).map(r => ({ id: id + ':' + r.kind + ':' + r.id, kind: r.kind, ts: timestamp(r.at, source.timezone), path: source.paths.get(r.pageId!) || '', session: '', url: '', label: r.label, zone: '', referrer: visitor.referrer || '', ...context(visitor), activeMs: null, scroll: null })) };
+  return { id, start, end, timezone, page, pageSize, total: records.length, pages: Math.ceil(records.length / pageSize), events: records.slice((page - 1) * pageSize, page * pageSize).map(r => ({ id: id + ':' + r.kind + ':' + r.id, kind: r.kind, ts: timestamp(r.at, source.timezone), path: source.paths.get(r.pageId!) || '', session: '', url: '', label: r.label, zone: '', referrer: visitor.referrer || '', ...context(visitor, source.siteUrl), activeMs: null, scroll: null })) };
 }

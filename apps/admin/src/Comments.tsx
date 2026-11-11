@@ -7,17 +7,20 @@ import { useManagedRecord, useEditSessions } from './EditSessions.tsx';
 import { watchVisible } from './analytics/polling.ts';
 import { LoadingState } from './LoadingState.tsx';
 import {useDebouncedValue} from './useDebouncedValue.ts';
+import {RefreshCw,Search} from 'lucide-react';
 
 type Row = ArticleComment & { title: string; path: string };
 export default function Comments(props: SiteSettingProps) {
   const { onError } = props;
   const [status, setStatus] = useState('all'), [page, setPage] = useState(1);
-  const [filters,setFilters]=useState({q:'',author:'',path:'',start:'',end:''}),[selected,setSelected]=useState<string[]>([]),[bulkBusy,setBulkBusy]=useState(false);
-  const search=useDebouncedValue(filters.q);
-  const params=new URLSearchParams({status,page:String(page),...filters,q:search});
+  const [searchInput,setSearchInput]=useState(''),[selected,setSelected]=useState<string[]>([]),[bulkBusy,setBulkBusy]=useState(false);
+  const search=useDebouncedValue(searchInput);
+  const params=new URLSearchParams({status,page:String(page),q:search});
   const query = useAdminQuery<{ items: Row[]; total: number; hasMore: boolean }>(`comments?${params}`);
   const data = query.data;
-  const filterKey=JSON.stringify({...filters,q:search,status,page});
+  const filterKey=JSON.stringify({q:search,status,page});
+  const selectable=(data?.total??0)>5;
+  useEffect(()=>{if(!selectable)setSelected([]);},[selectable]);
   useEffect(()=>setSelected([]),[filterKey]);
   useEffect(()=>{if(data&&!data.items.length&&data.total>0&&page>1)setPage(Math.max(1,Math.ceil(data.total/30)));},[data,page]);
   async function moderateSelected(status:'visible'|'hidden'){
@@ -51,35 +54,41 @@ export default function Comments(props: SiteSettingProps) {
     try{await api('comment',{id:row.id,status:next});setSavedStatuses(previous=>({...previous,[row.id]:next}));refreshAfter('评论状态已更新');}
     catch(error:any){onError(error.message);}finally{active.current.delete(row.id);setPending(new Set(active.current));}
   }
-  const composer=(author:string)=>reply&&<form onSubmit={async event=>{event.preventDefault();if(replyBusy)return;setReplyBusy(true);try{await api('comment/reply',reply);replyEditor.session.discard();setReply(null);refreshAfter('回复已发布');}catch(error:any){onError(error.message);}finally{setReplyBusy(false);}}}><label>回复 {author}<textarea required disabled={replyBusy} maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><div className="inline"><button disabled={replyBusy}>发布回复</button><button type="button" disabled={replyBusy} onClick={()=>{replyEditor.session.discard();setReply(null);}}>取消</button></div></form>;
-  return <div className="panel comments-panel">
+  const composer=(author:string)=>reply&&<form className="comment-reply" onSubmit={async event=>{event.preventDefault();if(replyBusy)return;setReplyBusy(true);try{await api('comment/reply',reply);replyEditor.session.discard();setReply(null);refreshAfter('回复已发布');}catch(error:any){onError(error.message);}finally{setReplyBusy(false);}}}><label>回复 {author}<textarea required disabled={replyBusy} maxLength={4000} value={reply.body} onChange={event=>setReply({...reply,body:event.target.value,clientId:crypto.randomUUID()})}/></label><div className="inline"><button className="primary" disabled={replyBusy}>{replyBusy?'正在发布…':'发布回复'}</button><button type="button" disabled={replyBusy} onClick={()=>{replyEditor.session.discard();setReply(null);}}>取消</button></div></form>;
+  return <section className="panel comments-panel" aria-label="评论管理">
     <div className="panel-title"><h1>评论{data ? ` · ${data.total}` : ''}</h1>
-      <div className="comment-toolbar">
-      <button disabled={query.pending} onClick={() => refresh().catch(() => {})}>刷新评论</button>
+      <CommentSettings {...props} />
+    </div>
+    <div className="comments-tools">
+      <div className="comment-search"><Search size={18} aria-hidden="true"/><input type="search" aria-label="搜索评论" placeholder="搜索评论、评论者或文章" value={searchInput} onChange={event=>{setSearchInput(event.target.value);setPage(1);}}/></div>
       <select aria-label="评论状态" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
         <option value="all">全部</option><option value="visible">已显示</option><option value="hidden">已隐藏</option><option value="pending">待审核</option>
       </select>
-      <CommentSettings {...props} />
-      </div>
+      <button disabled={query.pending} onClick={() => refresh().catch(() => {})}><RefreshCw size={17} aria-hidden="true"/>刷新评论</button>
     </div>
-    <div className="comment-filters">{([['q','搜索评论'],['author','评论者称呼'],['path','文章网址'],['start','开始日期（UTC）'],['end','结束日期（UTC）']] as const).map(([key,label])=><label key={key}>{label}<input type={key==='start'||key==='end'?'date':'search'} value={filters[key]} onChange={event=>{setFilters(previous=>({...previous,[key]:event.target.value}));setPage(1);}}/></label>)}</div>
-    {data&&data.items.length>0&&<div className="comment-bulk"><label><input type="checkbox" aria-label="全选本页评论" disabled={bulkBusy||query.pending} checked={data.items.every(row=>selected.includes(row.id))} onChange={event=>setSelected(event.target.checked?data.items.map(row=>row.id):[])}/>全选本页</label>{selected.length>0&&<><span>已选 {selected.length} 条</span><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('visible')}>通过所选评论</button><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('hidden')}>隐藏所选评论</button></>}</div>}
-    {reply&&!data?.items.some(row=>row.id===reply.parentId)&&composer('评论')}
+    {reply&&!data?.items.some(row=>row.id===reply.parentId)&&<div className="comment-recovered-reply">{composer('评论')}</div>}
+    <div className="comment-list" aria-busy={query.pending}>
+    {selectable&&data&&data.items.length>0&&<div className="comment-bulk"><label className="checkbox"><input type="checkbox" aria-label="全选本页评论" disabled={bulkBusy||query.pending} checked={data.items.every(row=>selected.includes(row.id))} ref={input=>{if(input)input.indeterminate=selected.length>0&&!data.items.every(row=>selected.includes(row.id));}} onChange={event=>setSelected(event.target.checked?data.items.map(row=>row.id):[])}/>全选本页</label>{selected.length>0&&<><span>已选 {selected.length} 条</span><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('visible')}>通过所选评论</button><button disabled={bulkBusy||query.pending} onClick={()=>void moderateSelected('hidden')}>隐藏所选评论</button></>}</div>}
     {data ? <>
-      {!data.items.length && <p className="muted">暂无评论</p>}
-      {data.items.map((original) => {const row={...original,status:savedStatuses[original.id]??original.status};return <article className="admin-comment form-card" key={row.id}>
-        <label><input type="checkbox" aria-label={'选择 '+row.author+' 的评论'} disabled={bulkBusy||query.pending} checked={selected.includes(row.id)} onChange={event=>setSelected(ids=>event.target.checked?[...ids,row.id]:ids.filter(id=>id!==row.id))}/>选择</label>
-        <header><strong>{row.author}</strong>{row.isOwner&&<span className="comment-owner">站主</span>}<time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN')}</time><span>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
-        {row.path ? <a href={row.path + '#comments'} target="_blank" rel="noreferrer">{row.title}</a> : <span>{row.title}</span>}
-        <p>{row.body}</p>
-        {row.replyTo&&<p>回复 {row.replyTo}</p>}
+      {!data.items.length && <p className="comment-empty muted">暂无评论</p>}
+      {data.items.map((original) => {const row={...original,status:savedStatuses[original.id]??original.status};return <article className={'admin-comment'+(selectable?'':' without-selection')} key={row.id}>
+        {selectable&&<input className="comment-selection" type="checkbox" aria-label={'选择 '+row.author+' 的评论'} disabled={bulkBusy||query.pending} checked={selected.includes(row.id)} onChange={event=>setSelected(ids=>event.target.checked?[...ids,row.id]:ids.filter(id=>id!==row.id))}/>}
+        <div className="comment-content">
+          <header><strong>{row.author}</strong>{row.isOwner&&<span className="comment-owner">站主</span>}<time dateTime={row.createdAt}>{new Date(row.createdAt).toLocaleString('zh-CN',{dateStyle:'medium',timeStyle:'short',timeZone:props.settings.value.timezone||'Asia/Shanghai'})}</time><span className={'comment-state '+(row.status??'visible')}>{row.status === 'pending' ? '待审核' : row.status === 'visible' ? '已显示' : '已隐藏'}</span></header>
+          {row.path ? <a className="comment-entry" href={row.path + '#comments'} target="_blank" rel="noreferrer" title={row.title}>{row.title}</a> : <span className="comment-entry">{row.title}</span>}
+          {row.replyTo&&<p className="comment-reply-to">回复 {row.replyTo}</p>}
+          <p className="comment-body">{row.body}</p>
+          {reply?.parentId===row.id&&composer(row.author)}
+        </div>
+        <div className="comment-actions">
         <button disabled={pending.has(row.id)} onClick={() => moderate(row)}>{row.status === 'pending' ? '通过审核' : row.status === 'visible' ? '隐藏评论' : '恢复显示'}</button>
         {row.status==='visible'&&<button disabled={pending.has(row.id)} onClick={async()=>{try{if(reply?.parentId===row.id)return;await editors.flush();replyEditor.session.adopt({id:row.id,revision:null,value:{parentId:row.id,body:'',clientId:crypto.randomUUID()}});}catch(error:any){onError(error.message);}}}>回复</button>}
-        {reply?.parentId===row.id&&composer(row.author)}
+        </div>
       </article>;})}
-      <nav className="comment-pagination" aria-label="评论分页">
-        <button disabled={page === 1} onClick={() => setPage(page - 1)}>上一页</button><span>第 {page} 页</span><button disabled={!data.hasMore} onClick={() => setPage(page + 1)}>下一页</button>
-      </nav>
     </> : loadError ? <div className="panel-state" role="alert"><p>评论未能载入。</p><button onClick={() => refresh().catch(error => onError(error.message))}>重新读取评论</button></div> : <LoadingState label="读取评论" />}
-  </div>;
+    </div>
+    {data&&(page>1||data.hasMore)&&<nav className="comment-pagination" aria-label="评论分页">
+      <button disabled={page === 1} onClick={() => setPage(page - 1)}>上一页</button><span>第 {page} 页</span><button disabled={!data.hasMore} onClick={() => setPage(page + 1)}>下一页</button>
+    </nav>}
+  </section>;
 }

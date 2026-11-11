@@ -1,6 +1,6 @@
 ---
 import SiteLocale from '../components/SiteLocale.astro';
-import {textFor} from '@weava/contracts';
+import {systemRoutes, textFor} from '@weava/contracts';
 import {selectPublicPage} from '../../../../packages/core/src/public-page-selection.ts';
 import {publicDocumentResponse} from '../public-documents.ts';
 import {customPageResponse} from '../custom-page.ts';
@@ -39,7 +39,16 @@ if (preview || privateArticle) {
   Astro.response.headers.set('Cache-Control', 'private, no-store');
   Astro.response.headers.set('X-Robots-Tag', 'noindex, nofollow');
 }
-const documentResponse=publicDocumentResponse(release,Astro.url);
+const sitemapMetadata = new Map();
+if (Astro.url.pathname === systemRoutes.sitemap || Astro.url.pathname === systemRoutes.videoSitemap) {
+  const manager = await siteExtension;
+  const entries = release.entries.filter(item => item.indexable && item.visibility !== 'private' &&
+    (Astro.url.pathname === systemRoutes.sitemap || item.html?.includes('<video')));
+  for (let offset = 0; offset < entries.length; offset += 4) await Promise.all(entries.slice(offset, offset + 4).map(async item => {
+    sitemapMetadata.set(item.id, await manager.metadata(item, release, new URL(item.path, release.settings.domain), { html: item.html }));
+  }));
+}
+const documentResponse=publicDocumentResponse(release,Astro.url,sitemapMetadata);
 if(documentResponse)return documentResponse;
 const customResponse=await customPageResponse(Astro.request,Astro.url,release,entry,preview);
 if(customResponse)return customResponse;

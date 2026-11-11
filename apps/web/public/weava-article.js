@@ -64,46 +64,8 @@
     }
     notify(t('链接已复制')); track('article:copy');
   };
-  const moreButtons = [...document.querySelectorAll('[data-article-action="more"]')];
-  const menuFor = button => document.getElementById(button.getAttribute('aria-controls'));
-  const closeMenu = (button, restoreFocus = false) => {
-    menuFor(button).hidden = true;
-    button.setAttribute('aria-expanded', 'false');
-    if (restoreFocus) button.focus();
-  };
-  const openMenu = (button, last = false) => {
-    moreButtons.forEach(other => { if (other !== button) closeMenu(other); });
-    const menu = menuFor(button);
-    menu.hidden = false;
-    button.setAttribute('aria-expanded', 'true');
-    const items = [...menu.querySelectorAll('[role="menuitem"]')];
-    (last ? items.at(-1) : items[0])?.focus();
-  };
-  moreButtons.forEach(button => {
-    const wrap = button.closest('.nl-more-wrap');
-    wrap.addEventListener('focusout', event => {
-      if (!wrap.contains(event.relatedTarget)) closeMenu(button);
-    });
-    wrap.addEventListener('keydown', event => {
-      const menu = menuFor(button);
-      if (event.key === 'Escape' && !menu.hidden) {
-        event.preventDefault(); event.stopPropagation(); closeMenu(button, true);
-      } else if (event.key === 'Tab' && !menu.hidden) {
-        closeMenu(button, true);
-      } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-        event.preventDefault();
-        if (menu.hidden || event.target === button) { openMenu(button, event.key === 'ArrowUp' || event.key === 'End'); return; }
-        const items = [...menu.querySelectorAll('[role="menuitem"]')];
-        const index = items.indexOf(document.activeElement);
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-        items[next]?.focus();
-      }
-    });
-  });
   document.querySelectorAll('[data-article-action]').forEach((button) => button.addEventListener('click', async () => {
     const action = button.dataset.articleAction;
-    const parentMenu = button.closest('.nl-more-menu');
-    if (parentMenu) closeMenu(moreButtons.find(trigger => menuFor(trigger) === parentMenu), true);
     try {
       if (action === 'copy') await copyLink();
       if (action === 'share') {
@@ -112,13 +74,8 @@
           catch (error) { if (error.name !== 'AbortError') await copyLink(); }
         } else await copyLink();
       }
-      if (action === 'print') window.print();
-      if (action === 'more') { if (menuFor(button).hidden) openMenu(button); else closeMenu(button, true); }
     } catch (error) { notify(error.message); }
   }));
-  document.addEventListener('click', (event) => {
-    if (!event.target.closest('.nl-more-wrap')) moreButtons.forEach(button => closeMenu(button));
-  });
   const entryId = document.body.dataset.articleId;
   if (!entryId) return;
   const form = document.querySelector('[data-comment-form]');

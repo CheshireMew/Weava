@@ -49,3 +49,23 @@ it('ARC-R17 recovers reply text after reload even when its comment is no longer 
  await act(async()=>button('恢复本地修改').click());expect(host.querySelector('textarea')?.value).toBe('Recover after reload');
  const event=new Event('beforeunload',{cancelable:true});await act(async()=>window.dispatchEvent(event));expect(event.defaultPrevented).toBe(true);
 });
+it('searches from one field and keeps a small comment list free of extra filters and checkboxes',async()=>{
+ vi.useFakeTimers();await mount();
+ expect(host.querySelector('[aria-label="筛选评论"],input[type="date"],input[type="checkbox"][aria-label^="选择"],.comment-bulk')).toBeNull();
+ await act(async()=>{const status=host.querySelector<HTMLSelectElement>('[aria-label="评论状态"]')!;status.value='pending';status.dispatchEvent(new Event('change',{bubbles:true}));});
+ await act(async()=>{const input=host.querySelector<HTMLInputElement>('[aria-label="搜索评论"]')!;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'访客');input.dispatchEvent(new Event('input',{bubbles:true}));});
+ await act(async()=>vi.advanceTimersByTimeAsync(300));
+ const query=new URLSearchParams(String(vi.mocked(api).mock.calls.filter(([path])=>path.startsWith('comments?')).at(-1)![0]).split('?')[1]);
+ expect(query.get('q')).toBe('访客');expect(query.get('status')).toBe('pending');expect(query.has('author')).toBe(false);expect(query.has('start')).toBe(false);
+});
+it('selects comments beside their content and applies moderation only to the chosen rows',async()=>{
+ vi.mocked(api).mockResolvedValue({items,total:6,hasMore:false} as any);await mount();
+ const select=host.querySelector<HTMLInputElement>('[aria-label="选择 one 的评论"]')!;
+ await act(async()=>select.click());
+ expect(select.closest('article')?.textContent).toContain('one');
+ expect(host.querySelector<HTMLInputElement>('[aria-label="全选本页评论"]')?.indeterminate).toBe(true);
+ expect(host.textContent).toContain('已选 1 条');
+ await act(async()=>button('隐藏所选评论').click());
+ expect(api).toHaveBeenCalledWith('comments/moderate',{items:[{id:'one',expectedStatus:'visible'}],status:'hidden'});
+ expect(host.textContent).not.toContain('已选 1 条');expect(select.checked).toBe(false);
+});

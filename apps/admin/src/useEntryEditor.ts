@@ -6,7 +6,6 @@ import type { ContentState } from './content-models.ts';
 import { drafts } from './draft-repository.ts';
 import { useEditSessions, useManagedRecord } from './EditSessions.tsx';
 import { matchesDraft, saveLocalDraft, type LocalDraft } from './local-drafts.ts';
-import { rememberAuthor } from './author-preference.ts';
 
 function hasDraftContent(row: Revision<Entry>) {
   const value = row.value;
@@ -208,7 +207,6 @@ export function useEntryEditor({
   }
   function update(patch: Partial<Entry>) {
     setContentCheck(null);
-    if (patch.author !== undefined) rememberAuthor(patch.author);
     const old = session.record;
     if (!old) return;
     const next = { ...old, value: { ...old.value, ...patch } };

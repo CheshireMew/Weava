@@ -34,13 +34,14 @@ export function contentHandlers(
     entries: async () => {
       return site.entries();
     },
-    queryEntries: async ({}, context) => {
+    queryEntries: async ({query}, context) => {
       const { url } = context;
       return queryAdminEntries(site, analytics, engagement, {
         ...contentQuery(url.searchParams),
         status: url.searchParams.get('status') ?? undefined,
         visibility: url.searchParams.get('visibility') ?? undefined,
         format: url.searchParams.get('format') as 'article' | 'note' | undefined,
+        group: query?.group,
       });
     },
     createEntry: async ({ body: data }) => {
@@ -60,7 +61,8 @@ export function contentHandlers(
       return adminEntry(site, params.id);
     },
     saveEntry: async ({ body: data }) => {
-      return site.saveEntry(data.value, data.revision ?? null);
+      const row=site.saveEntry(data.value, data.revision ?? null);
+      return adminEntry(site,row.id);
     },
     checkEntry: async ({ body: data }) => {
       return checkEntry(site, data.value, { required: data.required !== false });

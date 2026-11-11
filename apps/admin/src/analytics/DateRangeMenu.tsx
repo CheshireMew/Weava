@@ -10,7 +10,7 @@ export function DateRangeMenu({ start, end, timezone, label, onChange, disabled 
   const [custom, setCustom] = useState(false), [first, setFirst] = useState(start), [last, setLast] = useState(end);
   const selected = rangeLabel(start, end, timezone);
   return <div className="analytics-date-menu" aria-busy={disabled}>
-    <Popover label={label + '日期范围'} trigger={<>{selected}<ChevronDown size={13} /></>} className="analytics-date-popover" align="start">
+    <Popover label={label + '日期范围'} disabled={disabled} trigger={<>{selected}<ChevronDown size={13} /></>} className="analytics-date-popover" align="start">
       {close => <>
         <div className="analytics-date-current"><strong>{selected}</strong><span>{start} — {end}</span><small>{timezone}</small></div>
         <div className="analytics-date-choices">{rangeChoices.map(([key, text]) => <button type="button" key={key} disabled={disabled} aria-pressed={selected === text} onClick={() => {

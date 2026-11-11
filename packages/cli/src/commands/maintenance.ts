@@ -150,6 +150,10 @@ export function registerMaintenanceCommands({
 
   const maintenance = program.command('maintenance');
 
+  maintenance.command('scan').description('扫描文件及历史引用，更新空间用量')
+    .option('--wait')
+    .action(async (opts) => output(await wait(await request('maintenance/scan',{}),!!opts.wait)));
+
   maintenance
     .command('preview')
     .requiredOption('--before <date>')

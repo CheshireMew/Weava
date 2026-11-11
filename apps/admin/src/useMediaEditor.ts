@@ -66,17 +66,34 @@ export function useMediaEditor(refresh: () => void, onError: (message: string) =
       managed.session.change({ ...row, value: { ...row.value, name, alt, caption, focalPoint } });
     }
   };
-  async function mutateSelection(rows: MediaRecord[], write: (items: {id:string;revision:number}[]) => Promise<MediaRecord[]>) {
+  async function performMutation(work: () => Promise<void>) {
     if (pending.current) throw new Error('媒体操作尚未完成，请稍候。');
-    const work = (async () => {
+    const operation = work();
+    pending.current = operation;
+    try { await operation; } finally { pending.current = null; }
+  }
+  function mutateSelection(rows: MediaRecord[], write: (items: {id:string;revision:number}[]) => Promise<MediaRecord[]>) {
+    return performMutation(async () => {
       await managed.session.mutate(async snapshot => {
         const changed = await write(rows.map(row => ({id:row.id,revision:row.id === snapshot?.id ? snapshot.revision : row.revision})));
         return changed.find(row => row.id === snapshot?.id) ?? snapshot;
       });
       refresh();
-    })();
-    pending.current = work;
-    try { await work; } finally { pending.current = null; }
+    });
+  }
+  async function remove(row: MediaRecord) {
+    let cleanupPending = false;
+    await performMutation(async () => {
+      await managed.session.mutate(async snapshot => {
+        const revision = snapshot?.id === row.id ? snapshot.revision : row.revision;
+        const result = await api('media/delete', {id: row.id, revision, confirmation: '永久删除'});
+        cleanupPending = result.cleanupPending;
+        return snapshot?.id === row.id ? null : snapshot;
+      });
+      if (managed.session.record?.id === row.id) managed.session.adopt(null);
+      refresh();
+    });
+    return {cleanupPending};
   }
   return {
     selected,
@@ -88,6 +105,7 @@ export function useMediaEditor(refresh: () => void, onError: (message: string) =
     receive,
     receiveUpload,
     mutateSelection,
+    remove,
     autoSave: managed.autoSave,
   };
 }

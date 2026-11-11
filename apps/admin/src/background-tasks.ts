@@ -61,6 +61,6 @@ export function awaitTask(id:string):Promise<any>{
 export const refreshBackgroundTasks=()=>poll();
 if(typeof window!=='undefined')window.addEventListener('weava-session-ended',()=>{
   if(timer)clearTimeout(timer);timer=undefined;
-  for(const task of tasks)if(taskPending(task)||task.job.status==='unknown')task.job={...task.job,status:'cancelled',message:'已退出登录，可在重新登录后的任务记录中查看结果。'};
+  for(const task of tasks)if(taskPending(task)||task.job.status==='unknown')task.job={...task.job,status:'cancelled',message:'已退出登录，服务器上的任务可能仍在处理。'};
   emit();tasks=[];emit();
 });

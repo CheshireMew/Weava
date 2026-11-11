@@ -7,7 +7,7 @@ import {mediaReferencesIn} from './media-references.ts';
 import {jsonLines} from './file-io.ts';
 
 /** Derived, rebuildable cache; unchanged history is never read into JS again. */
-export function maintenanceReferences(site:Site){
+export function maintenanceReferences(site:Site, ignoreVariantMetadata = false){
   const folder=join(site.root,'cache');mkdirSync(folder,{recursive:true});
   const db=new Database(join(folder,'maintenance.sqlite'));
   try{
@@ -34,6 +34,10 @@ export function maintenanceReferences(site:Site){
       db.transaction(()=>{source.run('archive',file,stamp);remove.run('archive',file);for(const row of jsonLines(file))for(const path of mediaReferencesIn(typeof row.data==='string'?row.data:JSON.stringify(row)))insert.run('archive',file,path);}).immediate();
     }
     for(const row of db.prepare("SELECT id FROM sources WHERE kind='archive'").all() as {id:string}[])if(!known.has(row.id))db.prepare("DELETE FROM sources WHERE kind='archive' AND id=?").run(row.id);
-    return new Set((db.prepare('SELECT DISTINCT path FROM refs').all() as {path:string}[]).map(row=>row.path));
+    const filter = ignoreVariantMetadata
+      ? `WHERE NOT (kind='records' AND id LIKE 'media-variant:%')
+          AND NOT (kind='revisions' AND id IN (SELECT CAST(revision AS TEXT) FROM content.revisions WHERE scope='media-variant'))`
+      : '';
+    return new Set((db.prepare('SELECT DISTINCT path FROM refs ' + filter).all() as {path:string}[]).map(row=>row.path));
   }finally{db.close();}
 }

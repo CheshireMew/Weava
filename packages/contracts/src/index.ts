@@ -18,10 +18,15 @@ export const seoSchema = z.object({
   documentTitle: z.string().max(600).optional(),
   canonical: z.string().optional(), image: z.string().optional(), imageAlt: z.string().optional(),
   schemaType: z.enum(schemaTypes).optional(), authorType: z.enum(['Person', 'Organization']).optional(), authorUrl: z.string().optional(),
+  authorBio: z.string().max(500).optional(),
 });
+export const seoTemplatesSchema = z.object({
+  title: z.string().max(600).optional(), description: z.string().max(2000).optional(),
+}).refine(value => Object.values(value).every(template => !template || !/\{([^{}]+)\}/g.test(template.replace(/\{(title|description|siteName|type|author|page)\}/g, ''))), 'SEO 模板仅支持 title、description、siteName、type、author、page 变量。');
 export const siteSeoSchema = z.object({
   publisherType: z.enum(['Person', 'Organization']).optional(), publisherName: z.string().optional(),
   publisherUrl: z.string().optional(), image: z.string().optional(), sameAs: z.array(z.string()).max(30).optional(),
+  templates: seoTemplatesSchema.optional(),
 });
 export const evidenceSchema = z.object({
   id: z.string().min(1), claim: z.string().default(''), title: z.string().default(''), url: z.string().default(''),
@@ -101,6 +106,7 @@ export const typeSchema = z.object({
   pathPrefix: z.string().default('/posts/'),
   template: z.string().default('article'),
   schemaType: z.enum(schemaTypes).optional(),
+  seoTemplates: seoTemplatesSchema.optional(),
   admin: z.object({
     fields: z.array(z.object({ key: z.string(), width: z.enum(['full', 'half']).default('full') })).optional(),
     columns: z.array(z.string()).optional(),
@@ -227,6 +233,7 @@ export interface Term {
   label: string;
   slug: string;
   parentId?: string;
+  archived?: boolean;
 }
 export { advertisementSlots, advertisementsSchema } from './advertisements.ts';
 export type { AdvertisementPosition, Advertisements } from './advertisements.ts';

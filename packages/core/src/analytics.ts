@@ -5,6 +5,7 @@ import { WeavaError } from '../../contracts/src/errors.ts';
 import { normalizePath } from './paths.ts';
 import { AnalyticsGeo } from './analytics-geo.ts';
 import { deviceInfo, referral, type AnalyticsContext } from './analytics-dimensions.ts';
+import { declaredCrawler, isAutomatedAgent } from './analytics-agents.ts';
 import { analyticsReport, realtimeReport, visitorReport } from './analytics-reports.ts';
 import { acquireInstanceWriter, type InstanceWriter } from './instance-access.ts';
 import { analyticsIndex } from './analytics-index.ts';
@@ -74,7 +75,7 @@ export class Analytics {
     } catch (error) { if (this.raw?.open) this.raw.close(); this.writer.release(); throw error; }
   }
   collect(value: any, agent: string, allowed: Set<string>, context: AnalyticsContext = {}) {
-    if (/bot|crawler|spider|headless|playwright|preview|slurp/i.test(agent)) return { accepted: 0 };
+    if (isAutomatedAgent(agent)) return { accepted: 0 };
     const batch = Array.isArray(value) ? value : [value];
     if (batch.length > 100) throw new WeavaError('事件数量过多。');
     this.ingress.reserve(context.ip??'unknown',batch.length);
@@ -176,16 +177,13 @@ export class Analytics {
   restoreArchive(id:string){return restoreAnalyticsArchive(this.raw,this.root,id);}
   discovery(params:URLSearchParams,timezone='Asia/Shanghai'){return discoveryReport(this.raw,params,timezone);}
   recordMissing(path:string,referrer:string,agent:string,network:string,timezone='Asia/Shanghai'){
-    if(/bot|crawler|spider|headless|playwright|preview|slurp/i.test(agent)||path.length>2000)return;
+    if(isAutomatedAgent(agent)||path.length>2000)return;
     this.ingress.reserve(network,1);let source='';try{const url=new URL(referrer);source=url.origin+url.pathname;}catch{}
     const time=new Date(),day=dayInZone(time,timezone);
     this.raw.prepare('INSERT INTO missing_requests VALUES(?,?,?,1,?) ON CONFLICT(day,path,referrer) DO UPDATE SET count=count+1,last_seen=excluded.last_seen').run(day,normalizePath(path),source,time.toISOString());
   }
   recordCrawler(path: string, agent: string, status: number, network='unknown') {
-    const known =
-      /GPTBot|OAI-SearchBot|ChatGPT-User|ClaudeBot|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|Googlebot|bingbot|Bytespider/i.exec(
-        agent,
-      )?.[0];
+    const known = declaredCrawler(agent);
     if (!known) return;
     // Dropping telemetry must never make the actual article unavailable.
     try { this.ingress.reserve(network,1); }
@@ -196,7 +194,7 @@ export class Analytics {
         crypto.randomUUID(),
         new Date().toISOString(),
         normalizePath(path),
-        known.toLowerCase(),
+        known,
         status,
       );
   }

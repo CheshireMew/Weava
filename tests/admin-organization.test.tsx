@@ -169,25 +169,17 @@ it('retains comment changes and requests a reload when another page changed that
   expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
 });
 
-it('shows task names and statuses in Chinese and keeps maintenance out of the backup section', async () => {
-  await render(<Operations state={{ releases: [], jobs: [{ id: 'job', operation: 'backup', status: 'failed', message: '空间不足' }] }} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()} />);
-  expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toContain('创建备份');
-  expect(mocks.api).not.toHaveBeenCalled();
-  await click('任务记录');
-  const current = host.querySelector('[role="tabpanel"]:not([hidden])')!;
-  expect(current.textContent).toContain('创建备份 · 失败');
-  expect(current.textContent).not.toContain('backup'); expect(current.textContent).not.toContain('failed');
-});
-it('reviews rollback differences and submits only after an explicit confirmation',async()=>{
-  const review={id:'older',baseReleaseId:'current',review:'review-token',createdAt:'2026-11-01T00:00:00Z',label:'之前的发布',settingsChanged:true,layoutsChanged:false,typesChanged:false,termsChanged:false,routesChanged:false,entries:[{id:'old-post',title:'恢复的文章',path:'/old/',action:'add'}],removed:[{id:'new-post',title:'将被撤下的文章',path:'/new/'}]};
-  mocks.api.mockImplementation(async path=>path==='rollback/preview'?review:{releaseId:'older'});
-  await render(<Operations state={{releases:[{id:'older',created_at:review.createdAt}],jobs:[]}} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()}/>);
-  await click('发布记录');await click('恢复这个公开版本');
-  expect(host.querySelector('dialog[open]')?.textContent).toContain('恢复的文章');expect(host.querySelector('dialog[open]')?.textContent).toContain('将被撤下的文章');
-  expect(mocks.api.mock.calls.some(([path])=>path==='rollback')).toBe(false);
-  await click('取消');expect(host.querySelector('dialog[open]')).toBeNull();
-  await click('恢复这个公开版本');await click('确认恢复');
-  expect(mocks.api).toHaveBeenCalledWith('rollback',{id:'older',baseReleaseId:'current',review:'review-token'});
+it('shows only backup and import/export in the centered settings tabs',async()=>{
+  await render(<Operations contentEnabled refresh={vi.fn()} onError={onError}/>);
+  const tabs=host.querySelector('.centered-section-tabs [role="tablist"]')!;
+  expect([...tabs.querySelectorAll('[role="tab"]')].map(tab=>tab.textContent)).toEqual(['备份','导入与导出']);
+  await click('导入与导出');
+  await act(async()=>{await vi.dynamicImportSettled();});
+  const panel=host.querySelector('[role="tabpanel"]:not([hidden])')!;
+  expect(panel.textContent).toContain('导入文件');
+  expect(panel.textContent).toContain('导出内容');
+  expect(panel.querySelector('button')?.textContent).toBe('导入文件');
+  expect(host.textContent).not.toContain('检查已发布文章');
 });
 
 it('presents imported search results as readable rows with pagination rather than raw JSON', async () => {
@@ -232,11 +224,9 @@ it('WVA-05 keeps the home link on the current private admin entrance', async () 
   } finally { history.replaceState(null, '', previous); }
 });
 
-it('WVA-06 hides content-only maintenance while retaining backups, tasks and storage inspection', async () => {
-  await render(<Operations state={{ features: ['media'], releases: [], jobs: [] }} task={vi.fn()} refresh={vi.fn()} onError={onError} openLogs={vi.fn()} />);
-  const labels = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
-  expect(labels).not.toContain('导入与导出'); expect(labels).not.toContain('发布记录');
-  expect(labels).toEqual(expect.arrayContaining(['备份', '任务记录', '维护']));
-  await click('维护');
-  expect(host.textContent).toContain('检查占用'); expect(host.textContent).not.toContain('历史归档');
+it('keeps backups available when the content feature is disabled',async()=>{
+  await render(<Operations contentEnabled={false} refresh={vi.fn()} onError={onError}/>);
+  expect(host.querySelector('h1')?.textContent).toBe('备份');
+  expect(host.querySelector('[role="tablist"]')).toBeNull();
+  expect(host.textContent).toContain('创建备份');
 });

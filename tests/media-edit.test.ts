@@ -6,6 +6,7 @@ import { imageDerivatives } from '../packages/core/src/media-images.ts';
 import { entrySchema } from '@weava/contracts';
 import * as documents from '../packages/core/src/documents.ts';
 import {mediaReferencesIn} from '../packages/core/src/media-references.ts';
+import {contentCover} from '../packages/core/src/entry-cover.ts';
 const sites: Site[] = [], base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/media-edit-' + Date.now();
 let sequence = 0;
 const create = () => { const site = new Site(base + '/' + sequence++); sites.push(site); return site; };
@@ -46,7 +47,9 @@ describe('media library editing', () => {
     expect(queryDrafts(site).items[0].value.cover).toBe('https://example.com/new.png');
     expect(entryCover({ ...value, blocks: [{ id: 'container', type: 'container', props: {}, children: [{ id: 'image', type: 'image', props: { src: 'https://example.com/block.png' } }] }] })).toBe('https://example.com/block.png');
     expect(entryCover({ ...value, document: { version: 1, format: 'lexical', source: { root: { type: 'root', children: [{ type: 'image', src: 'https://example.com/editor.png', kind: 'image' }] } } } })).toBe('https://example.com/editor.png');
-    expect(entryCover({ ...value, document: { version: 1, format: 'markdown', source: 'Only text' } })).toBe('');
+    const textOnly = { ...value, document: { version: 1, format: 'markdown', source: 'Only text' } } as const;
+    expect(contentCover(textOnly)).toBe('');
+    expect(entryCover(textOnly)).toMatch(/^\/default-covers\//);
   });
   it('preserves readable native sizes, avoids larger display copies and leaves animation intact', async () => {
     const site = create(), bytes = await image(), row = await uploadMedia(site, bytes, 'readable.png');
@@ -67,6 +70,7 @@ describe('media library editing', () => {
     const small = await uploadMedia(site, efficient, 'small.webp');
     expect(small.value.derivatives).toEqual([]);
     expect(imageAttributes(site, small.value.url).src).toBe(small.value.url);
+    expect(imageAttributes(site, small.value.url)).toMatchObject({width:24,height:16});
     // Build a real two-frame GIF so the uploaded media's metadata detects animation.
     const gif = await sharp({ create: { width: 20, height: 40, channels: 3, background: '#ff0000' } })
       .raw().toBuffer();

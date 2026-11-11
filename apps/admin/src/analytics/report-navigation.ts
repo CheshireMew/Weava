@@ -26,7 +26,7 @@ export function reportLocation(search: string) {
   const p = new URLSearchParams(search), key = p.get('report');
   const report = key && Object.hasOwn(reports, key) ? key as ReportName : null;
   const query = new URLSearchParams();
-  for (const key of ['start', 'end', 'path', ...filterKeys]) if (p.get(key)) query.set(key, p.get(key)!);
+  for (const key of ['start', 'end']) if (p.get(key)) query.set(key, p.get(key)!);
   const selected = p.get('section');
   const section = sections.some(([key]) => key === selected) ? selected as AnalyticsSection : reportSection(report);
   return { report, section, query: query.toString() };
@@ -35,6 +35,6 @@ export function reportUrl(report: ReportName | null, query = '', section = repor
   const p = new URLSearchParams({ panel: 'analytics' });
   if (section !== 'overview') p.set('section', section);
   if (report) p.set('report', report);
-  for (const [key, value] of new URLSearchParams(query)) p.set(key, value);
+  for (const [key, value] of new URLSearchParams(query)) if(key==='start'||key==='end')p.set(key, value);
   return window.location.pathname + '?' + p;
 }

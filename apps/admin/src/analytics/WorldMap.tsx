@@ -11,7 +11,7 @@ export function WorldMap({
   onSelect,
 }: {
   rows: AnalyticsDimension[];
-  onSelect: (name: string) => void;
+  onSelect?: (name: string) => void;
 }) {
   const known = rows.filter((r) => /^[A-Z]{2}$/.test(r.name)),
     counts = new Map(known.map((r) => [r.name, r.visitors])),
@@ -19,7 +19,7 @@ export function WorldMap({
   const [selected, setSelected] = useState('');
   const activate = (id: string) => {
     setSelected(id);
-    onSelect(id);
+    onSelect?.(id);
   };
   const fill = (id: string) =>
     counts.has(id)

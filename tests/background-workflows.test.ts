@@ -72,3 +72,34 @@ it('exposes a binary source upload, an immediate task response and a streamed do
   const download=await dispatch('exportFile',{},undefined,{...context,url:new URL('http://localhost/api/admin/v1/export/file')});
   expect(download.headers.get('X-Weava-Stream')).toBe('1');expect(await download.json()).toMatchObject({version:1,entries:[]});
 });
+
+it('uploads a Markdown file through the dispatcher and saves it as a draft only after a matching preview',async()=>{
+  const site=create('markdown-file');
+  const runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false});
+  runners.push(runner);
+  const dispatch=createAdminDispatcher({site,jobs:runner} as any);
+  const url='http://localhost/api/admin/v1/import/';
+  const request=new Request(url+'file?name='+encodeURIComponent('中文.markdown'),{
+    method:'POST',headers:{'Content-Type':'application/octet-stream'},
+    body:'---\nid: selected\ntitle: 导入的文章\nstatus: published\npath: /posts/selected/\n---\n# 正文\n\n这是一篇 Markdown 文章。',
+  });
+  const upload=await dispatch('stageImportSource',{},undefined,{request,url:new URL(request.url)} as any);
+  expect(upload.status).toBe(200);
+  const source=await upload.json();
+  expect(source.format).toBe('markdown');
+  const submit=async(options:object)=>{
+    const next=new Request(url+'source',{method:'POST'});
+    const response=await dispatch('runImportSource',{}, {sourceId:source.id,options},{request:next,url:new URL(next.url)} as any);
+    expect(response.status).toBe(202);
+    return runner.wait((await response.json()).id,15000);
+  };
+  const preview=await submit({dryRun:true});
+  expect(preview).toMatchObject({dryRun:true,created:expect.arrayContaining(['entry:selected']),entry:{title:'导入的文章',path:'/posts/selected/'}});
+  expect(site.store.get('entry','selected')).toBeNull();
+  await expect(submit({mode:'merge',markdownReview:preview.markdownReview})).rejects.toThrow(/重新预检/);
+  expect(site.store.get('entry','selected')).toBeNull();
+  const result=await submit({markdownReview:preview.markdownReview});
+  expect(result).toMatchObject({format:'markdown',dryRun:false,sourceId:source.id});
+  expect(site.store.get('entry','selected')?.value).toMatchObject({title:'导入的文章',status:'draft',document:{format:'markdown',source:'# 正文\n\n这是一篇 Markdown 文章。'}});
+  expect(site.release()).toBeNull();
+},35000);

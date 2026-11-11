@@ -7,6 +7,7 @@ import { useDebouncedValue } from './useDebouncedValue.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { LoadingState } from './LoadingState.tsx';
 import { useMediaOptimizationRefresh } from './useMediaLibrary.ts';
+import type { ApiOutput } from '@weava/contracts/api';
 
 export interface SelectedMedia {
   id: string;
@@ -23,15 +24,18 @@ export interface SelectedContent {
 }
 
 type ReferenceOptions = Pick<FieldDefinition, 'referenceTypes' | 'referenceFilters'>;
+type LinkContext = { id: string; context: string };
 type Picker = {
   type: 'media' | 'content';
   kind?: string;
   reference?: ReferenceOptions;
+  link?: LinkContext;
   resolve: (value: any) => void;
 };
 const Context = createContext<{
   media: (kind?: string, groupId?: string) => Promise<SelectedMedia | null>;
   content: (options?: ReferenceOptions) => Promise<SelectedContent | null>;
+  contentLink: (link: LinkContext) => Promise<SelectedContent | null>;
 } | null>(null);
 export function useSelectors() {
   const value = useContext(Context);
@@ -66,10 +70,11 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
     kind?: string,
     reference?: ReferenceOptions,
     initialGroup?: string,
+    link?: LinkContext,
   ) =>
     new Promise<any>((resolve) => {
       pending.current?.resolve(null);
-      const next = { type, kind, reference, resolve };
+      const next = { type, kind, reference, link, resolve };
       pending.current = next;
       setPicker(next);
       setAddressOpen(false);
@@ -99,6 +104,9 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
         : {}),
     });
   const query = useAdminQuery<any>(picker ? `${picker.type === 'media' ? 'media/query?' : picker.reference ? 'references/query?' : 'entries/query?'}${params()}` : null);
+  const suggestions = useAdminQuery<ApiOutput<'internalLinkSuggestions'>>(picker?.link && !q && page === 1 ? 'seo/internal-links?' + new URLSearchParams(picker.link) : null);
+  const suggested = suggestions.data ?? [];
+  const suggestedIds = new Set(suggested.map(item => item.id));
   const result = query.data ?? { items: [], total: 0, pages: 0 }, loading = query.loading;
   useMediaOptimizationRefresh(result.items, query.refresh);
   useEffect(() => { setError(query.error || groupQuery.error); }, [query.error, groupQuery.error]);
@@ -107,12 +115,13 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
     && item.name.toLowerCase().includes(searchTerm.toLowerCase())
     && (item.status !== 'complete' || page === 1 && !result.items.some((row: any) => row.id === item.row?.id)));
   const uploadFiles = (files: File[]) => startMediaUploads(files, group && group !== '__ungrouped__' ? group : undefined);
-  const title = picker?.type === 'media' ? '选择媒体' : '选择内容';
+  const title = picker?.type === 'media' ? '选择媒体' : picker?.link ? '选择要链接的内容' : '选择内容';
   return (
     <Context.Provider
       value={{
         media: (kind, groupId) => open('media', kind, undefined, groupId),
         content: (options) => open('content', undefined, options),
+        contentLink: (link) => open('content', undefined, undefined, undefined, link),
       }}
     >
       {children}
@@ -212,13 +221,19 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
               {error}
             </p>
           )}
+          {!!suggested.length && <section className="seo-link-suggestions" aria-label="相关内容">
+            <h3>相关内容</h3>
+            {suggested.map(item => <button className="selector-item" type="button" key={item.id} onClick={() => finish(item)}>
+              <strong>{item.title}</strong>{item.description && <small>{item.description}</small>}
+            </button>)}
+          </section>}
           {picker.type === 'media' && <MediaUploadList items={uploadItems} select={row => finish({ ...row.value, id: row.id, kind: kindOf(row.value.url) })} />}
           {loading && <LoadingState label="读取可选内容" />}
           <div
             className={picker.type === 'media' ? 'selector-media' : 'selector-content'}
             aria-busy={loading}
           >
-            {result.items.map((row: any) => (
+            {result.items.filter((row: any) => row.id !== picker.link?.id && !suggestedIds.has(row.id)).map((row: any) => (
               <button
                 key={row.id}
                 className="selector-item"

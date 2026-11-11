@@ -162,9 +162,18 @@ describe('complete analytics', () => {
           new Set(['/one/']),
         ).accepted,
       ).toBe(0);
-      expect(
-        a.collect({ ...view, id: crypto.randomUUID() }, 'Googlebot', new Set(['/one/'])).accepted,
-      ).toBe(0);
+      for (const agent of ['Googlebot', 'ChatGPT-User/1.0', 'Claude-User/1.0', 'Perplexity-User/1.0', 'facebookexternalhit/1.1', 'python-requests/2.32']) {
+        expect(a.collect({ ...view, id: crypto.randomUUID() }, agent, new Set(['/one/'])).accepted).toBe(0);
+        a.recordMissing('/missing/', '', agent, '8.8.8.8');
+      }
+      expect(a.raw.prepare('SELECT COUNT(*) n FROM missing_requests').get()).toEqual({ n: 0 });
+      a.recordCrawler('/one/', 'Mozilla/5.0 (compatible; ChatGPT-User/1.0)', 200);
+      a.recordCrawler('/two/', 'Mozilla/5.0 (compatible; Googlebot-Image/1.0)', 304);
+      expect(a.report(new URLSearchParams()).crawlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ agent: 'chatgpt-user', path: '/one/', identity: 'declared-user-agent' }),
+        expect.objectContaining({ agent: 'googlebot', path: '/two/', status: 304 }),
+      ]));
+      expect(a.report(new URLSearchParams()).views).toBe(1);
     } finally {
       a.close();
     }

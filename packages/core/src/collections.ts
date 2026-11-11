@@ -41,7 +41,7 @@ export function collectionArchiveEntry(release: Release, url: URL) {
   const match = url.pathname.match(/^(.*\/)page\/([1-9]\d*)\/$/);
   if (!match) return;
   const base = release.entries.find(e => e.kind === 'page' && e.path === match[1]);
-  const block = base?.blocks.find(b => b.type === 'collection' && b.props.pagination !== false);
+  const block = release.settings.theme === 'library' ? base?.blocks.find(b => b.type === 'collection' && b.props.presentation === 'catalog' && b.props.pagination !== false) : undefined;
   if (!base || !block || Number(match[2]) > collectionPage(release, block, url).pages) return;
   return { ...base, path: url.pathname };
 }

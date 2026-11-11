@@ -17,6 +17,7 @@ import { cancelUpload } from '../../../../packages/core/src/temporary-files.ts';
 import type { AdminHandlers, ApiServices } from './types.ts';
 import {previewMediaReplacement,applyMediaReplacement} from '../../../../packages/core/src/media-replacement.ts';
 import {uploadLimits} from '../../../../packages/core/src/media-upload-policy.ts';
+import {deleteMedia} from '../../../../packages/core/src/media-deletion.ts';
 export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
   const { site, jobs } = services;
   const execute = (operation: string, payload: any, key?: string) =>
@@ -65,6 +66,8 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     archiveMedia: async ({ body: data }) => {
       return archiveMedia(site, data.items, !!data.archived);
     },
+    previewMediaDeletion: async ({query}) => jobs.query('media-delete-preview', {id: query.id}),
+    deleteMedia: async ({body}) => deleteMedia(site, body.id, body.revision),
     cropMedia: async ({ body: data }, context) => {
       const { request } = context;
       return await execute('media-edit', data, request.headers.get('Idempotency-Key') ?? undefined);
@@ -113,6 +116,8 @@ export function mediaHandlers(services: Pick<ApiServices, 'site' | 'jobs'>) {
     | 'previewMediaReplacement'
     | 'applyMediaReplacement'
     | 'archiveMedia'
+    | 'previewMediaDeletion'
+    | 'deleteMedia'
     | 'cropMedia'
     | 'groups'
     | 'saveGroup'

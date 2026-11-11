@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { rollbackReview } from '../../../contracts/src/api-models.ts';
 import type { CliContext } from '../context.ts';
 
 export function registerPublicationCommands({
@@ -135,8 +136,24 @@ export function registerPublicationCommands({
 
   program
     .command('rollback')
-    .requiredOption('--id <id>')
-    .action(async (opts) => output(await request('rollback', { id: opts.id })));
+    .description('查看或恢复历史公开版本')
+    .option('--id <id>', '查看恢复此版本会产生的变更')
+    .option('--output <file>', '保存恢复预览 JSON')
+    .option('--input <file>', '按原样提交恢复预览 JSON')
+    .action(async (opts) => {
+      if (opts.input) {
+        if (opts.id || opts.output) throw new Error('--input 不能与 --id 或 --output 同时使用。');
+        const checked=rollbackReview.safeParse(JSON.parse(readFileSync(resolve(opts.input),'utf8').replace(/^\ufeff/,'')));
+        if(!checked.success)throw new Error('需要 rollback --id 返回的完整恢复预览。');
+        const {id,baseReleaseId,review}=checked.data;
+        output(await request('rollback',{id,baseReleaseId,review}));
+        return;
+      }
+      if (!opts.id) throw new Error('使用 --id 查看恢复预览，或使用 --input 提交预览结果。');
+      const checked=await request('rollback/preview',{id:opts.id});
+      if(opts.output)writeFileSync(resolve(opts.output),JSON.stringify(checked,null,2));
+      output(checked);
+    });
 
   const schedule = program.command('schedule');
 

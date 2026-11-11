@@ -10,6 +10,7 @@ import {
   MessageSquare,
   UserRound,
   NotebookPen,
+  Trash2,
 } from 'lucide-react';
 import {isNoteType} from '@weava/contracts';
 import type {ContentState} from './content-models.ts';
@@ -17,11 +18,12 @@ import type {ContentState} from './content-models.ts';
 export const tabs = [
   ['content', '文章', FileText],
   ['notes', '笔记', NotebookPen],
+  ['trash', '回收站', Trash2],
   ['media', '媒体', Images],
   ['comments', '评论', MessageSquare],
   ['appearance', '网站设置', Palette],
   ['analytics', '访问统计', ChartNoAxesCombined],
-  ['operations', '备份与维护', Settings2],
+  ['operations', '备份与迁移', Settings2],
   ['account', '账户', UserRound],
 ] as const;
 export function adminTabLabel(key: string, types: ContentState['types'] = []) {
@@ -46,7 +48,7 @@ export function AdminNavigation({
   preload?: (tab: string) => void;
   logout: () => Promise<void>;
 }) {
-  const capability:Record<string,string>={content:'content',notes:'content',media:'media',comments:'engagement',analytics:'analytics'};
+  const capability:Record<string,string>={content:'content',notes:'content',trash:'content',media:'media',comments:'engagement',analytics:'analytics'};
   const group = (keys: string[]) => keys.filter(key=>(key!=='notes'||state?.types?.some((row:any)=>isNoteType(row.value)))&&(!state?.features||!capability[key]||state.features.includes(capability[key]))).map(key => tabs.find(tab => tab[0] === key)!);
   const links = (items: (typeof tabs)[number][]) => items.map(([key, label, Icon]) => (
     <button aria-current={tab === key ? 'page' : undefined} className={tab === key ? 'active' : ''}
@@ -66,7 +68,7 @@ export function AdminNavigation({
         <a href="/" target="_blank" rel="noreferrer" className="view-site" aria-label="查看网站" title="查看网站"><ArrowUpRight size={17} aria-hidden="true" /></a>
       </div>
       <nav aria-label="网站管理">
-        <div className="nav-group">{links(group(['content', 'notes', 'media', 'comments', 'analytics']))}</div>
+        <div className="nav-group">{links(group(['content', 'notes', 'media', 'comments', 'analytics', 'trash']))}</div>
         <div className="nav-group">{links(group(['appearance', 'operations']))}</div>
         <div className="nav-group nav-account-row">
           {links(group(['account']))}

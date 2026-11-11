@@ -9,6 +9,8 @@ import {
   searchDataReport,
 } from '@weava/core';
 import type { AdminHandlers, ApiServices } from './types.ts';
+import { seoInsights } from '../../../../packages/core/src/seo-insights.ts';
+import { previewSeo, internalLinkSuggestions } from '../../../../packages/core/src/seo-editor.ts';
 export function searchHandlers(services: Pick<ApiServices, 'site' | 'siteExtension' | 'jobs'>) {
   const { site, siteExtension, jobs } = services;
 
@@ -50,11 +52,14 @@ export function searchHandlers(services: Pick<ApiServices, 'site' | 'siteExtensi
     searchData: async () => {
       return searchDataReport(site);
     },
+    seoInsights: async ({ query }) => seoInsights(site, query),
+    seoPreview: async ({ body }) => previewSeo(site, await siteExtension, body),
+    internalLinkSuggestions: async ({ query }) => internalLinkSuggestions(site, query.id, query.context),
     importSearchData: async ({ body: data }) => {
       return importSearchData(site, data);
     },
   } satisfies Pick<
     AdminHandlers,
-    'schema' | 'seoAudit' | 'seoAudits' | 'seoMetadata' | 'searchData' | 'importSearchData'
+    'schema' | 'seoAudit' | 'seoAudits' | 'seoMetadata' | 'seoInsights' | 'seoPreview' | 'internalLinkSuggestions' | 'searchData' | 'importSearchData'
   >;
 }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ContentPage, ContentWorkspaceData, EntryRecord } from './content-models.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { useDebouncedValue } from './useDebouncedValue.ts';
+import { isNoteType } from '@weava/contracts';
 interface LibraryView {
   filter: string;
   status: string;
@@ -18,7 +19,7 @@ export function useContentLibrary(
   setError: (message: string) => void,
 ) {
   const format = tab === 'notes' ? 'note' : 'article';
-  const [views, setViews] = useState({ article: initialView(), note: initialView() });
+  const [views, setViews] = useState({ article: {...initialView(),status:'published'}, note: initialView() });
   const { filter, status, visibility, page: libraryPage, type: libraryType, sort: librarySort, fields: fieldFilters } = views[format];
   const change = useCallback(<K extends keyof LibraryView>(key: K, next: React.SetStateAction<LibraryView[K]>) => {
     setViews(previous => {
@@ -35,22 +36,25 @@ export function useContentLibrary(
   const setLibrarySort = (value: React.SetStateAction<string>) => change('sort', value);
   const setFieldFilters = (value: React.SetStateAction<Record<string, string>>) => change('fields', value);
   const searchTerm = useDebouncedValue(filter, 180, format);
+  const articleTypes=state?.types.filter(row=>!isNoteType(row.value))??[];
+  const selectedType=libraryType||(articleTypes.length===1?articleTypes[0].id:'');
   const [bulkIds, setBulkIds] = useState<string[]>([]),
     [bulkOpen, setBulkOpen] = useState(false);
   const params = new URLSearchParams({
     kind: 'content',
     format: tab === 'notes' ? 'note' : 'article',
     q: searchTerm,
-    status: tab === 'notes' ? 'all' : status,
+    status: 'all',
+    ...(tab === 'notes' ? {} : {group: status}),
     visibility: tab === 'notes' ? 'all' : visibility,
-    type: tab === 'notes' ? '' : libraryType,
+    type: tab === 'notes' ? '' : selectedType,
     page: String(libraryPage),
     pageSize: '25',
     sort:
       tab === 'notes'
         ? '-updatedAt'
         : librarySort ||
-          state?.types.find((row) => row.id === libraryType)?.value.admin?.sort ||
+          state?.types.find((row) => row.id === selectedType)?.value.admin?.sort ||
           '-updatedAt',
     ...Object.fromEntries(
       Object.entries(fieldFilters)

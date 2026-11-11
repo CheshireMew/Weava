@@ -12,8 +12,9 @@ import { registerMigrationCommands } from '../packages/cli/src/commands/migratio
 function fixture() {
   const program = new Command().name('weava'),
     request = vi.fn(async () => ({ ok: true })),
-    output = vi.fn();
-  const context = { ...createCliContext(program, process.cwd(), null), request, output };
+    output = vi.fn(),
+    wait = vi.fn(async (job:unknown, _enabled:boolean) => job);
+  const context = { ...createCliContext(program, process.cwd(), null), request, output, wait };
   for (const register of [
     registerContentCommands,
     registerRuntimeCommands,
@@ -24,7 +25,7 @@ function fixture() {
     registerMigrationCommands,
   ])
     register(context);
-  return { program, request, output };
+  return { program, request, output, wait };
 }
 it('retains the public command groups and backup, owner and migration operations after registration is split', () => {
   const { program } = fixture();
@@ -34,6 +35,8 @@ it('retains the public command groups and backup, owner and migration operations
       'media-upload',
       'media-upload-cancel',
       'content',
+      'comments',
+      'events',
       'page',
       'settings',
       'media',
@@ -52,6 +55,7 @@ it('retains the public command groups and backup, owner and migration operations
       'backup',
       'upgrade',
       'maintenance',
+      'markdown',
       'redirect',
       'publication-plan',
       'publish',
@@ -70,7 +74,7 @@ it('retains the public command groups and backup, owner and migration operations
     group('backup')
       .commands.map((command) => command.name())
       .sort(),
-  ).toEqual(['create', 'verify', 'restore', 'recover'].sort());
+  ).toEqual(['create', 'verify', 'restore', 'recover', 'list', 'policy'].sort());
   expect(group('owner').commands.map((command) => command.name())).toEqual(
     expect.arrayContaining([
       'recover',
@@ -101,4 +105,15 @@ it('keeps content identifiers encoded and schedule revisions numeric at the comm
     revision: 7,
     dueAt: '2030-01-01T10:00:00+08:00',
   });
+});
+
+it('previews rollback without writing and submits storage scans through the task API', async () => {
+  const rollback = fixture();
+  await rollback.program.parseAsync(['rollback','--id','old-release'],{from:'user'});
+  expect(rollback.request.mock.calls).toEqual([['rollback/preview',{id:'old-release'}]]);
+  expect(rollback.output).toHaveBeenCalledWith({ok:true});
+  const scan = fixture();
+  await scan.program.parseAsync(['maintenance','scan','--wait'],{from:'user'});
+  expect(scan.request).toHaveBeenCalledWith('maintenance/scan',{});
+  expect(scan.wait).toHaveBeenCalledWith({ok:true},true);
 });

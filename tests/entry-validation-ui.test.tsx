@@ -9,6 +9,7 @@ import {EditSessionsProvider} from '../apps/admin/src/EditSessions.tsx';
 import {contentWorkspaceFixture} from './content-workspace-fixture.ts';
 
 vi.mock('../apps/admin/src/Editor.tsx',()=>({Editor:()=> <div contentEditable aria-label="正文编辑器"/>}));
+vi.mock('../apps/admin/src/SeoPreview.tsx',()=>({SeoPreview:()=>null}));
 let host:HTMLDivElement,root:Root;
 beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;host=document.createElement('div');document.body.append(host);root=createRoot(host);vi.useFakeTimers({toFake:['requestAnimationFrame','cancelAnimationFrame']});});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.useRealTimers();});
@@ -25,7 +26,7 @@ async function mount(path:string,fields:any[]=[],values:Record<string,unknown>={
     return <EntryEditor model={model}/>;
   }
   await act(async()=>root.render(<EditSessionsProvider><SelectorsProvider><Form/></SelectorsProvider></EditSessionsProvider>));
-  await click('更多编辑操作');await click('检查');
+  expect(document.querySelector('dialog[aria-label="文章设置"]')).not.toBeNull();
 }
 it('closes the settings dialog and focuses the required field so typing can continue',async()=>{
   await mount('fields.url',[{key:'url',label:'网址',type:'text',required:true}]);
@@ -44,7 +45,7 @@ it('opens the owning repeat-item editor before focusing a nested required field'
 it('selects an unvisited settings tab and focuses its field without closing the dialog',async()=>{
   await mount('seo.description');await click('请修正此字段');await frames();
   const panel=host.querySelector('[role="tabpanel"]:not([hidden])')!;
-  expect(panel.textContent).toContain('搜索摘要');expect(document.querySelector('dialog[open]')).not.toBeNull();
+  expect(panel.textContent).toContain('搜索和分享摘要');expect(document.querySelector('dialog[open]')).not.toBeNull();
   expect(document.activeElement).toBe(panel.querySelector('textarea'));
 });
 it('takes author errors to the single top-level author control and keeps editing available',async()=>{
@@ -56,6 +57,15 @@ it('takes author errors to the single top-level author control and keeps editing
   await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(author,'新作者');author.dispatchEvent(new Event('input',{bubbles:true}));});
   expect(document.querySelector<HTMLInputElement>('[aria-label="作者姓名"]')!.value).toBe('新作者');
   expect(host.querySelector('[aria-label="设置作者"]')?.textContent).toContain('新作者');
+});
+it('takes address errors to the English title below the article title',async()=>{
+  await mount('path');
+  await click('请修正此字段');
+  await frames();
+  expect(document.querySelector('dialog[open]')).toBeNull();
+  const englishTitle = host.querySelector('.entry-title-row + .entry-url-field');
+  expect(englishTitle?.nextElementSibling?.classList.contains('entry-metadata')).toBe(true);
+  expect(document.activeElement).toBe(englishTitle?.querySelector('input'));
 });
 it('keeps errors without an editable destination as text instead of a dead button',async()=>{
   await mount('type');expect([...document.querySelectorAll('button')].some(node=>node.textContent==='请修正此字段')).toBe(false);
@@ -74,8 +84,12 @@ it('shows an empty title as a placeholder and exposes the author next to article
 it('moves Enter from the title to the body start while preserving Chinese input confirmation',async()=>{
   const update=vi.fn(),record={id:'post',revision:1,updatedAt:'',value:entrySchema.parse({id:'post',kind:'content',title:'文章标题',path:'/post/'})};
   const state=contentWorkspaceFixture({types:[{id:'post',value:{id:'post',label:'文章'}}]});
-  const model:any={record,update,state,settings:{record,update,state,schedule:{items:[]},moreActions:{record}},recovery:{record:null}};
+  const model:any={record,update,state,publication:{published:true,hasChanges:true},settings:{record,update,state,schedule:{items:[]},moreActions:{record}},recovery:{record:null}};
   await act(async()=>root.render(<EditSessionsProvider><SelectorsProvider><EntryEditor model={model}/></SelectorsProvider></EditSessionsProvider>));
+  expect(host.querySelector('[aria-label="更多编辑操作"]')).toBeNull();
+  expect(host.textContent).not.toContain('有未发布修改');
+  expect(host.textContent).not.toContain('历史版本');
+  expect(host.querySelector('.editor-actions')?.textContent).toBe('预览发布');
   const title=host.querySelector<HTMLTextAreaElement>('[aria-label="内容标题"]')!,body=host.querySelector<HTMLElement>('[aria-label="正文编辑器"]')!;
   body.textContent='已有正文';title.focus();
   const composing=new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true});

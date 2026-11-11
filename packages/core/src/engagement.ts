@@ -147,11 +147,14 @@ export class Engagement {
       return this.decorate(comment,true);
     }).immediate();
   }
-  comments(status: string = 'all', page = 1, filters: {query?:string;author?:string;entryId?:string;start?:string;end?:string} = {}) {
+  comments(status: string = 'all', page = 1, filters: {query?:string;matchingEntryIds?:string[];author?:string;entryId?:string;start?:string;end?:string} = {}) {
     const parameters: string[] = [], clauses: string[] = [];
     const add = (sql:string,value:string) => {clauses.push(sql);parameters.push(value);};
     if (['visible','hidden','pending'].includes(status)) add('status=?',status);
-    if (filters.query?.trim()) add("instr(lower(author||' '||body),lower(?))>0",filters.query.trim());
+    if (filters.query?.trim()) {
+      clauses.push("(instr(lower(author||' '||body),lower(?))>0 OR entry_id IN (SELECT value FROM json_each(?)))");
+      parameters.push(filters.query.trim(),JSON.stringify(filters.matchingEntryIds??[]));
+    }
     if (filters.author?.trim()) add('instr(lower(author),lower(?))>0',filters.author.trim());
     if (filters.entryId) add('entry_id=?',filters.entryId);
     for (const key of ['start','end'] as const) if (filters[key]) {

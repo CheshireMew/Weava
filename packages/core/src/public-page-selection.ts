@@ -13,6 +13,7 @@ import type { Site } from './site.ts';
 import { wordpressArchiveEntry } from './wordpress-archives.ts';
 import { collectionArchiveEntry } from './collections.ts';
 import { readPublicationPreview } from './publication.ts';
+import { validatePagePagination } from './public-pagination.ts';
 export function selectPublicPage(site: Site, url: URL, owner: boolean) {
   const preview = url.pathname.startsWith('/__preview/');
   if (preview && !owner) throw new WeavaError('请先登录后台。', 401);
@@ -111,5 +112,6 @@ export function selectPublicPage(site: Site, url: URL, owner: boolean) {
   ]);
   if (url.pathname === '/search/')
     validateQueryFields(contentQuery(url.searchParams), release.types);
+  if (!preview) validatePagePagination(entry, release, url);
   return { preview, release, entry };
 }

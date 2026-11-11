@@ -58,12 +58,10 @@ export async function checkAuditRepairs({ page, api, origin, output }: {
   await page.getByRole('button', { name: '确认发布', exact: true }).click();
   await page.getByRole('dialog', { name: '发布变更', exact: true }).waitFor({ state: 'hidden', timeout: 30000 });
   assert((await fetch(origin + '/audit-repair/').then((response) => response.text())).includes('修复验收已保存'));
-  await page.getByRole('button', { name: '历史版本', exact: true }).click();
-  await page.getByLabel('比较版本', { exact: true }).selectOption(String((await api('entry/audit-repair')).revision));
-  await page.getByLabel('目标版本', { exact: true }).selectOption(String(original.revision));
-  await page.getByLabel('修改后 标题', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '将目标版本恢复为工作稿', exact: true }).click();
-  await page.getByRole('dialog', { name: '历史版本', exact: true }).waitFor({ state: 'hidden' });
+  const published = await api('entry/audit-repair');
+  const comparison = await api(`revision/compare?id=audit-repair&from=${published.revision}&to=${original.revision}`);
+  assert(comparison.changes.some((change: { path: string }) => change.path === '/title'));
+  await api('restore', { id: 'audit-repair', revision: published.revision, version: original.revision });
   assert.equal((await api('entry/audit-repair')).value.title, '修复验收初稿');
   assert((await fetch(origin + '/audit-repair/').then((response) => response.text())).includes('修复验收已保存'));
   await page.getByRole('button', { name: '归档', exact: true }).click();

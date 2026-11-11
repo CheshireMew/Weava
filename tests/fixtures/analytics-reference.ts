@@ -275,28 +275,26 @@ export function analyticsReport(
       last = all[all.length - 1];
     if (first.ts >= current && first.ts < upper && matches(first)) page(first.path).entries++;
     if (last.ts >= current && last.ts < upper && matches(last)) page(last.path).exits++;
-    const sk = JSON.stringify([
-      first.channel,
-      first.referrer,
-      first.source,
-      first.medium,
-      first.campaign,
-    ]);
-    const s = sources.get(sk) || {
-      channel: first.channel,
-      host: first.referrer || null,
-      name: first.source || first.engine || first.referrer || '直接 / 未知',
-      views: 0,
-      sessions: 0,
-      visitors: 0,
-    };
-    s.views += selectedViews.length;
-    s.sessions++;
-    const sv = sourceVisitors.get(sk) || new Set<string>();
-    sv.add(visitorId(first));
-    sourceVisitors.set(sk, sv);
-    s.visitors = sv.size;
-    sources.set(sk, s);
+    const name = first.source || first.engine || first.referrer;
+    if (name) {
+      const sk = JSON.stringify([first.channel, name]);
+      const s = sources.get(sk) || {
+        channel: first.channel,
+        host: first.referrer || null,
+        name,
+        views: 0,
+        sessions: 0,
+        visitors: 0,
+      };
+      if(s.host!==(first.referrer||null))s.host=null;
+      s.views += selectedViews.length;
+      s.sessions++;
+      const sv = sourceVisitors.get(sk) || new Set<string>();
+      sv.add(visitorId(first));
+      sourceVisitors.set(sk, sv);
+      s.visitors = sv.size;
+      sources.set(sk, s);
+    }
     if (first.engine) {
       const eg = engines.get(first.engine) || {
         name: first.engine,

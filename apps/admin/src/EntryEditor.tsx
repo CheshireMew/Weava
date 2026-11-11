@@ -3,11 +3,12 @@ import {EntrySettings} from './EntrySettings.tsx';
 import {EntryStatus} from './EntryStatus.tsx';
 import {EntryRecovery} from './EntryRecovery.tsx';
 import {EntryOptionsBar} from './EntryOptionsBar.tsx';
+import {EntryUrlField} from './EntryUrlField.tsx';
 import {Dialog} from './Dialog.tsx';
 import {Suspense,useState,useLayoutEffect,useRef} from 'react';
 import {retryableLazy as lazy} from './ErrorBoundary.tsx';
 
-import {FileText,ArrowLeft,Plus,Loader2,Settings2,ChevronDown,MoreHorizontal,X} from 'lucide-react';
+import {FileText,ArrowLeft,Plus,Loader2,Settings2,ChevronDown,X} from 'lucide-react';
 
 
 import {useSelectors} from './Selectors.tsx';
@@ -37,16 +38,21 @@ function focusBodyStart(root: HTMLElement | null) {
   }
 }
 
-export function EntryEditor({ model }: { model: EntryEditorModel }) {
+export function EntryEditor({ model }: {
+  model: EntryEditorModel;
+}) {
   const {record,dirty,saving,editorEpoch,contentCheck,persist,update,clear,state,busy,setError,newEntry,publish}=model;
   const selectors = useSelectors();
   const article = record?.value.kind === 'content';
   const [settingsOpen, setSettingsOpen] = useState(false);
+  useLayoutEffect(()=>{
+    if(contentCheck?.id===record?.id&&contentCheck?.valid===false)setSettingsOpen(true);
+  },[contentCheck,record?.id]);
   const [settingsSection, setSettingsSection] = useState('information');
   const [focusRequest, setFocusRequest] = useState<{path: string} | null>(null);
   const editorRoot = useRef<HTMLElement>(null);
   const navigateToField = (path: string) => {
-    const section = entryFieldSection(path);
+    const section = entryFieldSection(path, article);
     if (!section) return;
     setSettingsOpen(section !== 'writing');
     if (section !== 'writing') setSettingsSection(section);
@@ -121,54 +127,22 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
               <span>返回列表</span>
             </button>
             {article ? <div className="editor-save-slot">{saveStatus}</div> : saveStatus}
-            {article && <EntryOptionsBar model={model.settings} onMore={() => setSettingsOpen(true)} />}
+            {article && <EntryOptionsBar model={model.settings} placement="toolbar" onMore={() => setSettingsOpen(true)} />}
             <div className="editor-actions">
-              <div className="editor-tools">
-              {!article && <button className="editor-plain editor-settings-toggle" aria-label="内容设置" aria-expanded={settingsOpen} aria-controls="entry-settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(open => !open)}><Settings2 size={18} /><span>设置</span></button>}
-              <Popover label="更多编辑操作" menu className="editor-menu-popover" trigger={article ? <MoreHorizontal size={20} /> : <>更多<ChevronDown size={14} aria-hidden="true" /></>}><div className="action-menu-items">
-              {article && publication && <div className="editor-menu-status"><EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} /></div>}
-              <button role="menuitem"
-                className="editor-check"
-                disabled={busy || saving}
-                onClick={async () => {
-                  try {
-                    await model.check();
-                    setSettingsOpen(true);
-                  } catch (error: any) {
-                    setError(error.message);
-                  }
-                }}
-              >
-                检查
-              </button>
-              <button role="menuitem"
-                title="历史版本"
-                aria-label="历史版本"
-                className="editor-plain"
-                onClick={async () => {
-                  try {
-                    await model.openHistory();
-                  } catch (error: any) {
-                    setError(error.message);
-                  }
-                }}
-              >
-                历史版本
-              </button>
-              <button role="menuitem"
-                className="editor-plain"
-                onClick={async () => {
-                  try {
-                    await model.openLocalDrafts();
-                  } catch (error: any) {
-                    setError(error.message);
-                  }
-                }}
-              >
-                本地草稿
-              </button>
-              </div></Popover>
-              </div>
+              {!article && <div className="editor-tools">
+                <button className="editor-plain editor-settings-toggle" aria-label="内容设置" aria-expanded={settingsOpen} aria-controls="entry-settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(open => !open)}><Settings2 size={18} /><span>设置</span></button>
+                <Popover label="更多编辑操作" menu className="editor-menu-popover" trigger={<>更多<ChevronDown size={14} aria-hidden="true" /></>}>
+                  <div className="action-menu-items">
+                    <button type="button" role="menuitem" className="editor-plain" onClick={async () => {
+                      try {
+                        await model.openHistory();
+                      } catch (error: any) {
+                        setError(error.message);
+                      }
+                    }}>历史版本</button>
+                  </div>
+                </Popover>
+              </div>}
               <button className="editor-preview" onClick={async () => {
                 try {
                   await model.openPreview();
@@ -212,11 +186,16 @@ export function EntryEditor({ model }: { model: EntryEditorModel }) {
                 />
                 {!article && publication && <EntryStatus row={{ ...publication, hasChanges: publication.hasChanges || dirty }} />}
               </div>
+              {article && <>
+                <EntryUrlField key={'url:' + record.id} value={record.value} onChange={update} />
+                <EntryOptionsBar key={'metadata:' + record.id} model={model.settings} placement="metadata" />
+              </>}
               <div data-field-path={record.value.blocks.length > 0 ? 'blocks' : 'document'} tabIndex={-1}>{record.value.blocks.length > 0 ? (
                 <Suspense fallback={<LoadingState label="打开正文" />}><ImportedContentEditor key={record.id + ':' + editorEpoch} value={record.value.blocks} onChange={blocks => update({ blocks })} catalog={state} onError={setError} /></Suspense>
               ) : (
                 <Suspense fallback={<LoadingState label="载入编辑器" />}>
                   <Editor
+                    entryId={record.id}
                     toolbarTarget={article ? toolbarTarget : undefined}
                     key={record.id + ':' + editorEpoch}
                     value={record.value.document}

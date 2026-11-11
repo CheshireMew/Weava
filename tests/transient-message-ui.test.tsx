@@ -32,3 +32,9 @@ it('keeps errors visible until dismissed or the user leaves the affected view', 
   await act(async () => root.render(<Feedback context="article:list" duration={0} />));
   expect(host.querySelector('[role=status]')?.textContent).toBe('');
 });
+it('keeps new completion feedback created while returning from an editor to its list',async()=>{
+ function Completion(){const[context,setContext]=useState('note:one'),[message,setMessage]=useState('');useTransientMessage(message,()=>setMessage(''),context,3000);return <><button onClick={()=>{setContext('note:list');setMessage('笔记已更新发布');}}>更新发布</button><p role="status">{message}</p></>;}
+ await act(async()=>root.render(<Completion/>));await act(async()=>host.querySelector('button')!.click());
+ expect(host.querySelector('[role="status"]')?.textContent).toBe('笔记已更新发布');
+ await act(async()=>vi.advanceTimersByTime(3000));expect(host.querySelector('[role="status"]')?.textContent).toBe('');
+});

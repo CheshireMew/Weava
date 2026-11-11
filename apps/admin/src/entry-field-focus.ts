@@ -1,10 +1,9 @@
 /** Route editable validation errors to their owning surface. Other errors stay readable text. */
-export function entryFieldSection(path: string) {
+export function entryFieldSection(path: string, article = false) {
   const key = path.split('.')[0];
-  if (key === 'path') return 'information';
+  if (key === 'path') return article ? 'writing' : 'information';
   if (['description', 'editorial'].includes(key)) return 'presentation';
-  if (key === 'seo') return 'sharing';
-  if (key === 'compatibility') return 'advanced';
+  if (['evidence', 'seo', 'compatibility'].includes(key)) return 'advanced';
   if (['title', 'author', 'document', 'blocks'].includes(key) || path.startsWith('fields.')) return 'writing';
   return null;
 }
@@ -19,6 +18,9 @@ export function focusEntryField(root: HTMLElement, path: string) {
       .filter(node => path === node.dataset.fieldPath || path.startsWith(node.dataset.fieldPath + '.'))
       .sort((a, b) => b.dataset.fieldPath!.length - a.dataset.fieldPath!.length)[0];
     if (!field) return;
+    for (let ancestor: Element | null = field; ancestor && root.contains(ancestor); ancestor = ancestor.parentElement) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+    }
     const edit = field.querySelector<HTMLButtonElement>(':scope > header [data-field-edit]');
     const nestedDialog = field.querySelector<HTMLElement>('dialog[open]');
     if (edit && !nestedDialog && remaining-- > 0) {

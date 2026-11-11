@@ -6,12 +6,13 @@ import type {Window as HappyWindow} from 'happy-dom';
 import {createServer} from 'node:http';
 import {readFileSync} from 'node:fs';
 import {join,resolve} from 'node:path';
-import {Site,JobRunner,saveMediaGroup} from '@weava/core';
+import {Site,JobRunner,saveMediaGroup,archiveMedia} from '@weava/core';
 import {matchAdminApi} from '@weava/contracts/api';
 import {createAdminDispatcher} from '../apps/web/src/api/dispatch.ts';
 import type {ApiServices,AdminContext} from '../apps/web/src/api/types.ts';
 import MediaManager from '../apps/admin/src/MediaManager.tsx';
 import {EditSessionsProvider,useEditSessions} from '../apps/admin/src/EditSessions.tsx';
+import {SelectorsProvider} from '../apps/admin/src/Selectors.tsx';
 import {adminQueries} from '../apps/admin/src/query-cache.ts';
 import {mediaUploadSnapshot} from '../apps/admin/src/media-uploads.tsx';
 
@@ -70,7 +71,7 @@ it('WVA-03 preserves metadata through grouped duplicate upload and still saves e
   }
   try{
     saveMediaGroup(site,{id:'first',label:'第一组'},null);saveMediaGroup(site,{id:'second',label:'第二组'},null);
-    await act(async()=>root.render(<EditSessionsProvider><View/></EditSessionsProvider>));
+    await act(async()=>root.render(<EditSessionsProvider><SelectorsProvider><View/></SelectorsProvider></EditSessionsProvider>));
     await until(()=>!!host.querySelector('select[aria-label="媒体分组筛选"] option[value=first]'));
     await change(host.querySelector('select[aria-label="媒体分组筛选"]')!,'first');
     await upload();
@@ -96,33 +97,42 @@ it('WVA-03 preserves metadata through grouped duplicate upload and still saves e
     const reopened=new Site(site.root);
     try{expect(reopened.store.get('media',original.id)!.value).toMatchObject({alt:'',caption:'',groupId:'second'});}finally{reopened.close();}
     const button=(name:string)=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent===name)!;
-    await until(()=>!!host.querySelector('.media-grid input[type=checkbox]'));
-    await act(async()=>host.querySelector<HTMLInputElement>('.media-grid input[type=checkbox]')!.click());
-    await change(host.querySelector('select[aria-label="移动所选到分组"]')!,'first');
-    hold('/media/move');await act(async()=>button('移动所选').click());await until(()=>held);
-    await change(alt(),'移动期间的新说明');await change(caption(),'移动期间的新图注');
-    // Let autosave attempt to run while the mutation response is still in flight.
-    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,900));});
-    await act(async()=>{releaseResponse!();await manager!.flush();});
-    expect(site.store.get('media',original.id)!.value).toMatchObject({alt:'移动期间的新说明',caption:'移动期间的新图注',groupId:'first'});
-    expect(alt().value).toBe('移动期间的新说明');
+    expect(host.querySelector('.media-grid input[type=checkbox]')).toBeNull();
+    await change(host.querySelector('select[aria-label="媒体所属分组"]')!,'first');
+    await act(async()=>manager!.flush());
+    expect(site.store.get('media',original.id)!.value.groupId).toBe('first');
     await change(host.querySelector('select[aria-label="媒体分组筛选"]')!,'first');
-    await until(()=>!!host.querySelector('.media-grid input[type=checkbox]'));
-    await act(async()=>host.querySelector<HTMLInputElement>('.media-grid input[type=checkbox]')!.click());
-    hold('/media/archive');await act(async()=>button('归档所选').click());await until(()=>held);
-    await change(alt(),'归档期间的新说明');
+    await until(()=>!!host.querySelector('.media-card-actions [aria-label="删除媒体"]'));
+    const legacy = site.store.get('media', original.id)!;
+    archiveMedia(site, [legacy], true);
+    await act(async()=>adminQueries.invalidate());
+    await until(()=>!host.querySelector('.media-open'));
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="更多媒体操作"]')!.click());
+    await act(async()=>[...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(node=>node.textContent==='查看已归档媒体')!.click());
+    await until(()=>!!host.querySelector('.media-open'));
+    hold('/media/archive');
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="恢复媒体"]')!.click());
+    await until(()=>held);
+    await change(alt(),'恢复期间的新说明');
     await act(async()=>{releaseResponse!();await manager!.flush();});
-    expect(site.store.get('media',original.id)!.value).toMatchObject({alt:'归档期间的新说明',archived:true});
-    expect(alt().value).toBe('归档期间的新说明');
-    // A full last page disappears after archive; the real query hook must return to page 1.
+    expect(site.store.get('media',original.id)!.value).toMatchObject({alt:'恢复期间的新说明',archived:false});
+    await until(()=>host.textContent?.includes('媒体已恢复')??false);
+    await act(async()=>button('返回媒体库').click());
+    await until(()=>!!host.querySelector('.media-open'));
+    expect(site.store.get('media',original.id)!.value.archived).toBe(false);
+    // The media rows below share the original file, so deleting one only removes its record.
     for(let index=0;index<25;index++)site.store.put('media','page-'+index,{...original.value,id:'page-'+index,groupId:'second',archived:false,name:'Page '+index},null);
     await change(host.querySelector('select[aria-label="媒体分组筛选"]')!,'second');
     await act(async()=>adminQueries.invalidate());
     await until(()=>host.querySelectorAll('.media-open').length===24);
     await act(async()=>button('下一页').click());await until(()=>host.querySelectorAll('.media-open').length===1);
-    await act(async()=>host.querySelector<HTMLInputElement>('.media-grid input[type=checkbox]')!.click());
-    await act(async()=>button('归档所选').click());
+    await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="删除媒体"]')!.click());
+    await until(()=>!!button('永久删除'));
+    expect(site.store.list('media')).toHaveLength(26);
+    await act(async()=>button('永久删除').click());
     await until(()=>host.querySelectorAll('.media-open').length===24&&!host.querySelector('.library-pagination'));
+    expect(site.store.list('media')).toHaveLength(25);
+    expect(readFileSync(join(site.root,original.value.url.slice(1)))).toEqual(bytes);
     expect(errors).toEqual([]);
   }finally{
     releaseResponse?.();

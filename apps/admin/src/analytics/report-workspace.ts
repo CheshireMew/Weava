@@ -5,6 +5,7 @@ import type { ReportName } from './report-navigation.ts';
 export const ReportWorkspace = createContext<{
   data: AnalyticsReport; query: string;
   loading: boolean;
+  range?: {start:string;end:string;timezone:string};
   changeRange: (start: string, end: string) => void;
   navigate: (report: ReportName | null, query?: string) => void;
   openVisitor: (id: string, data: AnalyticsReport) => void;

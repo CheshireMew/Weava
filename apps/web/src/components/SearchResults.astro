@@ -13,3 +13,7 @@ const query=Astro.url.searchParams.get('q')??'';
   {results.map(entry=>{const text=searchPresentation(entry,query);return <article><h2><a href={entry.path} data-search-result set:html={text.title}/></h2><p set:html={text.snippet}/></article>;})}
 </div>
 {pagination.pages>1 && <nav class="pagination" aria-label={t("搜索分页")}>{pagination.previous && <a href={pagination.previous} rel="prev">{t("上一页")}</a>}<span>{pagination.page} / {pagination.pages}</span>{pagination.next && <a href={pagination.next} rel="next">{t("下一页")}</a>}</nav>}
+
+<style>
+  .search-results { overflow-wrap: anywhere; }
+</style>

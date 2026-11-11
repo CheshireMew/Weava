@@ -6,6 +6,8 @@ function domains(path:string):QueryDomain[]{
   const [route,query='']=path.split('?');
   if(route==='state')return ['settings','models','terms','layouts','extensions','content-count',...(['appearance','comments'].includes(new URLSearchParams(query).get('panel')??'')?['publication' as const]:[]),...(new URLSearchParams(query).get('panel')==='operations'||new URLSearchParams(query).has('entryId')?['operations' as const]:[])];
   if(/^(entry|entries|references)(\/|$)/.test(route))return ['content','publication'];
+  if(route==='seo/insights')return ['publication','operations'];
+  if(route==='seo/internal-links')return ['content','publication'];
   if(route==='settings'||route.startsWith('settings/'))return ['settings'];
   if(route==='types'||route.startsWith('authoring/'))return ['models'];
   if(route==='terms')return ['terms'];

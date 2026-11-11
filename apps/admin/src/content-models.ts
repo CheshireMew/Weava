@@ -11,6 +11,7 @@ export type ContentCatalog = Pick<ContentState,'types'|'terms'|'entries'|'layout
 export type ContentWorkspaceData = ContentCatalog &
   Pick<ContentState, 'contentViews' | 'schedules' | 'features'> & {
     timezone?: string;
+    authors?: string[];
     author: { name: string; logo: string };
   };
 export function workspaceData(state: ContentState | null): ContentWorkspaceData | null {
@@ -39,6 +40,7 @@ export function workspaceData(state: ContentState | null): ContentWorkspaceData 
     schedules,
     features,
     timezone: state.settings.value.timezone,
+    authors: state.authors ?? [],
     author: { name: state.settings.value.name, logo: state.siteIcon ?? state.settings.value.logo },
   };
 }
@@ -80,7 +82,8 @@ export interface EntrySettingsModel {
   contentCheck: ContentCheck | null;
   update: (patch: Partial<Entry>) => void;
   setError: (message: string) => void;
-  state: Pick<ContentCatalog, 'terms' | 'entries'>;
+  state: Pick<ContentCatalog, 'terms' | 'entries'> & { types?: ContentCatalog['types']; authors?: string[] };
+  refresh: () => Promise<unknown>;
   schedule: EntryScheduleModel;
   moreActions: EntryMoreActionsModel;
 }

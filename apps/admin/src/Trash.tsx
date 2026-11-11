@@ -1,24 +1,36 @@
 import {useState,useEffect} from 'react';
-import {Dialog} from './Dialog.tsx';
+import {Search,RefreshCw} from 'lucide-react';
+import {LoadingState} from './LoadingState.tsx';
 import {useAdminQuery} from './useAdminQuery.ts';
 import {useDebouncedValue} from './useDebouncedValue.ts';
 import {api} from './api.ts';
 import type {ApiOutput} from '@weava/contracts/api';
-export function Trash(){
-  const [open,setOpen]=useState(false),[page,setPage]=useState(1),[filter,setFilter]=useState(''),[pending,setPending]=useState(false),[error,setError]=useState('');
-  const [purge,setPurge]=useState<ApiOutput<'trash'>['items'][number]|null>(null),[confirmation,setConfirmation]=useState('');
-  const search=useDebouncedValue(filter),query=useAdminQuery<ApiOutput<'trash'>>(open?'entries/trash?'+new URLSearchParams({page:String(page),q:search}):null);
+export default function TrashPanel(){
+  const [page,setPage]=useState(1),[filter,setFilter]=useState(''),[pending,setPending]=useState<{id:string;action:'restore'|'purge'}|null>(null),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const search=useDebouncedValue(filter),query=useAdminQuery<ApiOutput<'trash'>>('entries/trash?'+new URLSearchParams({page:String(page),q:search}));
   useEffect(()=>setPage(1),[search]);
   useEffect(()=>{if(query.data&&page>Math.max(1,query.data.pages))setPage(Math.max(1,query.data.pages));},[query.data,page]);
-  async function action(path:'restore'|'purge',row:ApiOutput<'trash'>['items'][number]){setPending(true);setError('');try{if(path==='restore')await api('entries/trash/restore',{id:row.id,revision:row.revision});else await api('entries/trash/purge',{id:row.id,revision:row.revision,confirmation:confirmation as '永久删除'});setPurge(null);setConfirmation('');await query.refresh();}catch(error:any){setError(error.message);}finally{setPending(false);}}
-  return <><button onClick={()=>setOpen(true)}>回收站</button>{open&&<Dialog label="内容回收站" dismissible={!pending} onClose={()=>{setOpen(false);setPurge(null);setError('');}}>
-    <div className="modal-title"><h2>回收站</h2><button disabled={pending} onClick={()=>setOpen(false)}>关闭</button></div>
-    <input type="search" aria-label="搜索回收站" placeholder="搜索标题" value={filter} onChange={event=>setFilter(event.target.value)}/>
+  async function action(path:'restore'|'purge',row:ApiOutput<'trash'>['items'][number]) {
+    if(pending)return;
+    setPending({id:row.id,action:path});setError('');setMessage('');
+    try {
+      if(path==='restore')await api('entries/trash/restore',{id:row.id,revision:row.revision});
+      else await api('entries/trash/purge',{id:row.id,revision:row.revision,confirmation:'永久删除'});
+      setMessage('“'+row.title+'”'+(path==='purge'?'已永久删除':'已恢复为草稿'));
+      await query.refresh();
+    } catch(error:any) {setError(error.message);}
+    finally {setPending(null);}
+  }
+  return <section className="panel trash-panel" aria-label="回收站">
+    <div className="panel-title"><h1>回收站</h1><button disabled={!!pending||query.loading} onClick={()=>void query.refresh().catch(error=>setError(error.message))}><RefreshCw size={17} aria-hidden="true"/>刷新</button></div>
+    <div className="trash-tools"><Search size={19} aria-hidden="true"/><input type="search" aria-label="搜索回收站" placeholder="搜索标题" value={filter} onChange={event=>setFilter(event.target.value)}/></div>
     {(error||query.error)&&<p role="alert">{error||query.error}<button onClick={()=>void query.refresh().catch(error=>setError(error.message))}>重新读取</button></p>}
-    {query.loading&&<p role="status">正在读取…</p>}
-    {query.data?.items.map(row=><article key={row.id} className="form-card"><strong>{row.title}</strong><p>{row.path} · {new Date(row.deletedAt).toLocaleString()}</p><button disabled={pending} onClick={()=>void action('restore',row)}>恢复为草稿</button><button disabled={pending} onClick={()=>{setPurge(row);setConfirmation('');}}>永久删除</button></article>)}
-    {query.data&&!query.data.items.length&&<p>回收站没有匹配的内容。</p>}
-    {query.data&&query.data.pages>1&&<nav aria-label="回收站分页"><button disabled={page<=1||pending} onClick={()=>setPage(page-1)}>上一页</button><span>{page} / {query.data.pages}</span><button disabled={page>=query.data.pages||pending} onClick={()=>setPage(page+1)}>下一页</button></nav>}
-    {purge&&<section className="form-card"><h3>永久移出“{purge.title}”？</h3><p>此后不能从回收站恢复。历史发布快照和共享媒体继续按各自的保留规则保存。</p><label>输入“永久删除”<input value={confirmation} onChange={event=>setConfirmation(event.target.value)}/></label><button disabled={pending||confirmation!=='永久删除'} onClick={()=>void action('purge',purge)}>确认永久删除</button><button disabled={pending} onClick={()=>setPurge(null)}>取消</button></section>}
-  </Dialog>}</>;
+    {message&&<p className="trash-feedback" role="status">{message}</p>}
+    <div className="trash-list" aria-busy={query.loading}>
+      {query.loading&&!query.data&&<LoadingState label="读取回收站"/>}
+      {query.data?.items.map(row=><article key={row.id} className="trash-row"><div className="trash-copy"><h2>{row.title}</h2><p>{row.path}</p><time dateTime={row.deletedAt}>{new Date(row.deletedAt).toLocaleString('zh-CN',{dateStyle:'medium',timeStyle:'short'})}</time></div><div className="trash-actions"><button disabled={!!pending} onClick={()=>void action('restore',row)}>{pending?.id===row.id&&pending.action==='restore'?'正在恢复…':'恢复为草稿'}</button><button className="trash-purge" disabled={!!pending} onClick={()=>void action('purge',row)}>{pending?.id===row.id&&pending.action==='purge'?'正在删除…':'永久删除'}</button></div></article>)}
+      {query.data&&!query.data.items.length&&<p className="library-status">{filter?'没有找到匹配的内容。':'回收站是空的。'}</p>}
+    </div>
+    {query.data&&<nav className="library-pagination" aria-label="回收站分页"><span>共 {query.data.total} 项</span>{query.data.pages>1&&<div className="pagination-buttons"><button disabled={page<=1||!!pending} onClick={()=>setPage(page-1)}>上一页</button><span>{page} / {query.data.pages}</span><button disabled={page>=query.data.pages||!!pending} onClick={()=>setPage(page+1)}>下一页</button></div>}</nav>}
+  </section>;
 }

@@ -24,8 +24,8 @@ export const country = (code: string) => {
     return '未知';
   }
 };
-export const duration = (ms: number | null) =>
-  ms === null || ms < 1000
+export const duration = (ms: number | null | undefined) =>
+  ms == null || !Number.isFinite(ms) || ms < 1000
     ? '—'
     : ms < 60000
       ? Math.round(ms / 1000) + ' 秒'
@@ -39,13 +39,6 @@ export const dateAt = (ts: string, timezone: string) =>
     minute: '2-digit',
     hourCycle: 'h23',
   }).format(new Date(ts));
-export function change(now: number, before: number) {
-  return before
-    ? `${now >= before ? '+' : ''}${Math.round(((now - before) / before) * 100)}%`
-    : now
-      ? '新增'
-      : '—';
-}
 export function shift(date: string, days: number) {
   return new Date(Date.parse(date) + days * 86400000).toISOString().slice(0, 10);
 }

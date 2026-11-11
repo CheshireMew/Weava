@@ -66,7 +66,8 @@ export function contentViewModels({
     contentCheck,
     update,
     setError,
-    state: { terms: catalog.terms, entries: catalog.entries },
+    state: { terms: catalog.terms, entries: catalog.entries, types: catalog.types, authors: state?.authors },
+    refresh,
     schedule,
     moreActions: { record, withdraw: commands.withdraw },
   };

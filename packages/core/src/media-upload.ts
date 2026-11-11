@@ -50,6 +50,8 @@ export async function receiveMediaFile(site: Site, request: Request, options: { 
     await file.close(); file = undefined;
     const prepared = await prepareMedia(site, staging, options.name, { hash: hash.digest('hex'), validatedSize: bytes, move: true, optimize: false });
     const row = site.store.raw.transaction(() => {
+      if (!existsSync(inside(site.root, prepared.value.url.slice(1))))
+        throw new WeavaError('媒体文件已变化，请重新上传。', 409);
       const existing = site.store.get('media', prepared.id);
       const value = { ...(existing?.value ?? prepared.value), ...(options.groupId ? { groupId: options.groupId } : {}) };
       const saved = existing && (!options.groupId || existing.value.groupId === options.groupId)

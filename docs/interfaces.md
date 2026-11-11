@@ -98,7 +98,7 @@ scripts/run.ps1 --site E:\Code\WeavaSites\demo export --output D:\Tools\weava\ex
 
 `page`、`settings`、`media` 同样有 list/save；保存输入遵循对应 API。content/page list 返回分页对象，支持 --page、--page-size、--type、--category、--tag、--query、--status、--visibility。
 
-`content get --id 编号` 与 `page get --id 编号` 返回完整工作稿和修订号。`publication preview --id 编号 --output 文件.json` 保存检查结果，`publish --input 文件.json --wait` 使用其中原始 options 发布；检查后发生变动会拒绝执行，需要重新检查。`seo audit --http` 读取最多 200 个实际公开页面，`seo audit --draft` 检查候选生成内容，`seo reports` 读取保存结果，`seo metadata --id 编号 --path '/?page=2'` 检查具体地址策略。
+`content get --id 编号` 与 `page get --id 编号` 返回完整工作稿和修订号。`publication preview --id 编号 --output 文件.json` 保存检查结果，`publish --input 文件.json --wait` 使用其中原始 options 发布；检查后发生变动会拒绝执行，需要重新检查。`seo audit --http` 每批读取最多 200 个实际公开地址，包括 robots.txt、地图和发现的页面；`--max-pages 100` 可调整每批预算（1～1000），`--resume 报告编号` 接续同一公开版本的未读取地址。公开版本或检查依据变化后拒绝续查。`seo audit --draft` 检查候选生成内容，`seo reports` 读取保存结果，`seo metadata --id 编号 --path '/?page=2'` 检查具体地址策略。`seo insights --start YYYY-MM-DD --end YYYY-MM-DD` 分析已导入的搜索表现并列出内容复核建议，对应 `GET /api/admin/v1/seo/insights`；未连接账号时不会产生虚构的搜索数据。
 
 `search-data plan/pull --config 文件.json` 分别给出请求计划、执行可选连接器；`search-data import --input 数据集.json` 和 `search-data report` 导入、查看观测。完整数据合同、凭据边界、请求预算及示例见[搜索与内容改进](seo-improvements.md)。统计报告新增 sources、actions、crawlers，CSV 仍按原有页面浏览与点击口径导出；声明爬虫请求与访客事件分开。
 

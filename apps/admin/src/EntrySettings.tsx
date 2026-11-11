@@ -9,6 +9,7 @@ import {EntryMoreActions} from './EntryMoreActions.tsx';
 
 import {EditorialFields} from './EditorialFields.tsx';
 import {SeoFields} from './SeoFields.tsx';
+import {EditorialReview} from './EditorialReview.tsx';
 import type {EntrySettingsModel} from './content-models.ts';
 import {entryFieldSection} from './entry-field-focus.ts';
 
@@ -39,10 +40,10 @@ export function EntrySettings({
   if (!record) return null;
   const information = <>
         <label>RSS 内容<select value={record.value.rssMode ?? 'inherit'} onChange={event => update({rssMode:event.target.value as Entry['rssMode']})}><option value="inherit">跟随网站</option><option value="summary">摘要</option><option value="full">全文</option></select></label>
-        <label data-field-path="path">
+        {mode !== 'more' && <label data-field-path="path">
           内容网址
           <input value={record.value.path} onChange={(e) => update({ path: e.target.value })} />
-        </label>
+        </label>}
     {mode !== 'more' && record.value.kind === 'content' && <>
             <label data-field-path="author">
               作者
@@ -83,6 +84,13 @@ export function EntrySettings({
           </section>
         )}
   </>;
+  const optionalSettings = <>
+    <SeoFields value={record.value} onChange={update} />
+    <details className="settings-disclosure seo-disclosure">
+      <summary>作者与引用来源</summary>
+      <EditorialReview value={record.value} onChange={update} canVerify={!dirty && !saving} />
+    </details>
+  </>;
   return <aside className={'entry-settings' + (mode === 'more' ? ' entry-options-form' : '')} id="entry-settings" aria-label="内容设置">
     {mode !== 'more' && <div className="entry-settings-heading"><h2>内容设置</h2>{onClose && <button type="button" onClick={onClose}>收起</button>}</div>}
         {contentCheck?.id === record.id && (
@@ -109,8 +117,7 @@ export function EntrySettings({
     {mode === 'more' ? <PanelSections label="文章设置分类" selectedSection={selectedSection} onSelectSection={onSelectSection} sections={[
       { id: 'information', label: '文章信息', content: information },
       { id: 'presentation', label: '摘要与展示', content: <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} section="display" /> },
-      { id: 'sharing', label: '搜索与分享', content: <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} section="sharing" expanded /> },
-      { id: 'advanced', label: '更多操作', content: <>{review}<EntryMoreActions model={model.moreActions} /></> },
+      { id: 'advanced', label: '更多操作', content: <>{review}{optionalSettings}<EntryMoreActions model={model.moreActions} /></> },
     ]} /> : <>
       {review}
         <label>
@@ -186,7 +193,7 @@ export function EntrySettings({
       <section><h3>定时发布</h3><EntrySchedule model={model.schedule} /></section>
       <EditorialFields value={record.value} onChange={update} entries={state.entries ?? []} />
 
-      <SeoFields value={record.value} onChange={update} canVerify={!dirty && !saving} />
+      {optionalSettings}
       <section><h3>更多操作</h3><EntryMoreActions model={model.moreActions} /></section>
     </>}
   </aside>;

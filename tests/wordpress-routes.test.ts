@@ -9,6 +9,7 @@ import { sourceContentHash, originalWordPressImages } from '../packages/core/src
 import sharp from 'sharp';
 import { uploadMedia } from '../packages/core/src/media.ts';
 import { digest } from '../packages/core/src/storage.ts';
+import { advertiseCurrentSitemap, publicDocumentResponse } from '../apps/web/src/public-documents.ts';
 
 it('supplements old public routes, preserves edited article bodies, publishes aliases and refuses later edits', async () => {
   const folder = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/wordpress-routes-' + Date.now();
@@ -95,7 +96,14 @@ it('supplements old public routes, preserves edited article bodies, publishes al
     const sitemap = await request('/post-sitemap.xml');
     expect(sitemap.status).toBe(200);
     expect((await sitemap.text()).match(/<url>/g)?.length).toBe(6);
-    expect(await (await request('/robots.txt')).text()).toContain('/sitemap_index.xml');
+    const legacyRobots = await request('/robots.txt');
+    const advertisedRobots = await advertiseCurrentSitemap(legacyRobots, release);
+    expect(await advertisedRobots.clone().text()).toBe(
+      (await legacyRobots.text()) + 'Sitemap: https://example.test/sitemap.xml\n',
+    );
+    expect(await advertiseCurrentSitemap(advertisedRobots, release)).toBe(advertisedRobots);
+    const currentMap = publicDocumentResponse(release, new URL('https://example.test/sitemap.xml'))!;
+    expect(await currentMap.text()).toContain('<loc>https://example.test/about/</loc>');
     expect((await request('/moments/21.html/'))!.headers.get('location')).toBe('/moments/21.html');
     expect((await request('/random/'))!.status).toBe(302);
     expect(await request('/posts/1/')).toBeNull();

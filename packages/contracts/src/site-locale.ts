@@ -1,5 +1,7 @@
 /** Only framework-owned labels are translated; authored content is never rewritten. */
 const labels:Record<string,[string,string,string?]>={
+  '关于作者':['About the author','著者について','關於作者'],
+  '第 {page} 页':['Page {page}','{page} ページ','第 {page} 頁'],
   '私密':['Private','非公開','私密'],'正文目录':['Contents','本文の目次','正文目錄'],
   '资料分页':['Resource pages','資料のページ','資料分頁'],'没有找到相关资料，请调整筛选条件。':['No matching resources. Adjust the filters.','資料が見つかりません。絞り込み条件を変更してください。','沒有找到相關資料，請調整篩選條件。'],
   '菜单':['Menu','メニュー','選單'],'这个地址还没有公开内容。':['There is no public content at this address.','このアドレスには公開された内容がありません。','這個網址還沒有公開內容。'],'⌕ 搜索':['⌕ Search','⌕ 検索','⌕ 搜尋'],'随笔分页':['Timeline pages','タイムラインのページ','隨筆分頁'],'还没有发布随笔。':['No notes published yet.','まだノートは公開されていません。','還沒有發表隨筆。'],'面包屑':['Breadcrumbs','パンくずリスト','麵包屑'],'文档翻页':['Documentation pages','ドキュメントのページ','文件分頁'],

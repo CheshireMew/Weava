@@ -1,4 +1,3 @@
-import {Archive} from 'lucide-react';
 import type {EntryMoreActionsModel} from './content-models.ts';
 
 export function EntryMoreActions({model}:{model:EntryMoreActionsModel}) {
@@ -27,16 +26,10 @@ export function EntryMoreActions({model}:{model:EntryMoreActionsModel}) {
         >
           导出内容
         </button>
-        <button
+        {(record.published??record.value.status === 'published') && <button
           onClick={()=>withdraw()}
         >
           撤下为草稿
-        </button>
-        <button
-          onClick={()=>withdraw(true)}
-        >
-          <Archive size={14} />
-          归档
-        </button>
+        </button>}
   </div>;
 }

@@ -34,6 +34,7 @@ export function adminState(
     contentViews: contentViews(site),
     creationTemplates: creationTemplates(site),
     terms: site.terms(),
+    authors: (site.store.raw.prepare("SELECT DISTINCT trim(json_extract(summary,'$.author')) name FROM entry_list WHERE kind='content' AND trim(coalesce(json_extract(summary,'$.author'),''))<>'' ORDER BY name").all() as {name:string}[]).map(row => row.name),
     layouts: layouts(site),
     schedules: options.summary
       ? options.entryId

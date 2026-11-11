@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { WeavaError } from '@weava/contracts';
-import { importFileBytes } from '../../contracts/src/import-limits.ts';
+import { importFileBytes, isMarkdownImportFile, markdownImportFileBytes } from '../../contracts/src/import-limits.ts';
 import type { Site } from './site.ts';
 import { spoolRequest, temporaryPath } from './temporary-files.ts';
 import type { JobRunner } from './job-runner.ts';
@@ -12,15 +12,17 @@ import { exchange, entrySchema, settingsSchema } from '../../contracts/src/api-m
 import type { WxrOptions } from './wordpress-wxr-options.ts';
 import { digest } from '../../runtime-common/src/identity.ts';
 
-export interface ImportSource { id: string; name: string; format: 'json' | 'wxr'; bytes: number; path: string; sha256: string; expiresAt: string }
+export interface ImportSource { id: string; name: string; format: 'json' | 'wxr' | 'markdown'; bytes: number; path: string; sha256: string; expiresAt: string }
+type SourceOptions = WxrOptions & { markdownReview?: string };
 const key = (id: string) => 'import-source:' + id;
 export async function stageImportSource(site: Site, request: Request, name: string) {
-  if (!/\.(json|xml)$/i.test(name) || name.length > 300) throw new WeavaError('请选择 Weava JSON 或 WordPress XML 文件。');
+  const format=isMarkdownImportFile(name)?'markdown':/\.xml$/i.test(name)?'wxr':/\.json$/i.test(name)?'json':null;
+  if (!format || name.length > 300 || /[\\/:\u0000-\u001f]/.test(name)) throw new WeavaError('请选择 Weava JSON、WordPress XML 或 Markdown 文件。');
   if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/octet-stream') throw new WeavaError('导入文件需要二进制内容。', 415);
-  const staged = await spoolRequest(site, request, 'import-source', importFileBytes);
+  const staged = await spoolRequest(site, request, 'import-source', format==='markdown'?markdownImportFileBytes:importFileBytes);
   const row = site.store.raw.prepare('SELECT bytes,expires FROM staged_requests WHERE id=?').get(staged.id) as {bytes:number;expires:number};
   if (!row.bytes) { site.store.raw.prepare('UPDATE staged_requests SET expires=0 WHERE id=?').run(staged.id); throw new WeavaError('导入文件为空。'); }
-  const source: ImportSource = { ...staged, name, format: /\.xml$/i.test(name) ? 'wxr' : 'json', bytes: row.bytes, expiresAt: new Date(row.expires).toISOString() };
+  const source: ImportSource = { ...staged, name, format, bytes: row.bytes, expiresAt: new Date(row.expires).toISOString() };
   site.store.setState(key(staged.id), JSON.stringify(source));
   return source;
 }
@@ -38,7 +40,7 @@ export function renewImportSource(site: Site, id: string) {
   return source;
 }
 
-export function queueImportSource(site: Site, jobs: Pick<JobRunner,'enqueue'>, sourceId: string, options: WxrOptions, idempotency?: string) {
+export function queueImportSource(site: Site, jobs: Pick<JobRunner,'enqueue'>, sourceId: string, options: SourceOptions, idempotency?: string) {
   const source = renewImportSource(site, sourceId);
   const operation = source.format === 'wxr' ? options.dryRun ? 'preflight-wxr' : 'import-wxr' : 'import-source';
   return jobs.enqueue(operation, { sourceId, options }, idempotency);
@@ -76,9 +78,16 @@ function preparedSource(site: Site, source: ImportSource) {
   } catch (error) { workspace.close(); throw error; }
 }
 /** Reuse the parsed source between preview and commit; current-state domain checks remain. */
-export async function executeImportSource(site: Site, sourceId: string, options: WxrOptions, progress: (message:string)=>void=()=>{}, committed?:(result:any)=>void) {
-  const source = importSource(site, sourceId), cached = preparedSource(site,source);
+export async function executeImportSource(site: Site, sourceId: string, options: SourceOptions, progress: (message:string)=>void=()=>{}, committed?:(result:any)=>void) {
+  const source = importSource(site, sourceId);
   progress(options.dryRun?'正在预检已上传的内容…':'正在导入已上传的内容…');
+  if (source.format==='markdown') {
+    const {importSelectedMarkdown}=await import('./markdown-folder.ts');
+    const describe=(result:object)=>({...result,format:'markdown' as const,sourceId});
+    const selected={name:source.name,file:temporaryPath(site,source.path)};
+    return {...importSelectedMarkdown(site,selected,options,result=>committed?.(describe(result))),format:'markdown' as const,sourceId};
+  }
+  const cached = preparedSource(site,source);
   if (cached.wxr) {
     const basis = digest({ options:{...options,dryRun:undefined,review:undefined},revision:site.store.raw.prepare('SELECT MAX(revision) n FROM revisions').get(),release:site.store.state('release') });
     if (cached.basis !== basis) { cached.workspace.reset('entry'); cached.wxr.converted=undefined;cached.wxr.preview=undefined; cached.basis=basis; }

@@ -59,7 +59,7 @@ export function MediaDetails({
           }
         />
       </label>
-      <label>
+      {(groups.length>0||selected.value.groupId)&&<label>
         分组
         <select
           aria-label="媒体所属分组"
@@ -81,7 +81,7 @@ export function MediaDetails({
               </option>
             ))}
         </select>
-      </label>
+      </label>}
       {isImage && (
         <>
           <label>

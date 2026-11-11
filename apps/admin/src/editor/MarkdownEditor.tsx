@@ -25,7 +25,8 @@ function fenceAt(source: string, position: number) {
   return opened && position >= opened.start ? {...opened, end: source.length, bodyEnd: source.length} : undefined;
 }
 
-export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, snippets, uploading, onError}: {
+export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, snippets, uploading, onError, entryId}: {
+  entryId?: string;
   source: string; onChange: (source: string) => void; onMode: () => void;
   onMedia: () => Promise<SelectedMedia | null>; onDrop: (event: DragEvent<HTMLElement>,offset:number) => void;
   target?: HTMLElement | null; compact: boolean; snippets: boolean; uploading: boolean; onError: (message: string) => void;
@@ -158,9 +159,9 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
   const fence = fenceAt(source, range.start);
   const line = source.slice(range.start === 0 ? 0 : source.lastIndexOf('\n', range.start - 1) + 1, range.start);
   const blockType = fence ? 'code' : /^#{1,6} /.test(line) ? 'h' + /^#+/.exec(line)![0].length : /^>/.test(line) ? 'quote' : 'paragraph';
-  function insertLink(address: string) {
+  function insertLink(address: string, title = '链接文字') {
     if (!link || !address.trim()) return;
-    const text = current.current.slice(link.selection.start, link.selection.end) || (link.kind === 'video' ? '视频' : '链接文字');
+    const text = current.current.slice(link.selection.start, link.selection.end) || (link.kind === 'video' ? '视频' : title);
     if (link.kind === 'video') insertBlock(`<figure><video src="${escapeWritingHtml(address.trim())}" controls preload="metadata"></video></figure>`, link.selection);
     else {const prefix = '[' + label(text) + '](', result = prefix + destination(address.trim()) + ')'; replace(result, link.selection, 1, 1 + label(text).length);} setLink(null);
   }
@@ -185,7 +186,12 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
     {link && createPortal(<Dialog label={link.kind === 'video' ? '插入视频' : '插入链接'} onClose={() => setLink(null)}>
       <form onSubmit={event => {event.preventDefault(); insertLink(url);}}><h2>{link.kind === 'video' ? '插入视频' : '插入链接'}</h2>
         <label>网址<input data-autofocus aria-label="链接地址" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://…" required/></label>
-        <div className="dialog-actions">{link.kind === 'link' && <button type="button" onClick={() => {void selectors.content().then(content => {if (content) insertLink('entry:' + encodeURIComponent(content.id));});}}>链接到内容</button>}
+        <div className="dialog-actions">{link.kind === 'link' && <button type="button" onClick={() => {
+          const { start, end } = link.selection, markdown = current.current;
+          const context = markdown.slice(start, end) || markdown.slice(Math.max(0, start - 180), start + 180);
+          const selection = entryId ? selectors.contentLink({ id: entryId, context: context.trim().slice(0, 500) }) : selectors.content();
+          void selection.then(content => {if (content) insertLink('entry:' + encodeURIComponent(content.id), content.title);}).catch(error => onError(error.message));
+        }}>链接到内容</button>}
           <button type="button" onClick={() => setLink(null)}>取消</button><button type="submit" className="primary">{link.kind === 'video' ? '插入视频' : '插入链接'}</button></div>
       </form>
     </Dialog>, document.body)}

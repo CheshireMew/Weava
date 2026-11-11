@@ -4,6 +4,7 @@ import {act} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import {NoteEditor} from '../apps/admin/src/NoteEditor.tsx';
+import {EntryOptionsBar} from '../apps/admin/src/EntryOptionsBar.tsx';
 import {NotesLibrary} from '../apps/admin/src/NotesLibrary.tsx';
 import {useContentWorkspace} from '../apps/admin/src/useContentWorkspace.ts';
 import {EditSessionsProvider} from '../apps/admin/src/EditSessions.tsx';
@@ -21,6 +22,24 @@ afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
 const noteModel=(model:any)=>({...model,author:{name:model.state?.settings.value.name??'',logo:model.state?.siteIcon??model.state?.settings.value.logo??''},recovery:{record:null}});
 const entry=entrySchema.parse({id:'existing-note',kind:'content',type:'wordpress-moment',status:'published',title:'原有笔记',path:'/moments/133.html',document:{version:1,format:'html',source:'<div style="color:white!important"><p>正常正文<a href="https://example.com/">参考链接</a></p><img src="/media/a.png"></div>'}});
 const row={id:entry.id,value:entry,revision:10,updatedAt:'2026-11-05T00:00:00Z'};
+it('uses the actual publication flag for the update button even when the saved working copy is a draft',async()=>{
+ const publish=vi.fn(),model:any={record:{...row,published:true,value:{...row.value,status:'draft'}},saving:false,busy:false,author:{name:'作者',logo:''},recovery:{record:null},publish};
+ await act(async()=>root.render(<NoteEditor model={model}/>));
+ expect(host.querySelector('dialog')?.getAttribute('aria-label')).toBe('编辑笔记');
+ await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='更新发布')!.click());expect(publish).toHaveBeenCalledOnce();
+ model.record={...row,published:false};await act(async()=>root.render(<NoteEditor model={model}/>));
+ expect(host.querySelector('dialog')?.getAttribute('aria-label')).toBe('写笔记');expect(host.querySelector('.note-composer-footer .primary')?.textContent).toBe('发布');
+});
+it('checks an article automatically, blocks invalid publication, and publishes only after correction',async()=>{
+ let workspace:any,valid=false;const task=vi.fn(),article={...row,value:{...entry,type:'post',status:'draft' as const}};
+ vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path==='entry/check'?{valid,errors:valid?[]:[{path:'author',message:'请填写作者',code:'required'}]}:path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);
+ function Harness(){workspace=useContentWorkspace({state:contentWorkspaceFixture({types:[{id:'post',value:{id:'post',label:'文章',fields:[]}}]}),receiveSchedules:vi.fn(),tab:'content',compact:false,busy:false,setError:vi.fn(),notify:vi.fn(),refresh:async()=>{},task});return null;}
+ await act(async()=>root.render(<EditSessionsProvider><Harness/></EditSessionsProvider>));
+ await act(async()=>workspace.navigation.adopt(article));await act(async()=>workspace.editor.publish());
+ expect(task).not.toHaveBeenCalled();expect(workspace.editor.contentCheck.errors[0].path).toBe('author');
+ valid=true;await act(async()=>workspace.editor.publish());
+ expect(task).toHaveBeenCalledWith('publish',{ids:[article.id],revisions:{[article.id]:article.revision}});
+});
 it('lets a note close after saving while its submitted version is publishing',async()=>{
  const persist=vi.fn(async()=>row),clear=vi.fn();const model:any={record:row,saving:false,busy:true,editorEpoch:0,persist,clear,setError:vi.fn(),update:vi.fn(),publish:vi.fn(),recovery:{record:null},author:{name:'作者'}};
  await act(async()=>root.render(<NoteEditor model={model}/>));
@@ -45,11 +64,17 @@ it('opens an empty article without saving it and remembers the chosen author acr
  let workspace:any;const notify=vi.fn();
  const state={types:[{id:'post',value:{id:'post',pathPrefix:'/posts/'}}]};
  vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);
- function Harness(){workspace=useContentWorkspace({state:contentWorkspaceFixture(state),receiveSchedules:vi.fn(),tab:'content',compact:false,busy:false,setError:vi.fn(),notify,refresh:async()=>{},task:vi.fn()});return null;}
+ function Harness(){workspace=useContentWorkspace({state:contentWorkspaceFixture(state),receiveSchedules:vi.fn(),tab:'content',compact:false,busy:false,setError:vi.fn(),notify,refresh:async()=>{},task:vi.fn()});return <EntryOptionsBar model={workspace.editor.settings} placement="metadata"/>;}
  await act(async()=>root.render(<EditSessionsProvider><Harness/></EditSessionsProvider>));
  vi.mocked(api).mockClear();await act(async()=>workspace.library.newEntry('post'));
  expect(workspace.editor.record.revision).toBe(0);expect(workspace.editor.record.value.title).toBe('');expect(workspace.editor.dirty).toBe(false);
- await act(async()=>workspace.editor.update({author:'柴郡'}));
+ await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="设置作者"]')!.click());
+ const author=document.querySelector<HTMLInputElement>('[aria-label="作者姓名"]')!;
+ await act(async()=>{
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(author,'柴郡');
+  author.dispatchEvent(new Event('input',{bubbles:true}));
+ });
+ await act(async()=>document.querySelector<HTMLButtonElement>('[aria-label="关闭作者"]')!.click());
  await act(async()=>{await workspace.editor.persist();workspace.navigation.clear();});
  expect(vi.mocked(api).mock.calls.filter(([path])=>path==='entry'||path==='entries/create')).toHaveLength(0);
  await act(async()=>root.unmount());root=createRoot(host);
@@ -77,7 +102,7 @@ it('opens imported notes as readable HTML without exposing source or article set
  const frame=host.querySelector('iframe')!;expect(frame.title).toBe('笔记正文编辑器');const content=new DOMParser().parseFromString(frame.srcdoc,'text/html');
  expect(content.querySelector('#page-text')?.textContent).toBe('正常正文参考链接');expect(content.querySelector('#page-text [style]')).toBeNull();expect(content.querySelector('a')?.getAttribute('href')).toBe('https://example.com/');expect(content.querySelector('img')?.getAttribute('src')).toBe('/media/a.png');
  expect(host.querySelector('dialog[open]')?.getAttribute('aria-label')).toBe('编辑笔记');expect(host.querySelector('textarea')).toBeNull();expect(host.textContent).not.toMatch(/保留的来源|封面|草稿|预览/);expect(update).not.toHaveBeenCalled();
- await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='保存修改')!.click());expect(publish).toHaveBeenCalledOnce();
+ await act(async()=>[...host.querySelectorAll('button')].find(button=>button.textContent==='更新发布')!.click());expect(publish).toHaveBeenCalledOnce();
 });
 it('distinguishes note drafts, published notes and unpublished changes without article filters or covers',async()=>{
  const model={items:[{...row,id:'draft',published:false},{...row,id:'published',published:true,hasChanges:false},{...row,id:'changed',published:true,hasChanges:true}],library:{pages:1},filter:'',setFilter:vi.fn(),select:vi.fn(),newEntry:vi.fn(),tab:'notes'};
@@ -113,7 +138,7 @@ it('publishes a note in one step and leaves the editor only after success',async
  let workspace:any;const task=vi.fn(async()=>({status:'complete'})),notify=vi.fn();const state={settings:{value:{name:'站点'}},types:[{id:'wordpress-moment',value:{id:'wordpress-moment'}}]};
  function Harness(){workspace=useContentWorkspace({state:contentWorkspaceFixture(state),receiveSchedules:vi.fn(),tab:'notes',compact:false,busy:false,setError:vi.fn(),notify,refresh:vi.fn(),task});return null;}
  await act(async()=>root.render(<EditSessionsProvider><Harness/></EditSessionsProvider>));await act(async()=>workspace.navigation.adopt(row));await act(async()=>workspace.editor.publish());
- expect(task).toHaveBeenCalledWith('publish',{ids:[row.id],revisions:{[row.id]:row.revision}},true);expect(workspace.editor.record).toBeNull();expect(notify).toHaveBeenCalledWith('已更新');
+ expect(task).toHaveBeenCalledWith('publish',{ids:[row.id],revisions:{[row.id]:row.revision}},true);expect(workspace.editor.record).toBeNull();expect(notify).toHaveBeenCalledWith('笔记已更新发布');
 });
 it('never exposes articles while switching to notes or waiting for a delayed notes response',async()=>{
  const state={types:[]};let model:any,resolveNotes:(value:any)=>void;
@@ -164,7 +189,7 @@ it('keeps the whole long HTML note in one scrollable modal body with persistent 
  const source='<p>开头</p>'+Array.from({length:30},(_,i)=>'<p>第'+i+'段完整内容</p>').join('')+'<h3>B-roll 的三大核心作用：</h3><p>总结：B-roll 是摆盘和配菜。</p>';
  const model={record:{...row,value:{...entry,document:{version:1,format:'html',source}}},state:{settings:{value:{name:'作者',logo:''}}},persist:vi.fn(),clear:vi.fn(),update:vi.fn(),publish:vi.fn(),setError:vi.fn()};
  await act(async()=>root.render(<NoteEditor model={noteModel(model) as any}/>));
- const frame=host.querySelector('.note-composer-body iframe')!;expect(frame.getAttribute('srcdoc')).toContain('总结：B-roll 是摆盘和配菜。');expect(host.querySelector('.note-composer-header button[aria-label="关闭笔记窗口"]')).not.toBeNull();expect(host.querySelector('.note-composer-footer .primary')?.textContent).toBe('保存修改');expect(model.update).not.toHaveBeenCalled();
+ const frame=host.querySelector('.note-composer-body iframe')!;expect(frame.getAttribute('srcdoc')).toContain('总结：B-roll 是摆盘和配菜。');expect(host.querySelector('.note-composer-header button[aria-label="关闭笔记窗口"]')).not.toBeNull();expect(host.querySelector('.note-composer-footer .primary')?.textContent).toBe('更新发布');expect(model.update).not.toHaveBeenCalled();
 });
 it('keeps note settings inside the modal so the controls remain interactive',async()=>{
  const model={record:row,state:{settings:{value:{name:'作者',logo:''}}},persist:vi.fn(),clear:vi.fn(),update:vi.fn(),publish:vi.fn(),setError:vi.fn()};

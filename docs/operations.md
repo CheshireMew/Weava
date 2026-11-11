@@ -131,11 +131,11 @@ scripts/run.ps1 --site E:\WeavaSites\my-site start
 
 `start` 使用已经选择的版本，后台显示程序与数据库版本。`upgrade verify` 校验独立构建；`upgrade status` 查看选择。失败时恢复检查前的实例，失败目录保留。突然中断后先执行 `upgrade recover`，按旁边 `.upgrade.json` 恢复；不会继续使用半迁移实例。
 
-升级成功后确需连数据一起退回时，使用 `upgrade rollback --restore-data`。它明确恢复升级前的备份，升级之后的编辑留在 `.upgrade-retained-*` 目录，不会自动合入旧数据。普通内容回退使用后台公开版本切换，不能把程序回退当作内容撤销。以上只在当前 Windows 平台验证。
+升级成功后确需连数据一起退回时，使用 `upgrade rollback --restore-data`。它明确恢复升级前的备份，升级之后的编辑留在 `.upgrade-retained-*` 目录，不会自动合入旧数据。恢复历史公开版本时，先用 `status` 找到版本编号，再用 `rollback --id <版本编号> --output rollback.json` 查看差异。确认后运行 `rollback --input rollback.json`。如果当前公开版本已变化，需重新预览。以上只在当前 Windows 平台验证。
 
 服务退出、端口占用和任务异常会留下可读错误。任务日志位于站点 logs 目录，每项最多保留约 8 MB 输出；任务结果和错误独立保存。后台和 CLI 的 offset 单位是 UTF-8 字节，每页读取约 20 KB 并对齐字符边界。任务使用持久队列，默认最多同时运行两个，最多等待 128 个；统计报表与 WXR 预检也在任务进程计算。服务器开机自启可调用同一个 start 入口，由服务器既有进程管理负责，不将本机 Windows 验收当成服务器部署证明。
 
-后台“空间占用”与 CLI `status --storage` 提供数据库、媒体、历史版本、已记录备份及未引用媒体的占用情况。未引用判断涵盖内容工作稿、公开快照与作者历史；该检查只报告，不清理。单独编译新程序不替换正在使用的版本；对站点执行升级和数据迁移仍需停机。
+CLI `status --storage` 提供数据库、媒体、历史版本、已记录备份及未引用媒体的占用情况。需要更新扫描结果时，先运行 `maintenance scan --wait`。未引用判断涵盖内容工作稿、公开快照与作者历史；该检查只报告，不清理。单独编译新程序不替换正在使用的版本；对站点执行升级和数据迁移仍需停机。
 
 有反向代理时设置 WEAVA_TRUST_PROXY=1，并用 WEAVA_TRUSTED_PROXIES 指定直接连接服务的代理 IP，多个地址用逗号分隔，默认只信任本机回环地址。只有受信任代理提供的 X-Forwarded-For 和 X-Forwarded-Proto 会影响互动额度、统计来源、登录限制及 HTTPS Cookie。未启用时始终使用直接连接来源和实际请求协议。
 

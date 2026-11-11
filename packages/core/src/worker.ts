@@ -56,22 +56,9 @@ try {
     result = { releaseId: release.id, entries: release.entries.length };
     }
   } else if (job.operation === 'seo-audit') {
-    const {preparePublication}=await import('./publication.ts');
-    const {auditBasis,auditRelease,auditStatus,fetchAuditResponses,storeAudit}=await import('./seo-audit.ts');
-    const target=job.payload.target==='draft'?'draft':'published';
-    if(job.payload.http&&target!=='published')throw new WeavaError('HTTP 检查只能读取已发布页面。');
-    site.updateJob(id,{message:'正在准备检查内容…'});
     if(siteFeatures(root).includes('analytics'))extensionAnalytics=new Analytics(root);
     const manager=await extension(site,extensionAnalytics?{analytics:extensionAnalytics}:{},{mode:'worker'});
-    const basis=auditBasis(site,target);
-    const release=target==='draft'?preparePublication(site,job.payload.options??{}).release:site.release();
-    if(!release)throw new WeavaError('网站尚未发布，请选择工作稿检查。');
-    site.updateJob(id,{message:job.payload.http?'正在读取公开页面…':'正在检查页面…'});
-    const responses=job.payload.http?await fetchAuditResponses(release,job.payload.origin):undefined;
-    const report=await auditRelease(release,{target,basis,responses,blocks:manager.blocks,
-      render:(entry,release)=>manager.render(entry,release),metadata:(entry,release,url,options)=>manager.metadata(entry,release,url,options),
-      progress:(checked,total)=>site.updateJob(id,{message:`正在检查页面：${checked} / ${total}`})});
-    storeAudit(site,report);result=auditStatus(site,report);
+    result=await(await import('./seo-task.ts')).executeSeoAudit(site,manager,job.payload,message=>site.updateJob(id,{message}));
   } else if(['schedule-create','plan-save','withdraw','entry-delete'].includes(job.operation)) {
     if(siteFeatures(root).includes('analytics'))extensionAnalytics=new Analytics(root);
     const manager=await extension(site,extensionAnalytics?{analytics:extensionAnalytics}:{}, {mode:'worker'});

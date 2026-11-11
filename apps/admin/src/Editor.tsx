@@ -28,6 +28,7 @@ import {LargeMarkdownPlugin} from './editor/LargeMarkdownPlugin.tsx';
 import {LinkEditorPlugin} from './editor/LinkEditorPlugin.tsx';
 import {DocumentChangePlugin} from './editor/DocumentChangePlugin.tsx';
 import {DocumentStartPlugin} from './editor/DocumentStartPlugin.tsx';
+import {DividerSelectionPlugin} from './editor/DividerSelectionPlugin.tsx';
 import {MarkdownEditor} from './editor/MarkdownEditor.tsx';
 import {supportsVisualEditing, importMarkdown} from './editor/markdown.ts';
 import {ButtonLinkNode, DetailsNode, FootnoteNode, WritingNodesPlugin} from './editor/WritingNodes.tsx';
@@ -41,6 +42,7 @@ export function Editor({
   onMedia,
   onError,
   toolbarTarget,
+  entryId,
   outputFormat = 'markdown',
   placeholder = '写下你的内容…',
   compact = false,
@@ -51,6 +53,7 @@ export function Editor({
   onMedia: () => Promise<SelectedMedia | null>;
   onError: (message: string) => void;
   toolbarTarget?: HTMLElement | null;
+  entryId?: string;
   outputFormat?: 'lexical' | 'markdown';
   placeholder?: string;
   compact?: boolean;
@@ -87,7 +90,7 @@ export function Editor({
   const retainVisual=visitedVisual.current&&seed.format==='markdown'&&String(seed.source).length>40000;
   if (value.format === 'html') return <HtmlPageText value={value.source} cleanFormatting label="正文" onChange={source => onChange({ version: 1, format: 'html', source })} />;
   const sourceEditor=mode === 'source'?<div className="document-editor">
-    <MarkdownEditor source={sourceView} onChange={changeSource} target={toolbarTarget} compact={compact} snippets={snippets} uploading={uploads.busy || uploads.failed.length > 0} onError={onError} onMedia={onMedia}
+    <MarkdownEditor source={sourceView} onChange={changeSource} target={toolbarTarget} compact={compact} snippets={snippets} uploading={uploads.busy || uploads.failed.length > 0} onError={onError} onMedia={onMedia} entryId={entryId}
       onMode={() => {
         const document: Document = sourceText.current === sourceBaseline.current.source ? sourceBaseline.current.document : {version: 1, format: 'markdown', source: sourceText.current};
         if (!supportsVisualEditing(document)) {onError('包含不能无损转换的来源格式，继续使用源码模式可完整保留内容。'); return;}
@@ -136,6 +139,8 @@ export function Editor({
             table: 'editor-table',
             tableScrollableWrapper: 'editor-table-scroll',
             tableCell: 'editor-cell',
+            hr: 'editor-divider',
+            hrSelected: 'editor-divider-selected',
           },
         }}
       >
@@ -158,6 +163,7 @@ export function Editor({
         />}
         <WritingNodesPlugin/>
         <DocumentStartPlugin/>
+        <DividerSelectionPlugin/>
         {loading!==null&&<p role="status">正在载入正文… {loading}%</p>}
         <div className="editor-canvas" aria-busy={loading!==null}>
           <RichTextPlugin
@@ -173,7 +179,7 @@ export function Editor({
         <ListPlugin />
         <CheckListPlugin />
         <LinkPlugin />
-        <LinkEditorPlugin onEdit={markEditing} onError={onError}/>
+        <LinkEditorPlugin onEdit={markEditing} onError={onError} entryId={entryId}/>
         <TablePlugin hasCellMerge={false} hasHorizontalScroll />
         <TableTools />
         <DocumentChangePlugin value={value} seed={seed} editing={editing} outputFormat={outputFormat} onChange={document=>{current.current.value=document;current.current.onChange(document);}} flushSnapshot={flushSnapshot}/>

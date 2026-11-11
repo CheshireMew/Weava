@@ -54,7 +54,9 @@ it('allows homepage recommendation reordering without changing article revisions
 });
 it('preserves existing search overrides without exposing schema or author identity controls', async () => {
   const change = vi.fn(), value = entrySchema.parse({ kind: 'content', title: '文章', path: '/post/', id: 'post', seo: { title: '旧搜索标题', schemaType: 'TechArticle', authorType: 'Organization', canonical: 'https://example.com/old/' } });
-  await render(<SeoFields value={value} onChange={change} expanded />); expect(change).not.toHaveBeenCalled();
+  await render(<SeoFields value={value} onChange={change} />); expect(change).not.toHaveBeenCalled();
+  expect([...host.querySelectorAll('details')].every(item => !item.open)).toBe(true);
+  expect(api).not.toHaveBeenCalled();
   expect(host.querySelector('select')).toBeNull(); expect(host.textContent).not.toMatch(/规范地址|作者身份|页面类型|核验/);
   await input('input', '新标题'); expect(change.mock.calls[0][0].seo).toMatchObject({ title: '新标题', schemaType: 'TechArticle', authorType: 'Organization', canonical: 'https://example.com/old/' });
 });

@@ -2,7 +2,7 @@ import { Card } from './Card.tsx';
 
 import { Distribution } from './Distribution.tsx';
 
-import { number, devices, country, change } from './format.ts';
+import { number, devices, country } from './format.ts';
 
 import type { AnalyticsView } from './types.ts';
 export function AnalyticsSidebar({
@@ -31,11 +31,9 @@ export function AnalyticsSidebar({
                   <td>{r.name}</td>
                   <td>
                     {number(r.visitors)}
-                    <small>{change(r.visitors, r.previous.visitors)}</small>
                   </td>
                   <td>
                     {number(r.views)}
-                    <small>{change(r.views, r.previous.views)}</small>
                   </td>
                 </tr>
               ))}

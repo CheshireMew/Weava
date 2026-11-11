@@ -32,7 +32,7 @@ export function markdownFile(entry:Entry,body:string){
 }
 function filesIn(root:string):string[]{
   const result:string[]=[];
-  function visit(folder:string){for(const row of readdirSync(folder,{withFileTypes:true})){if(row.name==='.git'||row.name==='node_modules')continue;const path=join(folder,row.name),info=lstatSync(path);if(info.isSymbolicLink())continue;if(info.isDirectory())visit(path);else if(info.isFile()&&/\.md$/i.test(row.name))result.push(path);if(result.length>10000)throw new WeavaError('每次最多处理 10,000 个 Markdown 文件。');}}
+  function visit(folder:string){for(const row of readdirSync(folder,{withFileTypes:true})){if(row.name==='.git'||row.name==='node_modules')continue;const path=join(folder,row.name),info=lstatSync(path);if(info.isSymbolicLink())continue;if(info.isDirectory())visit(path);else if(info.isFile()&&/\.(md|markdown)$/i.test(row.name))result.push(path);if(result.length>10000)throw new WeavaError('每次最多处理 10,000 个 Markdown 文件。');}}
   visit(root);return result.sort();
 }
 function localFile(root:string,path:string){
@@ -63,14 +63,18 @@ export function exportMarkdownFolder(site:Site,output:string,budgetBytes=1024*10
   return {path:root,entries:documents.length,media:media.length,bytes};
 }
 export interface FolderOptions {type?:string;merge?:boolean;settings?:boolean;review?:string;budgetBytes?:number}
-function planFolder(site:Site,input:string,options:FolderOptions){
-  const root=resolve(input),paths=filesIn(root);if(!paths.length)throw new WeavaError('目录里没有 Markdown 文件。');
-  const manifest:FolderManifest|undefined=existsSync(join(root,marker))?JSON.parse(readFileSync(join(root,marker),'utf8')):undefined;
+interface SelectedMarkdown {name:string;file:string}
+function planFolder(site:Site,input:string,options:FolderOptions,selected?:SelectedMarkdown){
+  const root=resolve(input);
+  const paths=selected?[inside(root,selected.name)]:filesIn(root);
+  if(!paths.length)throw new WeavaError('目录里没有 Markdown 文件。');
+  const manifest:FolderManifest|undefined=!selected&&existsSync(join(root,marker))?JSON.parse(readFileSync(join(root,marker),'utf8')):undefined;
   if(manifest&&manifest.version!==1)throw new WeavaError('Markdown 目录版本不受支持。');
   const domain=site.settings().value.domain,attachments=new Map<string,{path:string;name:string;hash:string;url:string;bytes:number;legacySvg:boolean}>();
   let bytes=0;
   const mappings:{from:string;to:string}[]=[];
   const attachment=(file:string,fromManifest=false)=>{
+    if(selected)throw new WeavaError('此文件引用了本地附件 '+basename(file)+'。可上传附件后换成站内链接，或通过 Markdown 目录导入一起迁移。');
     localFile(root,file);const previous=attachments.get(file);if(previous)return previous;
     const size=lstatSync(file).size;assertUploadSize(site,basename(file),size);
     const legacySvg=fromManifest&&extname(file).toLowerCase()==='.svg';
@@ -79,7 +83,16 @@ function planFolder(site:Site,input:string,options:FolderOptions){
     attachments.set(file,item);bytes+=size;return item;
   };
   if(manifest)for(const item of manifest.media){const file=localFile(root,inside(root,item.file)),selected=attachment(file,true);if(selected.hash!==item.hash)throw new WeavaError('导出附件校验失败：'+item.file);mappings.push({from:item.url,to:selected.url},{from:'../'+item.file,to:selected.url});}
-  const records=paths.map(path=>{const size=lstatSync(path).size;if(size>32*1048576)throw new WeavaError('单篇 Markdown 文件超过 32 MB：'+path);bytes+=size;const source=readFileSync(path,'utf8'),{metadata,body}=parseMarkdownFile(source);return {path,metadata,body,id:String(metadata.id??'md-'+digest(relative(root,path).replaceAll('\\','/')).slice(0,24)),hash:digest(source)};});
+  const records=paths.map(path=>{
+    const file=selected?.file??path,size=lstatSync(file).size;
+    if(size>32*1048576)throw new WeavaError('单篇 Markdown 文件超过 32 MB：'+relative(root,path));
+    bytes+=size;
+    let source:string;
+    try{source=selected?new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(file)):readFileSync(file,'utf8');}
+    catch(error){if(error instanceof TypeError)throw new WeavaError('Markdown 文件需要使用 UTF-8 编码。');throw error;}
+    const {metadata,body}=parseMarkdownFile(source);
+    return {path,metadata,body,id:String(metadata.id??'md-'+digest(relative(root,path).replaceAll('\\','/')).slice(0,24)),hash:digest(source)};
+  });
   const byPath=new Map(records.map(item=>[resolve(item.path),item.id]));
   const entries=records.map(item=>{
     let source=item.body;const metadata=structuredClone(item.metadata),urls=new Set<string>();
@@ -88,7 +101,7 @@ function planFolder(site:Site,input:string,options:FolderOptions){
     for(const url of urls){if(/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(url))continue;const separator=url.search(/[?#]/),plain=separator<0?url:url.slice(0,separator),suffix=separator<0?'':url.slice(separator);
       let file:string;try{file=plain.startsWith('/')?inside(root,decodeURIComponent(plain).slice(1)):resolve(dirname(item.path),decodeURIComponent(plain));}catch{throw new WeavaError('附件路径编码无效：'+url);}
       // Framework images and existing site-root links are URLs, not absolute disk paths.
-      if(plain.startsWith('/')&&!plain.startsWith('/media/')&&!existsSync(file))continue;
+      if(plain.startsWith('/')&&(selected||!plain.startsWith('/media/')&&!existsSync(file)))continue;
       if(byPath.has(file)){source=replaceMediaUrls(source,url,'entry:'+encodeURIComponent(byPath.get(file)!)+suffix,domain).value;continue;}
       if(!isUploadFormat(file))continue;
       if(plain.startsWith('/media/'))file=inside(root,plain.slice(1));
@@ -99,7 +112,7 @@ function planFolder(site:Site,input:string,options:FolderOptions){
     if(manifest)for(const mapping of mappings){source=replaceMediaUrls(source,mapping.from,mapping.to,domain).value;Object.assign(metadata,replaceMediaUrls(metadata,mapping.from,mapping.to,domain).value);}
     const {weava,...fields}=metadata;
     const originalUnchanged=weava?.bodyHash===digest(item.body);
-    return entrySchema.parse({...fields,id:item.id,kind:metadata.kind??'content',type:options.type??metadata.type??'post',title:metadata.title??/^#\s+(.+)$/m.exec(source)?.[1]??basename(item.path,'.md'),path:metadata.path??'/posts/'+encodeURIComponent(item.id)+'/',status:metadata.status??'draft',blocks:originalUnchanged?metadata.blocks??[]:[],document:originalUnchanged&&weava?.document?weava.document:{version:1,format:'markdown',source}});
+    return entrySchema.parse({...fields,id:item.id,kind:metadata.kind??'content',type:options.type??metadata.type??'post',title:metadata.title??/^#\s+(.+)$/m.exec(source)?.[1]??basename(item.path,extname(item.path)),path:metadata.path??'/posts/'+encodeURIComponent(item.id)+'/',status:selected?'draft':metadata.status??'draft',blocks:originalUnchanged?metadata.blocks??[]:[],document:originalUnchanged&&weava?.document?weava.document:{version:1,format:'markdown',source}});
   });
   if(bytes>(options.budgetBytes??1024*1024*1024))throw new WeavaError('预计处理 '+Math.ceil(bytes/1048576)+' MB，超过本次体积预算；请明确提高 --budget-mib。');
   const exchange:SiteExchange={...(manifest?.site??{version:1}),entries};
@@ -129,5 +142,17 @@ export async function importMarkdownFolder(site:Site,input:string,options:Folder
     for(const item of prepared)if(!site.store.get('media',item.id))site.store.put('media',item.id,item.value,null,'Markdown 附件');
     const result=importSite(site,plan.exchange,{mode:plan.mode,revisions:plan.revisions});for(const item of prepared)queueMediaOptimization(site,item.id);
     return {review:plan.review,result,media:prepared.length,entries:plan.entries};
+  }).immediate();
+}
+export function importSelectedMarkdown(site:Site,selected:SelectedMarkdown,options:{mode?:'create'|'merge';dryRun?:boolean;markdownReview?:string},committed?:(result:any)=>void){
+  const plan=planFolder(site,join(site.root,'imports'),{merge:options.mode==='merge'},selected);
+  const describe=(result:ReturnType<typeof importSite>)=>({...result,markdownReview:plan.review,entry:plan.entries[0]});
+  if(options.dryRun)return describe(importSite(site,plan.exchange,{dryRun:true,mode:plan.mode,revisions:plan.revisions}));
+  return site.store.raw.transaction(()=>{
+    if(!options.markdownReview||options.markdownReview!==plan.review||digest(importRevisions(site))!==digest(plan.revisions))
+      throw new WeavaError('文件、导入选项或站点内容已变化，请重新预检。',409);
+    const result=describe(importSite(site,plan.exchange,{mode:plan.mode,revisions:plan.revisions}));
+    committed?.(result);
+    return result;
   }).immediate();
 }

@@ -33,16 +33,22 @@ export function registerReportsCommands({
   seo
     .command('audit')
     .option('--draft', '检查当前候选工作稿')
-    .option('--http', '读取实际公开 HTTP 响应，最多 200 页')
+    .option('--http', '读取实际公开 HTTP 响应')
+    .option('--max-pages <number>', '每批地址预算，1～1000，默认 200', '200')
+    .option('--resume <report-id>', '从同一公开版本的 HTTP 报告继续检查')
     .action(async (opts) => {
       const job = await wait(await request('seo/audit', {
           target: opts.draft ? 'draft' : 'published',
           http: !!opts.http,
+          maxPages: Number(opts.maxPages),
+          ...(opts.resume ? { resume: opts.resume } : {}),
         }), true);
       output(job.status === 'complete' ? job.result : job);
     });
 
   seo.command('reports').action(async () => output(await request('seo/audits')));
+  seo.command('insights').option('--start <date>', '窗口开始 YYYY-MM-DD').option('--end <date>', '窗口结束 YYYY-MM-DD')
+    .action(async options => output(await request('seo/insights?' + new URLSearchParams({ ...(options.start ? { start: options.start } : {}), ...(options.end ? { end: options.end } : {}) }))));
 
   seo
     .command('metadata')

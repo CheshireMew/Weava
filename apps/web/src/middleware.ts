@@ -14,7 +14,13 @@ import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
 import { assetResponse } from '../../../packages/core/src/asset-response.ts';
 import { releaseIndex } from '../../../packages/core/src/release-index.ts';
 import {localizeCodeControls} from '../../../packages/core/src/public-locale.ts';
+import {publicUrlRedirect} from '../../../packages/core/src/public-url.ts';
+import {PublicResponseCache, conditionalPublicResponse} from '../../../packages/core/src/public-response-cache.ts';
+import {digest} from '../../../packages/runtime-common/src/identity.ts';
+import {declaredCrawler} from '../../../packages/core/src/analytics-agents.ts';
+import {advertiseCurrentSitemap} from './public-documents.ts';
 const compress = promisify(gzip);
+const publicResponses = new PublicResponseCache();
 const developmentNonces = new WeakMap<Response, string>();
 const mime: Record<string, string> = {
   '.css': 'text/css',
@@ -115,6 +121,8 @@ const serve = defineMiddleware(async (context, next) => {
     if (!existsSync(file)) return new Response('Not found',{status:404});
     return assetResponse(file, context.request, mime[extname(file)] ?? 'application/octet-stream');
   }
+  const normalized = publicUrlRedirect(context.request, site.visibleRelease(), { protocol: identity.protocol, enforceOrigin: !import.meta.env.DEV });
+  if (normalized) return new Response(null, { status: 301, headers: { Location: normalized } });
   if (!/^\/(?:api\/admin|api\/v1|media|__preview|_admin|__health)(?:\/|$)/.test(path)) {
     const renderer = await siteRenderer;
     if (renderer) { const response = await renderer.render(context.request, contextFor(context.request)); if (response !== null) return response; }
@@ -135,7 +143,21 @@ const serve = defineMiddleware(async (context, next) => {
 });
 export const onRequest = defineMiddleware(async (context, next) => {
   let response: Response;
-  try { response = (await serve(context, next)) ?? new Response(null, { status: 500 }); }
+  const generation = !import.meta.env.DEV && ready && !maintenance ? digest([site.store.state('release'), site.store.list('extension-config').map(row => [row.id, row.revision])]) : '';
+  const cacheKey = publicResponses.key(context.request, generation, Number(process.env.WEAVA_PUBLIC_CACHE_SECONDS) || 0);
+  try {
+    const cached = publicResponses.get(cacheKey);
+    if (cached) {
+      let peer='';try{peer=context.clientAddress;}catch{}
+      const identity=requestIdentity(context.request,peer);
+      assertRequestTransport(context.request,identity.secure,peer,false);
+    }
+    response = cached ?? (await serve(context, next)) ?? new Response(null, { status: 500 });
+    if (!cached && context.url.pathname === '/robots.txt' && context.request.method === 'GET') {
+      response = await advertiseCurrentSitemap(response, site.visibleRelease());
+    }
+    if (!cached && context.request.method === 'GET') await publicResponses.remember(cacheKey, response);
+  }
   catch (error) {
     if (!(error instanceof WeavaError)) console.error('Request failed',error);
     response = new Response(error instanceof WeavaError?error.message:'网站暂时无法完成请求。', { status: error instanceof WeavaError?error.status:500, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
@@ -167,17 +189,29 @@ export const onRequest = defineMiddleware(async (context, next) => {
       response = new Response(html, { status: response.status, headers });
     }
   }
-  const published=!admin&&!programAsset&&context.request.method==='GET'&&response.headers.get('content-type')?.includes('text/html')?site.visibleRelease():null;
-  if (published && releaseIndex(published).byPath.has(context.url.pathname)) {
-    let peer='';try{peer=context.clientAddress;}catch{}
-    try { if(features.includes('analytics'))analytics.recordCrawler(context.url.pathname, context.request.headers.get('user-agent') ?? '', response.status, requestIdentity(context.request,peer).network); } catch {}
-  }
   if (!programAsset) {
     const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     vary.add('Cookie');
     response.headers.set('Vary', [...vary].join(', '));
     if (!context.url.pathname.startsWith('/media/') && site.authenticate(context.cookies.get('weava-session')?.value ?? ''))
       response.headers.set('Cache-Control', 'private, no-store');
+  }
+  if (cacheKey && response.status === 200 && !response.headers.has('set-cookie') && /html|xml|text\/plain/i.test(response.headers.get('content-type') ?? '') && !/private|no-store/i.test(response.headers.get('cache-control') ?? '')) {
+    const body = await response.clone().text();
+    response = conditionalPublicResponse(context.request, response, body);
+  }
+  if (!admin && !programAsset && features.includes('analytics') && context.request.method === 'GET' &&
+      (response.status === 304 || response.headers.get('content-type')?.includes('text/html'))) {
+    const agent = declaredCrawler(context.request.headers.get('user-agent') ?? '');
+    const release = agent && site.visibleRelease();
+    if (agent && release) try {
+      const page = releaseIndex(release).byPath.get(normalizePath(context.url.pathname));
+      if (page && page.visibility !== 'private') {
+        let peer = '';
+        try { peer = context.clientAddress; } catch {}
+        analytics.recordCrawler(page.path, agent, response.status, requestIdentity(context.request, peer).network);
+      }
+    } catch {}
   }
   const type = response.headers.get('content-type') ?? '';
   if (

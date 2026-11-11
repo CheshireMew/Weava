@@ -7,8 +7,8 @@ const t=textFor(language);
 const noun = guestbook ? '留言' : '评论';
 const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 ---
-<section id="comments" class="nl-comments" aria-labelledby="comments-heading" data-comment-noun={noun}>
-  <div class="nl-comments-heading"><h2 id="comments-heading">{t(noun)}</h2><select aria-label={t(noun + '排序')} data-comment-sort><option value="latest">{t("最新")}</option><option value="oldest">{t("最早")}</option></select></div>
+<section id="comments" class="nl-comments" aria-label={guestbook ? t(noun) : undefined} aria-labelledby={guestbook ? undefined : "comments-heading"} data-comment-noun={noun}>
+  <div class="nl-comments-heading">{!guestbook && <h2 id="comments-heading">{t(noun)}</h2>}<select aria-label={t(noun + '排序')} data-comment-sort><option value="latest">{t("最新")}</option><option value="oldest">{t("最早")}</option></select></div>
   <form class="nl-comment-form" data-comment-form hidden={!allowComments} data-closed={!allowComments ? "true" : undefined}>
     <span class="nl-comment-avatar" aria-hidden="true">{t("我")}</span>
     <div class="nl-comment-inputs">
@@ -31,3 +31,7 @@ const date = (value: string) => new Intl.DateTimeFormat(language, { timeZone: ti
   <p class="nl-empty-comments" data-empty-comments hidden={items.length > 0}>{t('暂无'+noun)}</p>
   <button type="button" class="nl-load-comments" data-load-comments hidden={!hasMore}>{t('更多'+noun)}</button>
 </section>
+
+<style>
+  .nl-comments-heading select { margin-left: auto; }
+</style>

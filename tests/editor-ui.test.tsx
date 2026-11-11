@@ -8,7 +8,7 @@ import {renderDocument} from '../packages/core/src/documents.ts';
 import {load} from 'cheerio';
 import {markdownFormats} from './fixtures/markdown.ts';
 import {api} from '../apps/admin/src/api.ts';
-import {$getRoot,$isTextNode,CONTROLLED_TEXT_INSERTION_COMMAND,UNDO_COMMAND} from 'lexical';
+import {$getRoot,$getSelection,$isNodeSelection,$isTextNode,CONTROLLED_TEXT_INSERTION_COMMAND,UNDO_COMMAND,KEY_BACKSPACE_COMMAND} from 'lexical';
 import {EditorView} from '@codemirror/view';
 import {exportMarkdown} from '../apps/admin/src/editor/transformers.tsx';
 import {MarkdownEditor} from '../apps/admin/src/editor/MarkdownEditor.tsx';
@@ -141,6 +141,41 @@ it.each(['markdown', 'lexical'] as const)('allows typing above a leading divider
   await act(async () => editor.dispatchCommand(UNDO_COMMAND, undefined));
   expect(editable.firstElementChild?.textContent).toBe(''); expect(editable.querySelectorAll('hr').length).toBe(1);
   expect(changed.mock.lastCall![0]).toEqual(value);
+});
+
+it('selects a divider directly without changing the document or toggling it off, and supports delete and undo',async()=>{
+  const value={version:1 as const,format:'markdown' as const,source:'前面的正文。\n\n---\n\n**作者签名**'},changed=vi.fn();
+  function Harness(){const[document,setDocument]=useState(value);return <Editor value={document} onChange={next=>{changed(next);setDocument(next as typeof value);}} onMedia={async()=>null} onError={error=>{throw new Error(error);}}/>;}
+  await act(async()=>root.render(<Harness/>));
+  const editable=host.querySelector<HTMLElement>('.visual-editor')!,editor=(editable as any).__lexicalEditor,rule=editable.querySelector('hr')!;
+  await act(async()=>editor.update(()=>$getRoot().selectEnd(),{discrete:true}));
+  const press=()=>act(async()=>{
+    const event=new MouseEvent('mousedown',{bubbles:true,cancelable:true});rule.dispatchEvent(event);expect(event.defaultPrevented).toBe(true);rule.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+  });
+  await press();await press();
+  expect(rule.classList.contains('editor-divider-selected')).toBe(true);
+  expect(editor.getEditorState().read(()=>$isNodeSelection($getSelection())&&$getSelection()!.getNodes().map(node=>node.getType()))).toEqual(['horizontalrule']);
+  expect(changed).not.toHaveBeenCalled();expect(host.querySelector<HTMLButtonElement>('[aria-label="加粗"]')!.disabled).toBe(true);
+  await act(async()=>{editable.dispatchEvent(new InputEvent('input',{bubbles:true}));editor.dispatchCommand(KEY_BACKSPACE_COMMAND,new KeyboardEvent('keydown',{key:'Backspace',cancelable:true}));});
+  expect(editable.querySelector('hr')).toBeNull();expect(changed).toHaveBeenCalled();
+  expect(renderDocument(changed.mock.lastCall![0])).toContain('作者签名');
+  await act(async()=>editor.dispatchCommand(UNDO_COMMAND,undefined));
+  expect(editable.querySelectorAll('hr')).toHaveLength(1);expect(changed.mock.lastCall![0]).toEqual(value);
+});
+
+it('reflects selected text formats, list toggles and available undo without changing the toolbar layout',async()=>{
+  await act(async()=>root.render(<Editor value={{version:1,format:'markdown',source:'**加粗文字** 和普通正文。'}} onChange={vi.fn()} onMedia={async()=>null} onError={vi.fn()}/>));
+  const editable=host.querySelector<HTMLElement>('.visual-editor')!,editor=(editable as any).__lexicalEditor;
+  expect(host.querySelector<HTMLButtonElement>('[aria-label="撤销"]')!.disabled).toBe(true);
+  await act(async()=>editor.update(()=>{const text=$getRoot().getFirstDescendant();if($isTextNode(text))text.select(0,4);},{discrete:true}));
+  expect(host.querySelector('[aria-label="加粗"]')?.getAttribute('aria-pressed')).toBe('true');
+  expect(host.querySelector('[aria-label="斜体"]')?.getAttribute('aria-pressed')).toBe('false');
+  await clickFormat('斜体');expect(host.querySelector('[aria-label="斜体"]')?.getAttribute('aria-pressed')).toBe('true');
+  expect(host.querySelector<HTMLButtonElement>('[aria-label="撤销"]')!.disabled).toBe(false);
+  await clickFormat('无序列表');expect(editable.querySelector('ul')).not.toBeNull();
+  expect(host.querySelector('[aria-label="无序列表"]')?.getAttribute('aria-pressed')).toBe('true');
+  await clickFormat('无序列表');expect(editable.querySelector('ul')).toBeNull();
+  expect(host.querySelector('[aria-label="无序列表"]')?.getAttribute('aria-pressed')).toBe('false');
 });
 
 it('opens legacy HTML as editable content without exposing source or rewriting it on open', async () => {

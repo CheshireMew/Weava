@@ -12,7 +12,6 @@ import { useManagedRecord } from './EditSessions.tsx';
 
 import { SiteSeoFields } from './SeoFields.tsx';
 import { useSelectors } from './Selectors.tsx';
-import {MediaUploadSettings} from './MediaUploadSettings.tsx';
 import { SiteInfoSettings } from './SiteInfoSettings.tsx';
 import type { SiteInfo } from '../../../packages/contracts/src/site-info.ts';
 import TaxonomyManager, { useTaxonomyEditor } from './TaxonomyManager.tsx';
@@ -99,7 +98,7 @@ export default function SettingsPanel({
         <h1>网站设置</h1>
       </div>
       {['error', 'incomplete'].includes(saveState.phase) && <div className="settings-save-feedback"><AutosaveStatus state={saveState} label="网站设置" /></div>}
-      <PanelSections label="网站设置分类" initialSection={initialSection} sections={[
+      <PanelSections label="网站设置分类" segmented initialSection={initialSection} sections={[
         { id: 'site', label: '基本信息', content: <>
         <section className="form-card">
           <h2>网站</h2>
@@ -128,9 +127,9 @@ export default function SettingsPanel({
             {value.logo && <button type="button" onClick={() => set({ logo: '' })}>移除图片</button>}
           </div>
         </section>
+        <SiteSeoFields value={value} onChange={set} />
 </> },
         { id: 'about', label: '关于本站', content: <SiteInfoSettings section="about" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
-        { id: 'media', label: '媒体上传', content: <MediaUploadSettings value={value} onChange={set}/> },
         { id: 'friends', label: '友情链接', content: <SiteInfoSettings section="friends" value={value.siteInfo} defaults={siteInfo} onChange={siteInfo => set({ siteInfo })} /> },
         { id: 'appearance', label: '外观', content: <>        <section className="form-card">
           <h2>主题</h2>
@@ -187,8 +186,6 @@ export default function SettingsPanel({
             onChange={(navigation) => set({ navigation })}
           />
         </section>
-</> },
-        { id: 'sharing', label: '搜索与分享', content: <>        <SiteSeoFields value={value} onChange={set} />
 </> },
         { id: 'ads', label: '广告', content: <>        <AdvertisementSettings
           value={value.advertisements}

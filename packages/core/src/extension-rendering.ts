@@ -8,7 +8,7 @@ export async function renderExtension(
 ) {
   for (const ext of active) {
     const html = await ext.render?.(entry, release);
-    if (html != null) return customEvidence(html, entry);
+    if (html != null) return customEvidence(html, entry, release.settings.language);
   }
   return null;
 }

@@ -3,7 +3,7 @@ import { WeavaError } from '../../contracts/src/errors.ts';
 import { normalizePath } from './paths.ts';
 import {dayStart,dayInZone,shiftDay,validDay} from './analytics-dates.ts';
 import {realtimeReport} from './analytics-realtime.ts';
-import { referral } from './analytics-dimensions.ts';
+import { referral, analyticsKnownSourceName, analyticsSourceChannel, analyticsSourceEngine, analyticsSourceName } from './analytics-dimensions.ts';
 import { BoundedCache } from './cache.ts';
 import type { AnalyticsReport } from '../../contracts/src/analytics.ts';
 import {archivedLifetime} from './analytics-archive.ts';
@@ -19,6 +19,7 @@ interface PreparedRange {key:string;sessions:boolean;visitors:boolean;totals?:{v
 const filtered=new WeakMap<Database.Database,PreparedRange>();
 const dimensions=['country','browser','os','device','model'] as const;
 const byViews=(a:any,b:any)=>b.views-a.views||String(a.path||a.name||a.host||'').localeCompare(String(b.path||b.name||b.host||''));
+const eventChannel = "weava_source_channel(COALESCE(NULLIF(f.channel,''),weava_channel(f.referrer)),weava_known_source(f.source,f.engine,f.referrer),f.referrer)";
 const metric=`COUNT(*) FILTER(WHERE kind='view') views,COUNT(DISTINCT visitor_key) FILTER(WHERE kind='view') visitors,COUNT(DISTINCT session_token) FILTER(WHERE kind='view') sessions,COUNT(*) FILTER(WHERE kind='click') clicks`;
 function context(c:string,e:string){return `COALESCE(${c}.country,'') country,COALESCE(NULLIF(${c}.browser,''),'未知') browser,COALESCE(NULLIF(${c}.os,''),'未知') os,COALESCE(NULLIF(${c}.device,''),'unknown') device,COALESCE(NULLIF(${c}.model,''),'未知') model,
   COALESCE(NULLIF(${c}.channel,''),weava_channel(${e}.referrer)) channel,COALESCE(NULLIF(${c}.engine,''),weava_engine(${e}.referrer)) engine,COALESCE(${c}.source,'') source,COALESCE(${c}.medium,'') medium,COALESCE(${c}.campaign,'') campaign`;}
@@ -81,6 +82,10 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
   if(!initialized.has(db)){
     db.function('weava_channel',{deterministic:true},(value:any)=>referralFallback(value).channel);
     db.function('weava_engine',{deterministic:true},(value:any)=>referralFallback(value).engine);
+    db.function('weava_engine_name',{deterministic:true},(engine:any,source:any)=>analyticsSourceEngine(String(engine||''),String(source||'')));
+    db.function('weava_source_name',{deterministic:true},(source:any,engine:any,referrer:any)=>analyticsSourceName(String(source||''),String(engine||''),String(referrer||'')));
+    db.function('weava_known_source',{deterministic:true},(source:any,engine:any,referrer:any)=>analyticsKnownSourceName(String(source||''),String(engine||''),String(referrer||'')));
+    db.function('weava_source_channel',{deterministic:true},(channel:any,name:any,referrer:any)=>analyticsSourceChannel(String(channel||''),String(name||''),String(referrer||'')));
     initialized.add(db);
   }
   let cursor=0,prepared:PreparedRange,origins=false;
@@ -95,7 +100,7 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
       SELECT b.visitor_key,b.session_key,f.ts first_ts,l.ts last_ts,f.path first_path,l.path last_path,
         f.country first_country,f.browser first_browser,f.os first_os,f.device first_device,f.model first_model,
         l.country last_country,l.browser last_browser,l.os last_os,l.device last_device,l.model last_model,
-        COALESCE(NULLIF(f.channel,''),weava_channel(f.referrer)) channel,COALESCE(NULLIF(f.engine,''),weava_engine(f.referrer)) engine,
+        ${eventChannel} channel,weava_engine_name(COALESCE(NULLIF(f.engine,''),weava_engine(f.referrer)),f.source) engine,
         f.referrer,f.source,f.medium,f.campaign
       FROM keys k JOIN analytics_session_bounds b ON b.visitor_key=k.visitor_key AND b.session_key=k.session_key
       JOIN analytics_facts f ON f.id=b.first_id JOIN analytics_facts l ON l.id=b.last_id`;
@@ -125,7 +130,7 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     const reuse=!refresh&&old?.key===filteredKey&&!!db.prepare("SELECT 1 FROM temp.sqlite_master WHERE name='weava_report_events'").get();
     prepared=reuse?{...old!}:{key:filteredKey,sessions:false,visitors:false};
     const needsFacts=!!params.get('channel')||dimensions.some(key=>!!params.get(key));
-    const filter=filters(params,needsFacts?'f':'r','','COALESCE(o.channel,COALESCE(NULLIF(f.channel,\'\'),weava_channel(f.referrer)))');
+    const filter=filters(params,needsFacts?'f':'r','','COALESCE(o.channel,'+eventChannel+')');
     if(!reuse){
     const previous=db.prepare("SELECT type FROM temp.sqlite_master WHERE name='weava_report_events'").get() as {type:string}|undefined;
     if(previous)db.exec(`DROP ${previous.type==='view'?'VIEW':'TABLE'} temp.weava_report_events`);
@@ -147,8 +152,8 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
     db.exec(`CREATE TEMP TABLE weava_report_visitors AS WITH aggregates AS(
         SELECT visitor_key id,COUNT(*) views,COUNT(DISTINCT session_token) sessions,MIN(ts) firstSeen,MAX(ts) lastSeen,SUM(active_ms) activeMs,MIN(event_order) first_order,MAX(event_order) last_order
         FROM weava_report_events WHERE period=1 AND kind='view' GROUP BY visitor_key)
-      SELECT v.*,COALESCE(o.first_path,e.path) entryPath,COALESCE(o.last_path,e.path) exitPath,f.country,f.browser,f.os,f.device,f.model,COALESCE(o.channel,COALESCE(NULLIF(f.channel,''),weava_channel(f.referrer))) channel,
-        COALESCE(NULLIF(COALESCE(o.source,f.source),''),NULLIF(COALESCE(o.engine,NULLIF(f.engine,''),weava_engine(f.referrer)),''),NULLIF(COALESCE(o.referrer,f.referrer),''),'直接 / 未知') source
+      SELECT v.*,COALESCE(o.first_path,e.path) entryPath,COALESCE(o.last_path,e.path) exitPath,f.country,f.browser,f.os,f.device,f.model,COALESCE(o.channel,${eventChannel}) channel,
+        weava_source_name(COALESCE(o.source,f.source),COALESCE(o.engine,f.engine),COALESCE(o.referrer,f.referrer)) source
       FROM aggregates v JOIN weava_report_events e ON e.visitor_key=v.id AND e.event_order=v.last_order
       JOIN analytics_facts f ON f.id=e.id
       LEFT JOIN weava_report_origins o ON o.visitor_key=e.visitor_key AND o.session_key=e.session_key;`);
@@ -186,8 +191,8 @@ export function queryAnalyticsReport(db:Database.Database,params:URLSearchParams
       averageActiveMs:totals.views?Math.round(prepared.activeMs!/totals.views):0,
       pages:pages.sort(byViews),daily:Array.from({length:days},(_,offset)=>{const date=shiftDay(start,offset);return dates.get(date)??{date,views:0,visitors:0,sessions:0,clicks:0,previousViews:0,previousVisitors:0};}),
       links:wants('actions')?all("SELECT e.path,f.url,f.zone,f.label,COUNT(*) clicks FROM weava_report_events e JOIN analytics_facts f ON f.id=e.id WHERE e.period=1 AND e.kind='click' GROUP BY e.path,f.url,f.zone,f.label ORDER BY clicks DESC,MIN(e.event_order)"):[],
-      sources:wants('sources')?all(`SELECT o.channel,NULLIF(o.referrer,'') host,COALESCE(NULLIF(o.source,''),NULLIF(o.engine,''),NULLIF(o.referrer,''),'直接 / 未知') name,SUM(s.views) views,COUNT(*) sessions,COUNT(DISTINCT s.visitor_key) visitors
-        FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE s.period=1 GROUP BY o.channel,o.referrer,o.source,o.medium,o.campaign ORDER BY MIN(s.first_order)`).sort(byViews):[],
+      sources:wants('sources')?all(`SELECT o.channel,CASE WHEN COUNT(DISTINCT o.referrer)=1 THEN NULLIF(MIN(o.referrer),'') ELSE NULL END host,weava_known_source(o.source,o.engine,o.referrer) name,SUM(s.views) views,COUNT(*) sessions,COUNT(DISTINCT s.visitor_key) visitors
+        FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE s.period=1 GROUP BY o.channel,name HAVING name<>'' ORDER BY MIN(s.first_order)`).sort(byViews):[],
       engines:[...engines.values()],campaigns:wants('sources')?all(`SELECT o.source,o.medium,o.campaign,COUNT(*) sessions,SUM(s.views) views FROM weava_report_sessions s JOIN weava_report_origins o USING(visitor_key,session_key) WHERE s.period=1 AND (o.source<>'' OR o.campaign<>'') GROUP BY o.source,o.medium,o.campaign ORDER BY views DESC,MIN(s.first_order)`):[],
       countries:dimension('country'),browsers:dimension('browser'),operatingSystems:dimension('os'),devices:dimension('device'),models:dimension('model'),
       recentVisitors:visitorRows('lastSeen DESC,first_order'),activeVisitors:visitorRows('views DESC,first_order'),

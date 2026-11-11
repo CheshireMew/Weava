@@ -1,5 +1,5 @@
 import {afterEach, expect, it} from 'vitest';
-import {Window, type HTMLElement as HappyHTMLElement, type HTMLButtonElement as HappyButton} from 'happy-dom';
+import {Window, type HTMLButtonElement as HappyButton} from 'happy-dom';
 import {readFileSync} from 'node:fs';
 
 const script = readFileSync('apps/web/public/weava-article.js', 'utf8');
@@ -8,24 +8,14 @@ afterEach(async () => { for (const window of windows.splice(0)) await window.hap
 const comment = {id:'reply', author:'读者', body:'原评论', createdAt:'2026-11-01T00:00:00Z', likes:0};
 const summary = {items:[comment], hasMore:false, likes:0, comments:1, liked:false};
 const tick = () => new Promise(resolve => setTimeout(resolve, 10));
-it('operates both article menus with keys, restores focus, and closes on outside navigation', () => {
-  const window=new Window({url:'https://example.test/article/'});windows.push(window);
-  window.document.body.innerHTML=['top','bottom'].map(id=>`<div class="nl-more-wrap"><button data-article-action="more" aria-controls="${id}" aria-expanded="false">更多</button><div class="nl-more-menu" id="${id}" role="menu" hidden><button role="menuitem" tabindex="-1" data-article-action="print">打印文章</button></div></div>`).join('')+'<button id="outside">其它操作</button>';
-  window.eval(script);
-  const triggers=[...window.document.querySelectorAll<HappyButton>('[data-article-action="more"]')];
-  const element=(id:string)=>window.document.getElementById(id) as HappyHTMLElement;
-  const key=(target:any,key:string)=>target.dispatchEvent(new window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
-  for(const trigger of triggers){
-    trigger.click();const menu=element(trigger.getAttribute('aria-controls')!);
-    expect(menu.hidden).toBe(false);expect(window.document.activeElement?.textContent).toBe('打印文章');
-    key(window.document.activeElement,'ArrowDown');expect(window.document.activeElement?.textContent).toBe('打印文章');
-    key(window.document.activeElement,'Escape');expect(menu.hidden).toBe(true);expect(window.document.activeElement).toBe(trigger);expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    key(trigger,'ArrowUp');expect(window.document.activeElement?.textContent).toBe('打印文章');
-    key(window.document.activeElement,'Tab');expect(menu.hidden).toBe(true);
-    trigger.click();element('outside').focus();expect(menu.hidden).toBe(true);
-  }
-  triggers[0].click();triggers[1].click();expect(element('top').hidden).toBe(true);
-  window.document.body.click();expect(element('bottom').hidden).toBe(true);
+it('uses the same share action for native sharing and clipboard fallback, with clear completion feedback',async()=>{
+ const window=new Window({url:'https://example.test/article/'});windows.push(window);
+ window.document.body.innerHTML='<h1>测试文章</h1><button data-article-action="share">分享</button>';
+ let copied='';Object.defineProperty(window.navigator,'clipboard',{value:{writeText:async(value:string)=>{copied=value;}}});
+ window.eval(script);const share=window.document.querySelector<HappyButton>('[data-article-action="share"]')!;
+ share.click();await tick();expect(copied).toBe('https://example.test/article/');expect(window.document.querySelector('[role="status"]')?.textContent).toBe('链接已复制');
+ let shared:any;Object.defineProperty(window.navigator,'share',{value:async(value:any)=>{shared=value;}});copied='';share.click();await tick();
+ expect(shared).toEqual({title:'测试文章',url:'https://example.test/article/'});expect(copied).toBe('');
 });
 function fixture(handler: (action:string, body:any) => Promise<unknown>) {
   const window = new Window({url:'https://example.test/article/'}); windows.push(window);

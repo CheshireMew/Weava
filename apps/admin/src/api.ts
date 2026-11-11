@@ -117,7 +117,7 @@ export async function waitJob(job: any, onProgress: (job: any) => void) {
       interval = Math.min(500, interval * 2);
     } catch (error: any) {
       throw new ApiClientError(
-        '暂时无法读取任务进度，任务可能仍在执行，可在任务记录中继续查看。',
+        '暂时无法读取进度，任务可能仍在执行。',
         error.status ?? 0,
         { jobId: job.id, cause: error.details },
       );

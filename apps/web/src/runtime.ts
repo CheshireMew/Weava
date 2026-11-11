@@ -8,6 +8,7 @@ import {migrateWebsite} from '../../../packages/core/src/site-migrations.ts';
 import {readJobLog} from '../../../packages/core/src/job-logs.ts';
 import {httpRequests} from '../../../packages/core/src/http-lifecycle.ts';
 import {queueAutomaticBackup} from '../../../packages/core/src/backup-management.ts';
+import {recoverMediaDeletions} from '../../../packages/core/src/media-deletion.ts';
 const root=resolve(process.env.WEAVA_SITE??resolve(process.env.WEAVA_FRAMEWORK??process.cwd(),'../WeavaSites/demo'));
 const runtimeFile=join(root,'runtime.json');
 if(existsSync(runtimeFile)){
@@ -15,6 +16,7 @@ if(existsSync(runtimeFile)){
  if(old.status!=='stopped'&&old.pid!==process.pid){try{process.kill(old.pid,0);alive=true;}catch{}if(alive)throw new Error('这个站点已经由另一个进程运行。');}
 }
 export const site=new Site(root);
+recoverMediaDeletions(site);
 export const features=siteFeatures(root);
 let actualAnalytics:Analytics|undefined;
 export const analytics=new Proxy({} as Analytics,{get(_target,key){

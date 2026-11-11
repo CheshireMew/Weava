@@ -14,7 +14,7 @@ export function Card({
   children: ReactNode;
   action?: ReactNode;
   className?: string;
-  dateRange?: boolean;
+  dateRange?: boolean | 'select';
 }) {
   const query = useContext(AnalyticsExportContext), dataset = datasets[title];
   return (
@@ -24,7 +24,7 @@ export function Card({
         {action}{dataset && query !== null && <a className="analytics-text-button" aria-label={'导出' + title} href={'/api/admin/v1/analytics/export?' + query + '&dataset=' + dataset}>导出</a>}
       </div>
       {children}
-      {dateRange && <footer className="analytics-card-footer"><ReportPeriod label={title} /></footer>}
+      {dateRange && <footer className="analytics-card-footer"><ReportPeriod label={title} selectable={dateRange==='select'} /></footer>}
     </section>
   );
 }

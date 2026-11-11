@@ -80,6 +80,7 @@ export function serveTasks(root:string) {
       }
     }
     if(operation==='media-references')return (await import('./media.ts')).mediaReferences(site,payload.id);
+    if(operation==='media-delete-preview')return (await import('./media-deletion.ts')).previewMediaDeletion(site,payload.id);
     if(operation==='storage-usage')return (await import('./maintenance.ts')).storageUsage(site);
     if(operation==='archive-plan'){
       const plan=(await import('./history-archive.ts')).planHistoryArchive(site,payload);

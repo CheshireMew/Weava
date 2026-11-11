@@ -1,8 +1,8 @@
 import { expect,it } from 'vitest';
-import { mkdirSync } from 'node:fs';
-import { Analytics } from '@weava/core';
+import { analyticsDatabase } from './fixtures/analytics-database.ts';
 import { analyticsReport } from '../packages/core/src/analytics-reports.ts';
 import { analyticsReport as reference } from './fixtures/analytics-reference.ts';
+import { Analytics } from '../packages/core/src/analytics.ts';
 
 function normalized(value:any):any{
   if(Array.isArray(value))return value.map(normalized).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -10,7 +10,7 @@ function normalized(value:any):any{
   return value;
 }
 it('matches the previous report semantics for attributed sessions, filters, actions, legacy identities and DST boundaries',()=>{
-  const root=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/analytics-query-'+Date.now();mkdirSync(root,{recursive:true});const analytics=new Analytics(root),db=analytics.raw;
+  const db=analyticsDatabase();
   try{
     const insert=db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)'),detail=db.prepare('INSERT INTO event_context VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)'),activity=db.prepare('INSERT INTO page_activity VALUES(?,?,?,?,?)');
     db.transaction(()=>{
@@ -48,5 +48,100 @@ it('matches the previous report semantics for attributed sessions, filters, acti
     db.transaction(()=>{for(let index=0;index<11000;index++)insert.run('outside-'+index,'event','2020-01-01T00:00:00.000Z','/outside/','other','other','','action','','','old');})();
     expect((db.prepare('SELECT COUNT(*) n FROM analytics_changes').get() as {n:number}).n).toBeLessThanOrEqual(10256);
     expect(normalized(analyticsReport(db,incremental,'UTC',clock))).toEqual(normalized(reference(db,incremental,'UTC',clock)));
-  }finally{analytics.close();}
+  }finally{db.close();}
 },30000);
+it('groups Google domains and campaign variants once while counting each visitor only once',()=>{
+  const db=analyticsDatabase();
+  try{
+    const insert=db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    const context=db.prepare('INSERT INTO event_context VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const visits=[
+      ['one','reader','first','www.google.com','search-referral','','','','/one/'],
+      ['two','reader','second','www.google.com.hk','search-referral','','organic','launch','/two/'],
+      ['three','other','third','google.co.jp','search-referral','','organic','another','/one/'],
+      ['paid','paid-reader','paid','google.com','paid','Google','cpc','advertisement','/one/'],
+      ['custom','custom-reader','custom','google.com','search-referral','newsletter','organic','special','/one/'],
+    ];
+    for(const [id,visitor,session,host,channel,source,medium,campaign,path] of visits){
+      insert.run(id,'view','2026-11-01T12:00:00.000Z',path,visitor,session,'','','',host,'release');
+      context.run(id,'','Chrome','Windows','desktop','','',channel,'Google',source,medium,campaign,1);
+    }
+    const params=new URLSearchParams({start:'2026-11-01',end:'2026-11-01',section:'sources'}),clock=Date.UTC(2026,10,2);
+    const result=analyticsReport(db,params,'UTC',clock);
+    const google=result.sources.filter(row=>row.name==='Google'&&row.channel==='search-referral');
+    expect(google).toEqual([{name:'Google',channel:'search-referral',host:null,views:3,sessions:3,visitors:2}]);
+    expect(result.sources.find(row=>row.channel==='paid')).toMatchObject({name:'Google',views:1,visitors:1});
+    expect(result.sources.find(row=>row.name==='newsletter')).toMatchObject({views:1,visitors:1});
+    expect(result.campaigns.map(row=>row.campaign)).toEqual(expect.arrayContaining(['launch','another']));
+    expect(analyticsReport(db,new URLSearchParams({...Object.fromEntries(params),path:'/one/'}),'UTC',clock).sources.find(row=>row.name==='Google'&&row.channel==='search-referral')).toMatchObject({views:2,sessions:2,visitors:2});
+  }finally{db.close();}
+});
+it('merges ChatGPT referrers and tracked links without merging paid traffic',()=>{
+  const db=analyticsDatabase();
+  try{
+    const insert=db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    const context=db.prepare('INSERT INTO event_context VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const visits=[
+      ['legacy','reader','chat.openai.com','search-referral','ChatGPT','',''],
+      ['tagged','reader','','campaign','','chatgpt.com',''],
+      ['referrer','other','chatgpt.com','ai-referral','ChatGPT','',''],
+      ['paid','paid-reader','','paid','','ChatGPT','cpc'],
+      ['unknown','direct-reader','','direct-or-unknown','','',''],
+      ['recovered','bing-reader','www.bing.com','direct-or-unknown','','(direct)',''],
+      ['email','unknown-reader','','email','','(not set)','email'],
+    ];
+    for(const [id,visitor,host,channel,engine,source,medium] of visits){
+      insert.run(id,'view','2026-11-01T12:00:00.000Z','/one/',visitor,id,'','','',host,'release');
+      context.run(id,'','Chrome','Windows','desktop','','',channel,engine,source,medium,'',1);
+    }
+    const params=new URLSearchParams({start:'2026-11-01',end:'2026-11-01'}), clock=Date.UTC(2026,10,2);
+    const report=analyticsReport(db,params,'UTC',clock);
+    expect(report.sources).toHaveLength(3);
+    expect(report).toMatchObject({views:7,visitors:6});
+    expect(report.sources.find(row=>row.channel==='ai-referral')).toEqual({name:'ChatGPT',channel:'ai-referral',host:null,views:3,sessions:3,visitors:2});
+    expect(report.sources.find(row=>row.channel==='paid')).toMatchObject({name:'ChatGPT',views:1,visitors:1});
+    expect(report.sources.find(row=>row.name==='Bing')).toMatchObject({channel:'search-referral',views:1,visitors:1});
+    const csv=Analytics.prototype.export.call({report:()=>report} as any,new URLSearchParams({dataset:'sources'}),'UTC');
+    expect(csv.split('\n').filter(Boolean)).toHaveLength(4);
+    expect(csv).not.toMatch(/直接 \/ 未知|not set/);
+    expect(report.campaigns).toContainEqual(expect.objectContaining({source:'chatgpt.com',views:1}));
+    params.set('channel','ai-referral');
+    const filtered=analyticsReport(db,params,'UTC',clock);
+    expect(filtered.engines).toEqual([expect.objectContaining({name:'ChatGPT',views:3})]);
+    expect(filtered.recentVisitors).toEqual([
+      expect.objectContaining({source:'ChatGPT',channel:'ai-referral'}),
+      expect.objectContaining({source:'ChatGPT',channel:'ai-referral'}),
+    ]);
+  }finally{db.close();}
+});
+it.each([
+  ['Bing',['www.bing.com','cn.bing.com','bing.com']],
+  ['Google',['google.com','www.google.com.hk','google.co.jp']],
+  ['百度',['www.baidu.com','m.baidu.com','baidu.com']],
+  ['DuckDuckGo',['duckduckgo.com','www.duckduckgo.com','start.duckduckgo.com']],
+  ['Yahoo',['search.yahoo.com','uk.search.yahoo.com','search.yahoo.co.jp']],
+  ['Yandex',['yandex.com','www.yandex.ru','yandex.ru']],
+  ['搜狗',['www.sogou.com','m.sogou.com','sogou.com']],
+  ['360',['www.so.com','m.so.com','so.com']],
+])('groups %s aliases before counting visitors, rendering trends, and exporting', (engine,hosts)=>{
+  const db=analyticsDatabase();
+  try{
+    const insert=db.prepare('INSERT INTO events VALUES(?,?,?,?,?,?,?,?,?,?,?)'),context=db.prepare('INSERT INTO event_context VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    hosts.forEach((host,index)=>{
+      const id='provider-'+index;insert.run(id,'view','2026-11-01T12:00:00.000Z','/one/',index===2?'other':'reader','session-'+index,'','','',host,'release');
+      context.run(id,'','Chrome','Windows','desktop','','','search-referral','',index===0?'':index===1?engine.toLowerCase():host,'organic','',1);
+    });
+    for(const [id,channel,source] of [['paid','paid',engine],['custom','search-referral','newsletter']]){
+      insert.run(id,'view','2026-11-01T12:00:00.000Z','/one/',id,id,'','','',hosts[0],'release');
+      context.run(id,'','Chrome','Windows','desktop','','',channel,engine,source,channel==='paid'?'cpc':'organic','launch',1);
+    }
+    const params=new URLSearchParams({start:'2026-11-01',end:'2026-11-01',section:'sources'});
+    const report=analyticsReport(db,params,'UTC',Date.UTC(2026,10,2));
+    expect(report.sources.filter(row=>row.name===engine&&row.channel==='search-referral')).toEqual([{name:engine,channel:'search-referral',host:null,views:3,sessions:3,visitors:2}]);
+    expect(report.sources.find(row=>row.name==='newsletter')).toMatchObject({views:1,visitors:1});
+    expect(report.sources.find(row=>row.channel==='paid')).toMatchObject({name:engine,views:1});
+    expect(report.engines).toHaveLength(1);expect(report.engines[0]).toMatchObject({name:engine,views:5});
+    const exported=Analytics.prototype.export.call({report:()=>report} as any,new URLSearchParams({dataset:'sources'}),'UTC');
+    expect(exported.split('\n').filter(line=>line.startsWith('"search-referral",')&&line.includes(',"'+engine+'",'))).toHaveLength(1);
+  }finally{db.close();}
+});

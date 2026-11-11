@@ -49,8 +49,11 @@ export function queryAdminEntries(
 export function adminEntry(site: Pick<Site, 'store' | 'terms'>, id: string) {
   const row = site.store.get('entry', id);
   if (!row) throw new DomainError('内容不存在。', 404);
+  const publication=site.store.raw.prepare("SELECT revision FROM published_entry_revisions WHERE entry_id=? AND release_id=(SELECT value FROM state WHERE key='release')").get(id) as {revision:number}|undefined;
   return {
     ...row,
+    published:!!publication,
+    hasChanges:publication?.revision!==row.revision,
     value: projectTerms(
       row.value,
       site.terms().map((row) => row.value),
@@ -65,4 +68,8 @@ export function entryIdAtPath(site:Pick<Site,'store'|'settings'>,input:string){
 export function entryLabel(site: Pick<Site, 'store'>, id: string) {
   const entry = site.store.get('entry', id)?.value;
   return { title: entry?.title ?? id, path: entry?.path ?? '' };
+}
+export function commentEntryIds(site:Pick<Site,'store'>,query='') {
+  if(!query.trim())return [];
+  return (site.store.raw.prepare("SELECT id FROM entry_list WHERE instr(lower(coalesce(json_extract(summary,'$.title'),'')||' '||coalesce(json_extract(summary,'$.path'),'')),lower(?))>0").all(query.trim()) as {id:string}[]).map(row=>row.id);
 }
