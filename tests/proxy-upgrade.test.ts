@@ -60,3 +60,25 @@ it('generates static mappings and a stable private maintenance probe without gra
  expect(()=>staticRouteSchema.parse({prefix:'/',directory:home})).toThrow();
  expect(()=>staticRouteSchema.parse({prefix:'/a/../uploads/',directory:home})).toThrow();
 });
+
+it('reads fresh robots rules through the public proxy even while its canonical URL is cached',async()=>{
+ const requests:URL[]=[];
+ let live='User-agent: *\nDisallow: /admin/';
+ const server=createServer((request,response)=>{
+  const url=new URL(request.url!,'http://localhost');requests.push(url);
+  if(url.pathname==='/robots.txt'){
+   response.writeHead(200,{'Content-Type':'text/plain'});
+   return response.end(url.searchParams.has('__weava_robots_check') ? live : 'User-agent: *');
+  }
+  response.writeHead(404);response.end();
+ });
+ const origin=await listen(server),options={origin,domain:'https://blog.example',paths:[],freshRobots:true};
+ try{
+  const before=await captureSeo(options);
+  expect(before.robots.text).toContain('Disallow: /admin/');
+  live += '\nSitemap: https://blog.example/sitemap.xml';
+  const after=await captureSeo(options);
+  expect(compareSeo(before,after).differences).toEqual([expect.objectContaining({path:'/robots.txt',field:'policy'})]);
+  expect(new Set(requests.filter(url=>url.pathname==='/robots.txt').map(url=>url.search)).size).toBe(2);
+ }finally{await close(server);}
+});

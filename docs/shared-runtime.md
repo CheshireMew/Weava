@@ -110,7 +110,7 @@ E:\WeavaRuntime\weava.cmd site deployment-info blog-blacknico --proxy-origin htt
 
 命令在安装目录的 `proxy/网站编号` 生成 `maintenance.conf` 和 `static.conf`，并输出 include 和普通代理位置示例。维护标记由升级流程写入和撤销，不需要每次升级重载 nginx。维护期间返回 `503`、`Retry-After: 60`、`Cache-Control: no-store`；原 robots.txt 单独保留可访问，不用 `noindex`、`404` 或首页 `200` 替代维护状态。上游进程短暂不可用也返回维护 `503`。
 
-登记 `--proxy-origin` 后，升级会实际探测该代理的维护响应和 robots.txt；尚未接入或配置错误时会在停止旧站前取消切换。未登记代理时只验证本机应用，结果中的 `proxyVerified` 为 false，不代表公网代理已接入。登记或调整映射后，按输出加载配置并核实 Nginx；普通升级复用已加载的配置。
+登记 `--proxy-origin` 后，升级会实际探测该代理的维护响应和 robots.txt；尚未接入或配置错误时会在停止旧站前取消切换。robots.txt 检查带独立的查询参数，以免把 CDN 的旧缓存当成当前程序输出。未登记代理时只验证本机应用，结果中的 `proxyVerified` 为 false，不代表公网代理已接入。登记或调整映射后，按输出加载配置并核实 Nginx；普通升级复用已加载的配置。
 
 SEO 报告保留在该站恢复根目录的 `preflight-*` 下，恢复点仍是独立的 `update-*`。准备阶段不会复制大型媒体；隔离站只读原有媒体资源。框架减少的是升级引入的意外变化，不能保证 Google 必然收录或排名不变。
 

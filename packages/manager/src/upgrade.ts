@@ -13,7 +13,7 @@ import {
 import { probeServer } from './probe-server.ts';
 import { maintenance, maintenanceProbeHeaders, prepareProxy, proxyDirectory, saveRobots } from './proxy.ts';
 import { publicInventory, siteStamp } from './public-inventory.ts';
-import { activationSnapshot, captureSeo, compareSeo, upgradeProbePath, type SeoSnapshot } from './seo-check.ts';
+import { activationSnapshot, captureSeo, compareSeo, freshRobotsPath, upgradeProbePath, type SeoSnapshot } from './seo-check.ts';
 import { checkService } from './service-check.ts';
 import {
   atomic,
@@ -64,7 +64,7 @@ async function verifyMaintenance(origin: string, domain: string, baseline: SeoSn
     throw new Error(
       '反向代理未正确接入维护配置，旧站仍保持运行；请先应用 site deployment-info 输出的 include。',
     );
-  const robots = await fetch(origin + '/robots.txt', {
+  const robots = await fetch(origin + freshRobotsPath(), {
       headers,
       signal: AbortSignal.timeout(10000),
     }),
@@ -172,6 +172,7 @@ export async function protectedUpgrade(
       const discovery=unchangedRendering?'selected' as const:undefined;
       const baseline:SeoSnapshot = cached?.before??await captureSeo({
         origin,
+        freshRobots: !!routing?.proxyOrigin,
         routes:routes.map(route=>({prefix:route.prefix,origin})),
         domain: inventory.domain,
         paths:unchangedRendering?criticalPaths:paths,
@@ -284,6 +285,7 @@ export async function protectedUpgrade(
       const actualStamp = siteStamp(root),
         actual = await captureSeo({
           origin,
+          freshRobots: !!routing?.proxyOrigin,
           routes:routes.map(route=>({prefix:route.prefix,origin})),
           domain: inventory.domain,
           paths:Object.keys(expected.pages),

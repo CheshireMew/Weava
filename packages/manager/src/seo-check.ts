@@ -1,5 +1,5 @@
 import {load} from 'cheerio';
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 
 const digest=(value:unknown)=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
 const clean=(value:string)=>value.replace(/\s+/g,' ').trim();
@@ -13,10 +13,13 @@ export interface SeoPage{
 export interface DynamicRedirect{status:number;targets:string[]}
 export interface SeoSnapshot{version:1;domain:string;createdAt:string;pages:Record<string,SeoPage>;sitemaps:Record<string,{status:number;urls:string[]}>;robots:{status:number;text:string};resources:Record<string,number>;resourcePaths?:Record<string,string[]>;dynamicRedirects?:Record<string,DynamicRedirect>}
 export interface SeoDifference{path:string;field:string;before:unknown;after:unknown}
-export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;routes?:{prefix:string;origin:string}[];paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;discovery?:'full'|'selected';signal?:AbortSignal}
+export interface ProbeOptions{origin:string;domain:string;headers?:Record<string,string>;routes?:{prefix:string;origin:string}[];paths:string[];redirects?:string[];dynamicRedirects?:Record<string,DynamicRedirect>;maxUrls?:number;concurrency?:number;seed?:SeoSnapshot;discovery?:'full'|'selected';signal?:AbortSignal;freshRobots?:boolean}
 function localPath(value:string,domain:string){try{const url=new URL(value,domain);if(url.origin!==new URL(domain).origin)return null;url.hash='';url.searchParams.sort();return url.pathname+url.search;}catch{return null;}}
 function logicalUrl(value:string,domain:string){try{return new URL(value,domain).href.replace(/\/_site\/[\w-]+\//g,'/_site/{build}/');}catch{return value;}}
 export function upgradeProbePath(stamp:string,target:string,build?:string){return '/__weava_upgrade_missing_'+digest([stamp,target,build??null]).slice(0,32);}
+// The public proxy still serves this request. A fresh cache key prevents an edge
+// copy of the old robots document from standing in for the active program.
+export function freshRobotsPath() { return '/robots.txt?__weava_robots_check=' + randomUUID(); }
 export function analyzePage(html:string,status:number,headers:Headers,domain:string,path:string):{page:SeoPage;discover:string[];resources:string[]}{
  const base=new URL(path,domain).href;
  const type=(headers.get('content-type')??'').split(';')[0].toLowerCase(),page:SeoPage={status,type};
@@ -61,7 +64,7 @@ export async function captureSeo(options:ProbeOptions):Promise<SeoSnapshot>{
    await response.body?.cancel();await new Promise(resolve=>setTimeout(resolve,200*(attempt+1)));
   }
  };
- const robots=await request('/robots.txt');snapshot.robots={status:robots.status,text:await readBounded(robots,1024*1024)};
+ const robots=await request(options.freshRobots ? freshRobotsPath() : '/robots.txt');snapshot.robots={status:robots.status,text:await readBounded(robots,1024*1024)};
  if(robots.status>=500)throw new Error('robots.txt 暂不可用，已取消升级检查。');
  const maps=['/sitemap.xml',...Object.keys(options.seed?.sitemaps??{})],initial=[...options.paths,...(options.redirects??[]),...Object.keys(options.dynamicRedirects??{}),...Object.keys(options.seed?.pages??{})];
  for(let i=0;i<maps.length;i++){

@@ -153,8 +153,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
       assertRequestTransport(context.request,identity.secure,peer,false);
     }
     response = cached ?? (await serve(context, next)) ?? new Response(null, { status: 500 });
-    if (!cached && context.url.pathname === '/robots.txt' && context.request.method === 'GET') {
-      response = await advertiseCurrentSitemap(response, site.visibleRelease());
+    if (!cached && context.url.pathname === '/robots.txt' && response.status === 200) {
+      if (context.request.method === 'GET') response = await advertiseCurrentSitemap(response, site.visibleRelease());
+      response.headers.set('Cache-Control', 'no-cache');
     }
     if (!cached && context.request.method === 'GET') await publicResponses.remember(cacheKey, response);
   }
