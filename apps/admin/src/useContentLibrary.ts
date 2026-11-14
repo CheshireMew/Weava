@@ -19,7 +19,7 @@ export function useContentLibrary(
   setError: (message: string) => void,
 ) {
   const format = tab === 'notes' ? 'note' : 'article';
-  const [views, setViews] = useState({ article: {...initialView(),status:'published'}, note: initialView() });
+  const [views, setViews] = useState({ article: initialView(), note: initialView() });
   const { filter, status, visibility, page: libraryPage, type: libraryType, sort: librarySort, fields: fieldFilters } = views[format];
   const change = useCallback(<K extends keyof LibraryView>(key: K, next: React.SetStateAction<LibraryView[K]>) => {
     setViews(previous => {

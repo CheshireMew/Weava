@@ -349,7 +349,7 @@ export function App({ authentication, error, setError }: AppProps) {
             try {
               await editors.flush();
               if(tab==='content'){
-                workspace.library.setStatus('published');
+                workspace.library.setStatus('all');
                 workspace.library.setLibraryPage(1);
               }
               workspace.navigation.clear();
