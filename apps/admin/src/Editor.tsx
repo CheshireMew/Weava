@@ -23,6 +23,7 @@ import type {Document} from '@weava/contracts';
 import {Toolbar,TableTools} from './editor/Toolbar.tsx';
 import {MediaNode,EmbedNode} from './editor/nodes.tsx';
 import {FileDropPlugin} from './editor/FileDropPlugin.tsx';
+import {MediaSelectionPlugin} from './editor/MediaSelectionPlugin.tsx';
 import {CodeCopyPlugin} from './editor/CodeCopyPlugin.tsx';
 import {LargeMarkdownPlugin} from './editor/LargeMarkdownPlugin.tsx';
 import {LinkEditorPlugin} from './editor/LinkEditorPlugin.tsx';
@@ -184,6 +185,7 @@ export function Editor({
         <HistoryPlugin />
         <CodeCopyPlugin onError={onError}/>
         <FileDropPlugin uploads={uploads}/>
+        <MediaSelectionPlugin onEdit={markEditing}/>
         {compact&&<AutoFocusPlugin defaultSelection="rootStart"/>}
         <ListPlugin />
         <CheckListPlugin />

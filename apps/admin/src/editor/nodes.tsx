@@ -4,6 +4,7 @@ import {Pencil, X} from 'lucide-react';
 import {Dialog} from '../Dialog.tsx';
 import { useSelectors } from '../Selectors.tsx';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import {useLexicalNodeSelection} from '@lexical/react/useLexicalNodeSelection';
 import { $getNodeByKey, DecoratorNode, type NodeKey } from 'lexical';
 
 export class MediaNode extends DecoratorNode<any> {
@@ -186,10 +187,11 @@ export function MediaElement({
 }) {
   const [editor] = useLexicalComposerContext(),
     selectors = useSelectors();
+  const [selected] = useLexicalNodeSelection(nodeKey);
   const [editing, setEditing] = useState(false),
     [draft, setDraft] = useState({ src, alt, caption, kind });
   return <>
-    <figure className="editor-media" contentEditable={false}>
+    <figure className={'editor-media' + (selected ? ' is-selected' : '')} contentEditable={false}>
       <div className={'editor-media-preview is-' + kind}>
       {kind === 'video' ? (
         <video src={src} controls />

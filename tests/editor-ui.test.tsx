@@ -8,7 +8,7 @@ import {renderDocument} from '../packages/core/src/documents.ts';
 import {load} from 'cheerio';
 import {markdownFormats} from './fixtures/markdown.ts';
 import {api} from '../apps/admin/src/api.ts';
-import {$getRoot,$getSelection,$isNodeSelection,$isTextNode,CONTROLLED_TEXT_INSERTION_COMMAND,UNDO_COMMAND,KEY_BACKSPACE_COMMAND} from 'lexical';
+import {$getRoot,$getSelection,$isNodeSelection,$isTextNode,CONTROLLED_TEXT_INSERTION_COMMAND,UNDO_COMMAND,KEY_BACKSPACE_COMMAND,KEY_ARROW_UP_COMMAND,KEY_ARROW_DOWN_COMMAND,KEY_ENTER_COMMAND} from 'lexical';
 import {EditorView} from '@codemirror/view';
 import {exportMarkdown} from '../apps/admin/src/editor/transformers.tsx';
 import {MarkdownEditor} from '../apps/admin/src/editor/MarkdownEditor.tsx';
@@ -161,6 +161,53 @@ it('selects a divider directly without changing the document or toggling it off,
   expect(renderDocument(changed.mock.lastCall![0])).toContain('作者签名');
   await act(async()=>editor.dispatchCommand(UNDO_COMMAND,undefined));
   expect(editable.querySelectorAll('hr')).toHaveLength(1);expect(changed.mock.lastCall![0]).toEqual(value);
+});
+
+it.each([false,true])('selects images without editing and writes on both sides through the keyboard (compact=%s)',async compact=>{
+  const changed=vi.fn(),error=vi.fn();
+  await act(async()=>root.render(<Editor compact={compact} value={{version:1,format:'markdown',source:'![图片](/media/photo.png)'}} onChange={changed} onMedia={async()=>null} onError={error}/>));
+  const editable=host.querySelector<HTMLElement>('.visual-editor')!,editor=(editable as any).__lexicalEditor;
+  const select=()=>act(async()=>{const image=editable.querySelector('img[src]')!;image.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true}));image.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+  await select();await select();
+  expect(editable.querySelector('.editor-media.is-selected')).not.toBeNull();expect(changed).not.toHaveBeenCalled();
+  expect(editable.querySelectorAll('button')).toHaveLength(1);
+  await act(async()=>editor.dispatchCommand(KEY_ARROW_UP_COMMAND,new KeyboardEvent('keydown',{key:'ArrowUp'})));
+  await act(async()=>editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND,'图片上方'));
+  await select();await act(async()=>editor.dispatchCommand(KEY_ARROW_DOWN_COMMAND,new KeyboardEvent('keydown',{key:'ArrowDown'})));
+  await act(async()=>editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND,'图片下方'));
+  const html=renderDocument(changed.mock.lastCall![0]);expect(html.indexOf('图片上方')).toBeLessThan(html.indexOf('<img'));expect(html.indexOf('图片下方')).toBeGreaterThan(html.indexOf('<img'));expect(editable.querySelector('p p')).toBeNull();
+  expect(editable.querySelector('.is-selected')).toBeNull();expect(error).not.toHaveBeenCalled();
+});
+
+it.each(['before','after'].flatMap(side=>[false,true].map(inline=>({side,inline}))))('shows a transient edge caret and inserts one paragraph $side an image (inline=$inline)',async({side,inline})=>{
+  const changed=vi.fn(),error=vi.fn(),value={version:1 as const,format:'markdown' as const,source:inline?'前文![一](/media/one.png)后文':'![一](/media/one.png)\n\n![二](/media/two.png)'};
+  await act(async()=>root.render(<Editor value={value} outputFormat="lexical" onChange={changed} onMedia={async()=>null} onError={error}/>));
+  const editable=host.querySelector<HTMLElement>('.visual-editor')!,editor=(editable as any).__lexicalEditor,figure=editable.querySelector<HTMLElement>('.editor-media')!;
+  vi.spyOn(figure,'getBoundingClientRect').mockReturnValue({left:20,right:400,top:100,bottom:300} as DOMRect);
+  const point={bubbles:true,cancelable:true,clientX:100,clientY:side==='before'?90:310};
+  await act(async()=>editable.dispatchEvent(new MouseEvent('mousemove',point)));
+  expect(figure.dataset.insertSide).toBe(side);expect(changed).not.toHaveBeenCalled();
+  await act(async()=>editable.dispatchEvent(new MouseEvent('mousedown',point)));
+  await act(async()=>figure.dispatchEvent(new MouseEvent('click',point)));
+  expect(figure.dataset.insertSide).toBeUndefined();
+  const count=editable.querySelectorAll('p').length;
+  await act(async()=>editable.dispatchEvent(new MouseEvent('mousedown',point)));
+  await act(async()=>figure.dispatchEvent(new MouseEvent('click',point)));
+  expect(editable.querySelectorAll('p')).toHaveLength(count);
+  await act(async()=>editor.dispatchCommand(CONTROLLED_TEXT_INSERTION_COMMAND,'插入文字'));
+  const html=renderDocument(changed.mock.lastCall![0]);expect(html).toContain('插入文字');expect(html).not.toContain('data-insert-side');expect(html).not.toContain('is-selected');expect(editable.querySelectorAll('img[src]')).toHaveLength(inline?1:2);expect(error).not.toHaveBeenCalled();
+  if(side==='before')expect(html.indexOf('插入文字')).toBeLessThan(html.indexOf('/media/one.png'));else expect(html.indexOf('插入文字')).toBeGreaterThan(html.indexOf('/media/one.png'));
+});
+
+it.each([false,true])('inserts a paragraph beside a selected image with Enter (shift=%s) and supports undo',async shiftKey=>{
+  const changed=vi.fn(),error=vi.fn(),value={version:1 as const,format:'markdown' as const,source:'前文\n\n![图片](/media/photo.png)\n\n后文'};
+  await act(async()=>root.render(<Editor value={value} outputFormat="lexical" onChange={changed} onMedia={async()=>null} onError={error}/>));
+  const editable=host.querySelector<HTMLElement>('.visual-editor')!,editor=(editable as any).__lexicalEditor;
+  await act(async()=>editable.querySelector('img[src]')!.dispatchEvent(new MouseEvent('click',{bubbles:true})));
+  await act(async()=>editor.dispatchCommand(KEY_ENTER_COMMAND,new KeyboardEvent('keydown',{key:'Enter',shiftKey})));
+  const paragraphs=editable.querySelectorAll('p');expect(paragraphs).toHaveLength(4);expect(editable.querySelector('p p')).toBeNull();
+  await act(async()=>editor.dispatchCommand(UNDO_COMMAND,undefined));
+  expect(editable.querySelectorAll('p')).toHaveLength(3);expect(editable.querySelector('img[src]')).not.toBeNull();expect(error).not.toHaveBeenCalled();
 });
 
 it('reflects selected text formats, list toggles and available undo without changing the toolbar layout',async()=>{
