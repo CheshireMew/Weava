@@ -2,6 +2,7 @@ import { isUploadFormat, mediaKind, mediaUploadMaxBytes } from '@weava/contracts
 import { useEffect, useRef, useState } from 'react';
 import { usePendingEditWork } from './EditSessions.tsx';
 import { uploadFile } from './upload-file.ts';
+import { connectionFailure, retryConnection } from './connection-recovery.ts';
 
 export function hasDroppedFiles(data: DataTransfer | null) {
   return !!data && (Array.from(data.types).includes('Files') || data.files.length > 0);
@@ -65,6 +66,8 @@ interface FailedUpload {
   prepare?: () => Promise<unknown>;
   row?: any;
   error: string;
+  retryable?: boolean;
+  attempts?: number;
 }
 export function useFileUploads(imagesOnly = true) {
   const [progress, setProgress] = useState(''),
@@ -113,7 +116,7 @@ export function useFileUploads(imagesOnly = true) {
             if (mounted.current)
               setFailed((old) => [
                 ...old,
-                { ...item, error: error.message },
+                { ...item, error: error.message, retryable: connectionFailure(error), attempts: (item.attempts ?? 0) + 1 },
                 ...items
                   .slice(index + 1)
                   .map((next) => ({ ...next, error: '等待前一个文件重试。' })),
@@ -136,6 +139,17 @@ export function useFileUploads(imagesOnly = true) {
     active.current = task;
     void task.catch(() => {});
   };
+  const retry = () => {
+    if (active.current) return;
+    const items = failed;
+    failure.current = null;
+    setFailed([]);
+    if (items.length) run(items);
+  };
+  useEffect(() => {
+    if (!busy && failed[0]?.retryable)
+      return retryConnection(retry, (failed[0].attempts ?? 1) - 1);
+  }, [failed, busy]);
   return {
     progress,
     failed,
@@ -143,12 +157,7 @@ export function useFileUploads(imagesOnly = true) {
     upload: (files: File[], insert: Insert, prepare?: () => Promise<unknown>) => {
       if (files.length) run(files.map((file) => ({ file, insert, prepare, error: '' })));
     },
-    retry: () => {
-      const items = failed;
-      failure.current = null;
-      setFailed([]);
-      if (items.length) run(items);
-    },
+    retry,
     ignore: () => {
       failure.current = null;
       setFailed([]);

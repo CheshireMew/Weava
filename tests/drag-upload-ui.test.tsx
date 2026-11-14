@@ -165,6 +165,20 @@ it('keeps failed files available for retry and blocks unsupported files from ope
   vi.mocked(uploadFile).mockClear(); await act(async () => expect(drag(editor, [file('wrong.exe')]).defaultPrevented).toBe(true)); expect(uploadFile).not.toHaveBeenCalled();
   expect([...host.querySelectorAll<HTMLButtonElement>('.file-upload-error button')].every(button=>!button.disabled)).toBe(true);
 });
+it.each(['editor','library'])('automatically resumes failed %s uploads when connectivity returns', async surface => {
+  const online=vi.spyOn(navigator,'onLine','get').mockReturnValue(false);
+  vi.mocked(uploadFile).mockRejectedValueOnce(Object.assign(new Error('连接中断'),{status:0}));
+  await act(async()=>root.render(<EditSessionsProvider>{surface==='editor'
+    ? <Editor value={{version:1,format:'markdown',source:'正文'}} onChange={vi.fn()} onMedia={async()=>null} onError={vi.fn()}/>
+    : <MediaManager onError={vi.fn()} onOpen={vi.fn()}/>}</EditSessionsProvider>));
+  const target=host.querySelector(surface==='editor'?'[aria-label="正文编辑器"]':'.media-panel')!;
+  await act(async()=>paste(target,[file('offline.png')]));
+  expect(uploadFile).toHaveBeenCalledTimes(1); expect(host.textContent).toContain('连接中断');
+  online.mockReturnValue(true); await act(async()=>window.dispatchEvent(new Event('online')));
+  expect(uploadFile).toHaveBeenCalledTimes(2);
+  if(surface==='editor')expect(target.querySelector('img')?.getAttribute('src')).toBe('/media/offline.png');
+  else expect(mediaUploadSnapshot().find(item=>item.name==='offline.png')?.status).toBe('complete');
+});
 it('recovers from validation failure before progress starts without an unrelated render',async()=>{
   vi.mocked(uploadFile).mockRejectedValueOnce(new Error('不支持这个文件格式。'));
   await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));

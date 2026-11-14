@@ -21,7 +21,7 @@ beforeEach(async () => {
   write.mockReset(); write.mockImplementation(async row => ({ ...row, revision: row.revision + 1 }));
   await act(async () => root.render(<EditSessionsProvider><Harness /></EditSessionsProvider>));
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); vi.useRealTimers(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); localStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); });
 async function change(name: string) { await act(async () => model.setRecord(row => ({ ...row!, value: { name } }))); }
 async function tick(ms = 850) { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); }
 
@@ -47,6 +47,26 @@ it('keeps failures visible without retrying forever and lets the user retry', as
   await tick(5000); expect(write).toHaveBeenCalledTimes(1); expect(model.session.dirty).toBe(true);
   await act(async () => host.querySelector('button')!.click());
   expect(write).toHaveBeenCalledTimes(2); expect(host.textContent).toBe('已保存');
+});
+it('retries transport failures with backoff and resumes an offline edit on reconnect', async () => {
+  write.mockRejectedValueOnce(Object.assign(new Error('断线'), {status:0}));
+  await change('断线修改'); await tick(); expect(host.textContent).toContain('等待重试');
+  await tick(1900); expect(write).toHaveBeenCalledTimes(1);
+  await tick(100); expect(write).toHaveBeenCalledTimes(2); expect(model.session.dirty).toBe(false);
+  const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+  await act(async () => window.dispatchEvent(new Event('offline')));
+  await change('离线继续写'); await tick(10000);
+  expect(host.textContent).toContain('离线'); expect(write).toHaveBeenCalledTimes(2);
+  online.mockReturnValue(true); await act(async () => window.dispatchEvent(new Event('online'))); await tick();
+  expect(write).toHaveBeenCalledTimes(3); expect(host.textContent).toBe('已保存');
+});
+it('never automatically retries a conflict or permission failure on reconnect', async () => {
+  for (const status of [409, 401, 403, 422]) {
+    write.mockRejectedValueOnce(Object.assign(new Error('需要处理'), {status}));
+    await change('修改'+status); await tick(); const count=write.mock.calls.length;
+    await act(async () => window.dispatchEvent(new Event('online'))); await tick(60000);
+    expect(write).toHaveBeenCalledTimes(count);
+  }
 });
 it('waits for complete fields and Chinese composition, then saves the completed value', async () => {
   await change(''); await tick(); expect(write).not.toHaveBeenCalled(); expect(host.textContent).toContain('请填写名称');

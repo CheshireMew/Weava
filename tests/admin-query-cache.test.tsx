@@ -6,6 +6,7 @@ import { QueryCache, adminQueries } from '../apps/admin/src/query-cache.ts';
 import { useAdminQuery } from '../apps/admin/src/useAdminQuery.ts';
 import { api } from '../apps/admin/src/api.ts';
 import { useAdminState } from '../apps/admin/src/useAdminState.ts';
+import { useAdminSession } from '../apps/admin/src/useAdminSession.ts';
 vi.mock('../apps/admin/src/api.ts', () => { const request = vi.fn(); return { api: Object.assign(request, { request }) }; });
 const pending = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; };
 it('revalidates authored data on job completion rather than merely queueing work',async()=>{
@@ -75,6 +76,21 @@ it('renders the matching cached query immediately, refreshes after writes and ne
   await act(async () => root.render(<View path="articles?q=other" />)); expect(host.textContent).toBe('loading');
   expect(model!.loading).toBe(true); expect(model!.refreshing).toBe(false);
   await act(async () => filtered.resolve('filtered')); expect(host.textContent).toBe('filtered');
+});
+it('reloads a failed visible query when the browser reconnects',async()=>{
+  function View(){const data=useAdminQuery<string>('offline-query');return <p>{data.error||data.data}</p>;}
+  vi.mocked(api).mockRejectedValueOnce(new Error('offline')).mockResolvedValue('recovered' as any);
+  await act(async()=>root.render(<View/>)); expect(host.textContent).toBe('offline');
+  await act(async()=>window.dispatchEvent(new Event('online')));
+  expect(host.textContent).toBe('recovered'); expect(api).toHaveBeenCalledTimes(2);
+});
+it('recovers the initial session read after an outage without treating it as a logout',async()=>{
+  const error=vi.fn();
+  function View(){const model=useAdminSession(error);return <p>{model.session?.authenticated?'ready':'waiting'}</p>;}
+  vi.mocked(api).mockRejectedValueOnce(Object.assign(new Error('offline'),{status:0})).mockResolvedValue({authenticated:true} as any);
+  await act(async()=>root.render(<View/>));expect(host.textContent).toBe('waiting');
+  await act(async()=>window.dispatchEvent(new Event('online')));
+  expect(host.textContent).toBe('ready');expect(error).toHaveBeenLastCalledWith('');
 });
 it('coalesces mutation refreshes with the active query, preserves editor schedules and still honors manual refresh', async () => {
   let model!: ReturnType<typeof useAdminState>, selected: any = null;

@@ -54,8 +54,10 @@ export async function requestApi<T>(
     value = response.headers.get('content-type')?.includes('application/json')
       ? await response.json()
       : await response.text();
-  } catch {
-    throw new ApiClientError('网站没有返回有效结果，请稍后重试。', response.status);
+  } catch (error) {
+    if (response.status === 401 && !request.anonymous) options.onUnauthorized?.(path);
+    throw new ApiClientError('网站没有返回有效结果，请稍后重试。',
+      response.ok && !(error instanceof SyntaxError) ? 0 : response.ok ? 502 : response.status);
   }
   if (!response.ok) {
     if (response.status === 401 && !request.anonymous) options.onUnauthorized?.(path);

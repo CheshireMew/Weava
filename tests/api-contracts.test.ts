@@ -131,3 +131,12 @@ it('shares transport errors and retry metadata while leaving anonymous login fai
  await expect(requestApi('session',undefined,adminApi.session.response,options)).rejects.toMatchObject({status:401});
  expect(expired).toHaveBeenCalledWith('session');expect(fetch).toHaveBeenCalledTimes(2);
 });
+it('classifies an interrupted successful response as a connection failure and keeps HTTP errors intact',async()=>{
+  for(const status of [200,401,503]){
+    const expired=vi.fn();
+    const response=new Response(null,{status,headers:{'Content-Type':'application/json'}});
+    response.json=async()=>{throw new TypeError('stream interrupted');};
+    await expect(requestApi('session',undefined,adminApi.session.response,{fetch:async()=>response,onUnauthorized:expired})).rejects.toMatchObject({status:status===200?0:status});
+    expect(expired).toHaveBeenCalledTimes(status===401?1:0);
+  }
+});

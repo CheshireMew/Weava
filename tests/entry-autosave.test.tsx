@@ -150,6 +150,38 @@ it('retains a single draft and close protection when the website cannot save', a
   expect(rows.get('article')?.copies[0].record.value.title).toBe('断线后继续补充');
   expect(closePage().defaultPrevented).toBe(true);
 });
+it.each([false, true])('reconciles a lost save acknowledgement, including edits typed later: %s', async moreEdits => {
+  await mount(); const implementation=mocks.api.getMockImplementation()!;
+  let lost=false;
+  mocks.api.mockImplementation(async(path:string,body?:any)=>{
+    const result=await implementation(path,body);
+    if(path==='entry'&&!lost){lost=true;throw Object.assign(new Error('reply lost'),{status:0});}
+    return result;
+  });
+  await act(async()=>model.update({title:'第一版'})); await advance(1200);
+  expect(server.revision).toBe(2); expect(model.dirty).toBe(true);
+  if(moreEdits) await act(async()=>model.update({title:'断线后第二版'}));
+  await advance(4000);
+  expect(server.value.title).toBe(moreEdits?'断线后第二版':'第一版');
+  expect(server.revision).toBe(moreEdits?3:2); expect(model.dirty).toBe(false);
+  expect(model.conflict).toBeNull(); expect(rows.has('article')).toBe(false);
+});
+it('leaves a real remote conflict intact and recovers if fetching its comparison disconnects', async()=>{
+  await mount(); const original=structuredClone(server); let failComparison=true;
+  mocks.api.mockImplementation(async(path:string,body?:any)=>{
+    if(path==='entry')throw Object.assign(new Error('conflict'),{status:409});
+    if(path==='entry/merge'){
+      if(failComparison){failComparison=false;throw Object.assign(new Error('offline'),{status:0});}
+      return {id:server.id,base:original,remote:server,local:body.value,fields:[]};
+    }
+    return structuredClone(server);
+  });
+  server={...server,revision:2,value:{...server.value,title:'另一窗口修改'}};
+  await act(async()=>model.update({title:'本窗口修改'})); await advance(1200);
+  expect(model.conflictPaused).toBe(false); await advance(4000);
+  expect(model.conflictPaused).toBe(true); expect(model.conflict.remote.value.title).toBe('另一窗口修改');
+  expect(model.record?.value.title).toBe('本窗口修改'); expect(model.dirty).toBe(true);
+});
 
 it('clears this editing session\'s recovery draft when changes are undone to the saved content', async () => {
   await mount();

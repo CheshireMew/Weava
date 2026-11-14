@@ -18,7 +18,7 @@ export function useEntryConflict(reference: RefObject<EditSession<Revision<Entry
     const request = ++conflictRequest.current;
     paused.current = true;
     setConflictPaused(true);
-    for (;;) {
+    try { for (;;) {
       const checkpoint = session.checkpoint();
       const result = await api('entry/merge', {
         id: row.id,
@@ -36,6 +36,13 @@ export function useEntryConflict(reference: RefObject<EditSession<Revision<Entry
         return;
       }
       row = session.record;
+    } } catch (error) {
+      // A failed comparison must not silently leave autosave paused forever.
+      if (request === conflictRequest.current && !conflict) {
+        paused.current = false;
+        setConflictPaused(false);
+      }
+      throw error;
     }
   }
   return { paused, conflict, setConflict, conflictPaused, reset: resetConflict, showConflict };

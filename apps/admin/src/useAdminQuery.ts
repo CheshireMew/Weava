@@ -15,8 +15,8 @@ export function useAdminQuery<T = any>(path: string | null, ttl = 30000) {
     const load = () => { if (document.visibilityState !== 'hidden') void refresh(false).catch(() => {}); };
     // Initial loading also works in background tabs. Subsequent focus checks respect the TTL.
     void refresh(false).catch(() => {});
-    window.addEventListener('focus', load); document.addEventListener('visibilitychange', load);
-    return () => { window.removeEventListener('focus', load); document.removeEventListener('visibilitychange', load); };
+    window.addEventListener('focus', load); window.addEventListener('online', load); document.addEventListener('visibilitychange', load);
+    return () => { window.removeEventListener('focus', load); window.removeEventListener('online', load); document.removeEventListener('visibilitychange', load); };
   }, [path, state.invalidation, refresh]);
   return { ...state, loading: !!path && state.data === undefined && !state.error, refreshing: state.pending && state.data !== undefined, refresh };
 }

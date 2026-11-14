@@ -88,7 +88,7 @@ export function EntryEditor({ model }: {
   }, [record?.id, record?.value.title]);
   const saveStatus = record && (record.revision > 0 || dirty || saving) ? <span className={'save-status' + (dirty ? ' unsaved' : '')} role="status">
     {saving ? <Loader2 size={12} className="spin" /> : <span className="save-status-dot" aria-hidden="true" />}{' '}
-    {saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
+    {dirty && model.autoSave?.phase === 'offline' ? '离线，有未同步修改' : dirty && model.autoSave?.phase === 'retrying' ? '连接中断，等待重试' : saving ? '正在保存' : dirty ? '有未保存修改' : '已保存'}
   </span> : null;
   return (
     <section ref={editorRoot} className={'editing-area' + (article ? ' article-editor' : ' website-page-editor')} aria-label="内容编辑">

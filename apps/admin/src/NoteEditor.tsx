@@ -9,6 +9,7 @@ import {useSelectors} from './Selectors.tsx';
 import {HtmlPageText} from './ImportedContentEditor.tsx';
 import {Dialog} from './Dialog.tsx';
 import {LoadingState} from './LoadingState.tsx';
+import {AutosaveStatus} from './AutosaveStatus.tsx';
 const Editor=lazy(()=>import('./Editor.tsx').then(module=>({default:module.Editor})));
 export function NoteEditor({model,error=''}:{model:NoteEditorModel;error?:string}){
  const {record,saving,update,persist,publish,setError,clear,editorEpoch}=model;
@@ -32,6 +33,6 @@ export function NoteEditor({model,error=''}:{model:NoteEditorModel;error?:string
    {record.value.document.format==='html'?<HtmlPageText key={record.id+':'+editorEpoch} cleanFormatting value={String(record.value.document.source)} onChange={source=>changeDocument({version:1,format:'html',source})}/>:<Suspense fallback={<LoadingState label="打开笔记" />}><Editor key={record.id+':'+editorEpoch} compact value={record.value.document} placeholder="随手记点什么…" onChange={changeDocument} onMedia={()=>selectors.media()} onError={setError}/></Suspense>}
   </div>
   </div>
-  <footer className="note-composer-footer"><button type="button" disabled={saving} onClick={()=>void close()}>关闭</button><button type="button" className="primary async-action" disabled={saving||model.busy} onClick={()=>publish().catch(error=>setError(error.message))}>{model.busy?'正在发布…':published?'更新发布':'发布'}</button></footer>
+  <footer className="note-composer-footer">{model.autoSave && <AutosaveStatus state={model.autoSave}/>}<button type="button" disabled={saving} onClick={()=>void close()}>关闭</button><button type="button" className="primary async-action" disabled={saving||model.busy} onClick={()=>publish().catch(error=>setError(error.message))}>{model.busy?'正在发布…':published?'更新发布':'发布'}</button></footer>
  </Dialog>;
 }

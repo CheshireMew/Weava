@@ -91,6 +91,7 @@ export interface EntryEditorModel {
   record: EntryRecord | null;
   dirty: boolean;
   saving: boolean;
+  autoSave?: import('./useAutosave.ts').AutosaveState;
   editorEpoch: number;
   contentCheck: ContentCheck | null;
   state: ContentCatalog;
@@ -123,6 +124,7 @@ export type NoteEditorModel = Pick<
   EntryEditorModel,
   | 'record'
   | 'saving'
+  | 'autoSave'
   | 'update'
   | 'persist'
   | 'publish'

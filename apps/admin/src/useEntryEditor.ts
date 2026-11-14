@@ -1,7 +1,8 @@
 import { type Entry, type Revision } from '@weava/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { recordEntryLocation } from './admin-location.ts';
-import { api } from './api.ts';
+import { entryWriter } from './save-entry.ts';
+import { connectionFailure } from './connection-recovery.ts';
 import type { ContentState } from './content-models.ts';
 import { drafts } from './draft-repository.ts';
 import { useEditSessions, useManagedRecord } from './EditSessions.tsx';
@@ -27,6 +28,7 @@ export function useEntryEditor({
   compact,
 }: EntryEditorOptions) {
   const editors = useEditSessions();
+  const [writeEntry] = useState(entryWriter);
   const reference = useRef<EditSession<Revision<Entry>> | null>(null);
   const recovery = useEntryDrafts(reference);
   const {
@@ -53,17 +55,14 @@ export function useEntryEditor({
       }
       setSaving(true);
       try {
-        const result = await api('entry', {
-          value: snapshot.value,
-          revision: snapshot.revision || null,
-        });
+        const result = await writeEntry(snapshot);
         onSaved(result);
         if (session.record?.id === result.id) recordEntryLocation(result.id);
         return result;
       } catch (error: any) {
-        setError(error.message);
+        if (!connectionFailure(error)) setError(error.message);
         if (error.status === 409)
-          await showConflict(session.record ?? snapshot).catch((error) => setError(error.message));
+          await showConflict(session.record ?? snapshot);
         throw error;
       } finally {
         setSaving(false);
@@ -90,7 +89,7 @@ export function useEntryEditor({
     return session.save();
   }, [editors, session]);
   reference.current = session;
-  useAutosave(session, {
+  const autoSave = useAutosave(session, {
     delay: 1200,
     paused: conflictPaused,
     ready: hasDraftContent,
@@ -128,6 +127,7 @@ export function useEntryEditor({
     setRecord,
     dirty,
     saving,
+    autoSave,
     session,
     conflict,
     setConflict,

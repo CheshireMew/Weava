@@ -2,6 +2,7 @@ import { mediaKind } from '@weava/contracts';
 import { useSyncExternalStore } from 'react';
 import type { MediaRecord } from './media-models.ts';
 import { uploadFile } from './upload-file.ts';
+import { connectionFailure, retryConnection } from './connection-recovery.ts';
 
 export interface MediaUpload {
   id: number;
@@ -11,12 +12,23 @@ export interface MediaUpload {
   status: 'queued' | 'uploading' | 'complete' | 'failed';
   message: string;
   row?: MediaRecord;
+  retryable?: boolean;
+  attempts?: number;
 }
 let sequence = 0, active = 0;
 let uploads: MediaUpload[] = [];
 const files = new Map<number, File>(), listeners = new Set<() => void>();
 const controllers=new Map<number,AbortController>();
 let generation=0,paused=false,lifecycle=false;
+let cancelRetry: (() => void) | undefined;
+function resumeFailed() {
+  cancelRetry?.(); cancelRetry = undefined;
+  if (paused) return;
+  const failed = uploads.filter(item => item.status === 'failed' && item.retryable);
+  if (failed.length) cancelRetry = retryConnection(() => {
+    for (const item of failed) retryMediaUpload(item.id);
+  }, Math.max(...failed.map(item => item.attempts ?? 1)) - 1);
+}
 const notify = () => listeners.forEach(listener => listener());
 const change = (id: number, update: Partial<MediaUpload>) => {
   uploads = uploads.map(item => item.id === id ? { ...item, ...update } : item);
@@ -34,13 +46,14 @@ function installLifecycle(){
   });
   window.addEventListener('weava-session-ended',()=>{
     generation++;paused=false;
+    cancelRetry?.(); cancelRetry = undefined;
     for(const controller of controllers.values())controller.abort();
     controllers.clear();
     for(const item of uploads)if(item.preview)URL.revokeObjectURL(item.preview);
     files.clear();uploads=[];notify();
   });
-  window.addEventListener('weava-session-expired',()=>{paused=true;for(const controller of controllers.values())controller.abort();});
-  window.addEventListener('weava-session-restored',()=>{paused=false;pump();});
+  window.addEventListener('weava-session-expired',()=>{paused=true;cancelRetry?.();for(const controller of controllers.values())controller.abort();});
+  window.addEventListener('weava-session-restored',()=>{paused=false;pump();resumeFailed();});
 }
 
 function pump() {
@@ -56,8 +69,8 @@ function pump() {
         files.delete(item.id);
         if (item.preview) URL.revokeObjectURL(item.preview);
         change(item.id, { status: 'complete', message: '已上传', row, preview: undefined });
-      }, (error: Error) => {if(started===generation)change(item.id, { status: 'failed', message: paused?'登录已失效，请重新登录后重试上传。':error.message });})
-      .finally(() => { controllers.delete(item.id);active--; pump(); });
+      }, (error: Error) => {if(started===generation)change(item.id, { status: 'failed', message: paused?'登录已失效，请重新登录后重试上传。':error.message, retryable:!paused && connectionFailure(error), attempts:(item.attempts ?? 0)+1 });})
+      .finally(() => { controllers.delete(item.id);active--; pump();resumeFailed(); });
   }
 }
 export function startMediaUploads(selected: File[], groupId?: string) {
@@ -80,7 +93,7 @@ export function dismissMediaUpload(id: number) {
   const item = uploads.find(item => item.id === id);
   if (!item || ['queued', 'uploading'].includes(item.status)) return;
   if (item.preview) URL.revokeObjectURL(item.preview);
-  files.delete(id); uploads = uploads.filter(item => item.id !== id); notify();
+  files.delete(id); uploads = uploads.filter(item => item.id !== id); notify();resumeFailed();
 }
 export function MediaUploadList({ items, select }: { items: MediaUpload[]; select?: (row: MediaRecord) => void }) {
   if (!items.length) return null;

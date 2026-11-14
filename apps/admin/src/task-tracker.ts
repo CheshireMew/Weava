@@ -1,6 +1,7 @@
 import { api, submitJob, ApiError } from './api.ts';
 import { adminQueries } from './query-cache.ts';
 import { affectedQueries, jobDomains } from './query-effects.ts';
+import { connectionOnline } from './connection-recovery.ts';
 
 export interface BackgroundTask {
   id: string;
@@ -75,6 +76,7 @@ function poll(): Promise<void> {
           .filter((task) => taskPending(task) || task.job.status === 'unknown')
           .map(async (task) => {
             try {
+              if (!connectionOnline()) throw new Error('offline');
               const job: any = await api(`job/${task.id}`);
               if (!tasks.includes(task)) return;
               const wasPending = taskPending(task) || task.job.status === 'unknown';
@@ -95,7 +97,7 @@ function poll(): Promise<void> {
         young = active.some((task) => Date.now() - Date.parse(task.job.createdAt ?? '') < 500),
         interactive = active.some((task) => task.scope === 'publication');
       schedule(
-        typeof document !== 'undefined' && document.hidden
+        !active.length ? 5000 : typeof document !== 'undefined' && document.hidden
           ? 3000
           : young
             ? 100
@@ -194,6 +196,9 @@ export function endTaskSession() {
   emit();
 }
 if (typeof window !== 'undefined') window.addEventListener('weava-session-ended', endTaskSession);
+if (typeof window !== 'undefined') window.addEventListener('online', () => {
+  if (tasks.some(taskPending)) void poll();
+});
 
 /** Both blocking callers and mounted views observe the same durable task. */
 export function waitTrackedJob(job: any, onProgress: (job: any) => void): Promise<any> {

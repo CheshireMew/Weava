@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api.ts';
 import { useAuthCooldown } from './useAuthCooldown.ts';
+import { connectionFailure, retryConnection } from './connection-recovery.ts';
 export function useAdminSession(setError: (message: string) => void) {
   const cooldown=useAuthCooldown();
   const [session, setSession] = useState<Awaited<ReturnType<typeof readSession>> | null>(null);
@@ -17,9 +18,21 @@ export function useAdminSession(setError: (message: string) => void) {
     return api('session');
   }
   useEffect(() => {
-    readSession()
-      .then(setSession)
-      .catch((error) => setError(error.message));
+    let cancelled = false, attempt = 0, cancelRetry: (() => void) | undefined;
+    const read = () => {
+      void readSession().then(value => {
+        if (!cancelled) {
+          setSession(current => current ?? value);
+          if (attempt) setError('');
+        }
+      }).catch(error => {
+        if (cancelled) return;
+        setError(error.message);
+        if (connectionFailure(error)) cancelRetry = retryConnection(read, attempt++);
+      });
+    };
+    read();
+    return () => { cancelled = true; cancelRetry?.(); };
   }, []);
   useEffect(() => {
     if (!session?.authenticated) return;

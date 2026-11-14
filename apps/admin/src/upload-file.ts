@@ -1,5 +1,6 @@
 import { isUploadFormat,mediaUploadLimit } from '@weava/contracts';
 import {api} from './api.ts';
+import { ApiClientError } from '@weava/contracts/api-error';
 import { adminApi } from '@weava/contracts/api';
 import { adminQueries } from './query-cache.ts';
 import { affectedQueries } from './query-effects.ts';
@@ -35,17 +36,18 @@ export async function uploadFile(
         onProgress(event.loaded >= file.size
           ? '正在保存原文件…'
           : `上传 ${Math.round((event.loaded / file.size) * 100)}%`);
-      request.onerror = () => reject(new Error('上传连接中断，请重试。'));
-      request.ontimeout = () => reject(new Error('上传超时，请重试。'));
+      request.onerror = () => reject(new ApiClientError('上传连接中断，等待重试。', 0));
+      request.ontimeout = () => reject(new ApiClientError('上传超时，等待重试。', 0));
       request.onload = () => {
         try {
           const value = JSON.parse(request.responseText);
           if (request.status >= 400) {
             if (request.status === 401) window.dispatchEvent(new Event('weava-session-expired'));
-            reject(new Error(value.error ?? '上传失败。'));
+            reject(new ApiClientError(value.error ?? '上传失败。', request.status));
           } else resolve(adminApi.uploadMediaFile.response.parse(value));
         } catch {
-          reject(new Error('上传响应无效，请重试。'));
+          if (request.status === 401) window.dispatchEvent(new Event('weava-session-expired'));
+          reject(new ApiClientError('上传响应无效，请重试。', request.status >= 400 ? request.status : 502));
         }
       };
       request.send(file);

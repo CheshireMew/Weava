@@ -13,12 +13,15 @@ import {
 } from '@weava/contracts/session-api';
 import { adminQueries } from './query-cache.ts';
 import { affectedQueries, jobDomains, submissionDomains } from './query-effects.ts';
+import { connectionFailure } from './connection-recovery.ts';
+import { submissionKey, clearSubmissionKeys } from './submission-keys.ts';
 export { ApiClientError as ApiError } from '@weava/contracts/api-error';
 const unauthorized = () => {
   adminQueries.suspend();
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('weava-session-expired'));
 };
 const signedOut = () => {
+  clearSubmissionKeys();
   adminQueries.suspend();
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('weava-session-ended'));
 };
@@ -26,7 +29,7 @@ let fullClient: Promise<AdminClient> | undefined;
 const client = () =>
   (fullClient ??= import('@weava/contracts/api-client').then((module) =>
     module.createAdminClient({ onUnauthorized: unauthorized }),
-  ));
+  ).catch(error => { fullClient = undefined; throw error; }));
 async function transport(path: string, body?: unknown): Promise<any> {
   if (!['session', 'login', 'logout', 'account-access', 'account-access/complete'].includes(path))
     return (await client()).request(path, body);
@@ -95,6 +98,12 @@ async function perform(path: string, body: unknown, execute: () => Promise<any>)
   }
 }
 async function request(path: string, body?: unknown): Promise<any> {
+  if (body !== undefined && !['login', 'logout', 'account-access', 'account-access/complete'].includes(path)) {
+    const { matchAdminApi, idempotentOperations } = await import('@weava/contracts/api');
+    const match = matchAdminApi('POST', path);
+    if (match?.definition.status === 202 && idempotentOperations.includes(match.operation))
+      return submitJob(path, body);
+  }
   return perform(path, body, () => transport(path, body));
 }
 export const api = Object.assign(request, {
@@ -106,9 +115,13 @@ export const api = Object.assign(request, {
     );
   },
 }) as AdminClient;
-export async function submitJob(path:string,body:unknown,key:string=crypto.randomUUID()):Promise<any>{
+export async function submitJob(path:string,body:unknown,key?:string):Promise<any>{
   const {createAdminClient}=await import('@weava/contracts/api-client');
-  return perform(path,body,()=>createAdminClient({onUnauthorized:unauthorized,headers:{'Idempotency-Key':key}}).request(path,body));
+  const submission = key ? {key,finish:()=>{}} : await submissionKey(path,body);
+  try {
+    const result = await perform(path,body,()=>createAdminClient({onUnauthorized:unauthorized,headers:{'Idempotency-Key':submission.key}}).request(path,body));
+    submission.finish(); return result;
+  } catch (error) { if (!connectionFailure(error)) submission.finish(); throw error; }
 }
 export async function waitJob(job: any, onProgress: (job: any) => void) {
   const {waitTrackedJob}=await import('./task-tracker.ts');

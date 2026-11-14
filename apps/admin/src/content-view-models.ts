@@ -75,6 +75,7 @@ export function contentViewModels({
     record,
     dirty,
     saving,
+    autoSave: editor.autoSave,
     editorEpoch,
     contentCheck,
     update,
