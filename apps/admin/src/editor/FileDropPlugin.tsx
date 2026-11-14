@@ -43,8 +43,8 @@ export function FileDropPlugin({ uploads }: { uploads: ReturnType<typeof useFile
               const previous = $getSelection()?.clone() ?? null;
               if (
                 $isRangeSelection(insertion) &&
-                $getNodeByKey(insertion.anchor.key) &&
-                $getNodeByKey(insertion.focus.key)
+                $getNodeByKey(insertion.anchor.key)?.isAttached() &&
+                $getNodeByKey(insertion.focus.key)?.isAttached()
               )
                 $setSelection(insertion);
               else $getRoot().selectEnd();
@@ -58,10 +58,12 @@ export function FileDropPlugin({ uploads }: { uploads: ReturnType<typeof useFile
                 ),
               ]);
               insertion = $getSelection()?.clone() ?? null;
+              // Replacing an empty paragraph detaches its node before Lexical clears
+              // it from the node map. Keep the new caret instead of restoring it there.
               if (
                 $isRangeSelection(previous) &&
-                $getNodeByKey(previous.anchor.key) &&
-                $getNodeByKey(previous.focus.key)
+                $getNodeByKey(previous.anchor.key)?.isAttached() &&
+                $getNodeByKey(previous.focus.key)?.isAttached()
               )
                 $setSelection(previous);
             },

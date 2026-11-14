@@ -98,6 +98,19 @@ it.each(['drop','paste','items'].flatMap(method=>[false,true].map(compact=>({met
   const children = [...editor.children]; expect(children[0].textContent).toBe('左边'); expect(children.at(-1)!.textContent).toBe('右边');
   expect(JSON.stringify(change.mock.calls.at(-1)![0])).toContain('/media/two.png'); expect(uploadFile).toHaveBeenCalledTimes(2);
 });
+it.each(['drop','paste'].flatMap(method=>[false,true].flatMap(compact=>[
+  {source:'',offset:0},{source:'正文',offset:0},{source:'正文',offset:1},{source:'正文',offset:2},
+].map(position=>({method,compact,...position})))))('keeps a valid selection after $method at offset $offset in "$source" (compact=$compact)',async({method,compact,source,offset})=>{
+  const error=vi.fn(),change=vi.fn();
+  await act(async()=>root.render(<Editor compact={compact} value={{version:1,format:'markdown',source}} onChange={change} onMedia={async()=>null} onError={error}/>));
+  const editor=host.querySelector<HTMLElement>('[aria-label="正文编辑器"]')!,paragraph=editor.querySelector('p')!;
+  const text=document.createTreeWalker(paragraph,NodeFilter.SHOW_TEXT).nextNode();
+  await act(async()=>{editor.focus();caret(document,text??paragraph,offset);document.dispatchEvent(new Event('selectionchange'));});
+  await act(async()=>transfer(editor,[file('one.png'),file('two.png')],method));
+  expect(error).not.toHaveBeenCalled();
+  expect([...editor.querySelectorAll('img[src]')].map(img=>img.getAttribute('src'))).toEqual(['/media/one.png','/media/two.png']);
+  expect(JSON.stringify(change.mock.calls.at(-1)![0])).toContain('/media/two.png');
+});
 it.each(['drop','paste','items'].flatMap(method=>[false,true].map(cleanFormatting=>({method,cleanFormatting}))))('inserts $method images into imported HTML without losing content (clean=$cleanFormatting)', async ({method,cleanFormatting}) => {
   const change = vi.fn();
   await act(async () => root.render(<HtmlPageText cleanFormatting={cleanFormatting} value="<p>左边右边</p>" onChange={change} />));
