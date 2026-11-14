@@ -1,4 +1,4 @@
-import {useLayoutEffect, useRef, useState,lazy,Suspense, type DragEvent} from 'react';
+import {useLayoutEffect, useRef, useState,lazy,Suspense, type DragEvent, type ClipboardEvent} from 'react';
 import {createPortal} from 'react-dom';
 import {Dialog} from '../Dialog.tsx';
 import {useSelectors, type SelectedMedia} from '../Selectors.tsx';
@@ -25,10 +25,11 @@ function fenceAt(source: string, position: number) {
   return opened && position >= opened.start ? {...opened, end: source.length, bodyEnd: source.length} : undefined;
 }
 
-export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, target, compact, snippets, uploading, onError, entryId}: {
+export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, onPaste, target, compact, snippets, uploading, onError, entryId}: {
   entryId?: string;
   source: string; onChange: (source: string) => void; onMode: () => void;
   onMedia: () => Promise<SelectedMedia | null>; onDrop: (event: DragEvent<HTMLElement>,offset:number) => void;
+  onPaste?: (event: ClipboardEvent<HTMLElement>,offset:number) => void;
   target?: HTMLElement | null; compact: boolean; snippets: boolean; uploading: boolean; onError: (message: string) => void;
 }) {
   const selectors = useSelectors(), field = useRef<SourceInput|null>(null),large=useRef(source.length>40000).current;
@@ -178,11 +179,11 @@ export function MarkdownEditor({source, onChange, onMode, onMedia, onDrop, targe
       const key=event.key.toLowerCase(),command=key==='b'?'bold':key==='i'?'italic':key==='k'?'link':key==='z'?(event.shiftKey?'redo':'undo'):key==='y'?'redo':undefined;
       if(command){event.preventDefault();event.stopPropagation();action(command);}
     }}>
-    {large?<Suspense fallback={<p role="status">正在打开源码…</p>}><SourceCode ref={field} source={source} historyRevision={historyRevision.current} onInput={(source,start,end)=>commit({source,start,end},false)} onSelection={(start,end)=>{selection.current={start,end};setRange({start,end});}} onDrop={onDrop}/></Suspense>:<textarea ref={element=>{field.current=element;}} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
+    {large?<Suspense fallback={<p role="status">正在打开源码…</p>}><SourceCode ref={field} source={source} historyRevision={historyRevision.current} onInput={(source,start,end)=>commit({source,start,end},false)} onSelection={(start,end)=>{selection.current={start,end};setRange({start,end});}} onDrop={onDrop} onPaste={onPaste}/></Suspense>:<textarea ref={element=>{field.current=element;}} className="markdown-editor" aria-label="正文源码" value={source} spellCheck={false}
       onBeforeInput={() => {selection.current = capture();}}
       onSelect={() => {selection.current = capture(); setRange({...selection.current});}}
       onChange={event => commit({source: event.target.value, ...capture()}, false)}
-      onDragOver={allowFileDrop} onDrop={event=>onDrop(event,event.currentTarget.selectionStart)}/>}</div>
+      onDragOver={allowFileDrop} onDrop={event=>onDrop(event,event.currentTarget.selectionStart)} onPaste={event=>onPaste?.(event,event.currentTarget.selectionStart)}/>}</div>
     {link && createPortal(<Dialog label={link.kind === 'video' ? '插入视频' : '插入链接'} onClose={() => setLink(null)}>
       <form onSubmit={event => {event.preventDefault(); insertLink(url);}}><h2>{link.kind === 'video' ? '插入视频' : '插入链接'}</h2>
         <label>网址<input data-autofocus aria-label="链接地址" value={url} onChange={event => setUrl(event.target.value)} placeholder="https://…" required/></label>

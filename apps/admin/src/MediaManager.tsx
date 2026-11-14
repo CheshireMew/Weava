@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { allowFileDrop, hasDroppedFiles } from './file-drop.tsx';
+import { allowFileDrop, clipboardImages, hasDroppedFiles } from './file-drop.tsx';
 import { MediaUploadList, startMediaUploads, useMediaUploads } from './media-uploads.tsx';
 import { MediaDetails } from './MediaDetails.tsx';
 import { MediaLibrary } from './MediaLibrary.tsx';
@@ -19,6 +19,8 @@ export default function MediaManager({
     [dragging, setDragging] = useState(false);
   const uploads = useMediaUploads(),
     fileInput = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => { panel.current?.focus({preventScroll: true}); }, []);
   useEffect(() => {
     for (const item of uploads) if (item.row) editor.receiveUpload(item.row);
     const current = library.result.items.find(row => row.id === editor.selected?.id);
@@ -30,7 +32,16 @@ export default function MediaManager({
   }
   return (
     <div
+      ref={panel}
+      tabIndex={-1}
       className={'panel media-panel' + (dragging ? ' is-file-dragging' : '')}
+      onPaste={event => {
+        if (!event.currentTarget.contains(event.target as Node)) return;
+        const files = clipboardImages(event.clipboardData);
+        if (!files.length) return;
+        event.preventDefault(); event.stopPropagation();
+        uploadFiles(files);
+      }}
       onDragOver={(event) => {
         if (allowFileDrop(event)) setDragging(true);
       }}

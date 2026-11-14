@@ -5,7 +5,7 @@ import { BlockProperties, type BlockCatalog } from './Blocks.tsx';
 import { patchBlock } from './block-tree.ts';
 import { useSelectors } from './Selectors.tsx';
 import { LoadingState } from './LoadingState.tsx';
-import { allowFileDrop, dropRange, hasDroppedFiles, UploadStatus, useFileUploads } from './file-drop.tsx';
+import { allowFileDrop, clipboardImages, dropRange, hasDroppedFiles, selectionRange, UploadStatus, useFileUploads } from './file-drop.tsx';
 
 const Editor = lazy(() => import('./Editor.tsx').then(module => ({ default: module.Editor })));
 
@@ -79,11 +79,8 @@ export function HtmlPageText({ value, onChange, minHeight = 260, cleanFormatting
         detach.current();
         const over = (event: DragEvent) => { if (allowFileDrop(event)) editor.classList.add('is-file-dragging'); };
         const leave = () => editor.classList.remove('is-file-dragging');
-        const drop = (event: DragEvent) => {
-          if (!hasDroppedFiles(event.dataTransfer)) return;
-          event.preventDefault(); event.stopPropagation(); leave();
-          const range = dropRange(doc, editor, event.clientX, event.clientY);
-          uploads.upload(Array.from(event.dataTransfer!.files), row => {
+        const upload = (files: File[], range: Range) => {
+          uploads.upload(files, row => {
             if (!editor.isConnected) throw new Error('正文已经切换，图片已保存在媒体库中。');
             if (!editor.contains(range.startContainer)) { range.selectNodeContents(editor); range.collapse(false); }
             const image = doc.createElement('img'); image.src = row.value.url; image.alt = row.value.alt ?? row.value.name;
@@ -98,8 +95,19 @@ export function HtmlPageText({ value, onChange, minHeight = 260, cleanFormatting
             changed();
           });
         };
-        editor.addEventListener('dragover', over); editor.addEventListener('dragleave', leave); editor.addEventListener('drop', drop, true);
-        detach.current = () => { editor.removeEventListener('dragover', over); editor.removeEventListener('dragleave', leave); editor.removeEventListener('drop', drop, true); };
+        const drop = (event: DragEvent) => {
+          if (!hasDroppedFiles(event.dataTransfer)) return;
+          event.preventDefault(); event.stopPropagation(); leave();
+          upload(Array.from(event.dataTransfer!.files), dropRange(doc, editor, event.clientX, event.clientY));
+        };
+        const paste = (event: ClipboardEvent) => {
+          const files = clipboardImages(event.clipboardData);
+          if (!files.length) return;
+          event.preventDefault(); event.stopPropagation();
+          upload(files, selectionRange(doc, editor));
+        };
+        editor.addEventListener('dragover', over); editor.addEventListener('dragleave', leave); editor.addEventListener('drop', drop, true); editor.addEventListener('paste', paste, true);
+        detach.current = () => { editor.removeEventListener('dragover', over); editor.removeEventListener('dragleave', leave); editor.removeEventListener('drop', drop, true); editor.removeEventListener('paste', paste, true); };
         editor.addEventListener('input', changed);
         editor.addEventListener('click', event => {
           if ((event.target as Element).closest('a')) event.preventDefault();

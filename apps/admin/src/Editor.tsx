@@ -1,6 +1,6 @@
 import {useState,useRef} from 'react';
 import {type SelectedMedia} from './Selectors.tsx';
-import {hasDroppedFiles,UploadStatus,useFileUploads} from './file-drop.tsx';
+import {clipboardImages,hasDroppedFiles,UploadStatus,useFileUploads} from './file-drop.tsx';
 import {LexicalComposer} from '@lexical/react/LexicalComposer';
 import {RichTextPlugin} from '@lexical/react/LexicalRichTextPlugin';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
@@ -85,6 +85,17 @@ export function Editor({
     current.current = { ...current.current, value: document };
     if (!unchanged) current.current.onChange(document);
   }
+  function uploadSource(files: File[], offset: number) {
+    const position = {offset}; sourceDrops.current.push(position);
+    let remaining = files.length;
+    uploads.upload(files, (row, file) => {
+      const source = sourceText.current, offset = Math.min(source.length, position.offset);
+      const alt = row.value.alt ?? file.name;
+      const text = '![' + alt.replace(/[\\[\]]/g, '\\$&') + '](' + row.value.url + ')';
+      changeSource(source.slice(0, offset) + '\n\n' + text + '\n\n' + source.slice(offset)); position.offset = offset + text.length + 4;
+      if (!--remaining) sourceDrops.current = sourceDrops.current.filter(anchor => anchor !== position);
+    });
+  }
   const [seed, setSeed] = useState<Document>(value);
   const visitedVisual=useRef(mode==='visual');if(mode==='visual')visitedVisual.current=true;
   const retainVisual=visitedVisual.current&&seed.format==='markdown'&&String(seed.source).length>40000;
@@ -99,15 +110,13 @@ export function Editor({
       onDrop={(event,offset) => {
         if (!hasDroppedFiles(event.dataTransfer)) return;
         event.preventDefault(); event.stopPropagation();
-        const position = {offset}; sourceDrops.current.push(position);
-        const files=Array.from(event.dataTransfer.files);let remaining=files.length;
-        uploads.upload(files, (row, file) => {
-          const source = sourceText.current, offset = Math.min(source.length, position.offset);
-          const image = document.createElement('img'); image.src = row.value.url; image.alt = row.value.alt ?? file.name;
-          const text = '![' + image.alt.replace(/[\\[\]]/g, '\\$&') + '](' + row.value.url + ')';
-          changeSource(source.slice(0, offset) + '\n\n' + text + '\n\n' + source.slice(offset)); position.offset = offset + text.length + 4;
-          if(!--remaining)sourceDrops.current=sourceDrops.current.filter(anchor=>anchor!==position);
-        });
+        uploadSource(Array.from(event.dataTransfer.files), offset);
+      }}
+      onPaste={(event,offset) => {
+        const files = clipboardImages(event.clipboardData);
+        if (!files.length) return;
+        event.preventDefault(); event.stopPropagation();
+        uploadSource(files, offset);
       }}/>
     <UploadStatus uploads={uploads}/>
   </div>:null;

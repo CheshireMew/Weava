@@ -2,6 +2,7 @@ import type { FieldDefinition } from '@weava/contracts';
 import { mediaKind } from '@weava/contracts';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Dialog } from './Dialog.tsx';
+import { clipboardImages } from './file-drop.tsx';
 import { MediaUploadList, startMediaUploads, useMediaUploads } from './media-uploads.tsx';
 import { useDebouncedValue } from './useDebouncedValue.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
@@ -132,14 +133,7 @@ export function SelectorsProvider({ children }: { children: ReactNode }) {
           onClose={() => finish(null)}
           onPaste={event => {
             if (picker.type !== 'media' || addressOpen || picker.kind && picker.kind !== 'image') return;
-            const clipboard = event.clipboardData;
-            const files = Array.from(clipboard.files);
-            if (!files.length) for (const item of Array.from(clipboard.items)) {
-              if (item.kind !== 'file') continue;
-              const file = item.getAsFile();
-              if (file) files.push(file);
-            }
-            const images = files.filter(file => file.type.startsWith('image/') || mediaKind(file.name) === 'image');
+            const images = clipboardImages(event.clipboardData);
             if (!images.length) return;
             event.preventDefault();
             event.stopPropagation();

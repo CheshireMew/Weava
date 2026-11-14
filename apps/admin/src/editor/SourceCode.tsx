@@ -1,12 +1,12 @@
-import {forwardRef,useImperativeHandle,useLayoutEffect,useRef,type DragEvent} from 'react';
+import {forwardRef,useImperativeHandle,useLayoutEffect,useRef,type DragEvent,type ClipboardEvent} from 'react';
 import {EditorState,EditorSelection,type Extension} from '@codemirror/state';
 import {EditorView,keymap} from '@codemirror/view';
 import {defaultKeymap,history,undo,redo} from '@codemirror/commands';
-import {allowFileDrop,hasDroppedFiles} from '../file-drop.tsx';
+import {allowFileDrop,clipboardImages,hasDroppedFiles} from '../file-drop.tsx';
 import {usePendingEditWork} from '../EditSessions.tsx';
 
 export interface SourceInput {readonly selectionStart:number;readonly selectionEnd:number;scrollTop:number;focus(options?:FocusOptions):void;setSelectionRange(start:number,end:number):void;flush?():void;undo?():void;redo?():void}
-export default forwardRef<SourceInput,{source:string;historyRevision:number;onInput:(source:string,start:number,end:number)=>void;onSelection:(start:number,end:number)=>void;onDrop:(event:DragEvent<HTMLElement>,offset:number)=>void}>(function SourceCode(props,ref){
+export default forwardRef<SourceInput,{source:string;historyRevision:number;onInput:(source:string,start:number,end:number)=>void;onSelection:(start:number,end:number)=>void;onDrop:(event:DragEvent<HTMLElement>,offset:number)=>void;onPaste?:(event:ClipboardEvent<HTMLElement>,offset:number)=>void}>(function SourceCode(props,ref){
  const host=useRef<HTMLDivElement>(null),view=useRef<EditorView|null>(null),latest=useRef(props),external=useRef(false),applied=useRef(props.source),dirty=useRef(false),timer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);latest.current=props;
  const extensions=useRef<Extension[]>([]),historyRevision=useRef(props.historyRevision);
  const flush=()=>{
@@ -44,5 +44,5 @@ export default forwardRef<SourceInput,{source:string;historyRevision:number;onIn
    editor.scrollDOM.scrollTop=scroll;historyRevision.current=props.historyRevision;
   }else editor.dispatch({changes:{from:0,to:editor.state.doc.length,insert:props.source}});
  }finally{external.current=false;}}},[props.source,props.historyRevision]);
- return <div ref={host} className="markdown-code" onDragOver={allowFileDrop} onDropCapture={event=>{if(!hasDroppedFiles(event.dataTransfer))return;flushLatest.current();const editor=view.current;props.onDrop(event,editor?.posAtCoords({x:event.clientX,y:event.clientY})??editor?.state.selection.main.head??0);}}/>;
+ return <div ref={host} className="markdown-code" onDragOver={allowFileDrop} onDropCapture={event=>{if(!hasDroppedFiles(event.dataTransfer))return;flushLatest.current();const editor=view.current;props.onDrop(event,editor?.posAtCoords({x:event.clientX,y:event.clientY})??editor?.state.selection.main.head??0);}} onPasteCapture={event=>{if(!clipboardImages(event.clipboardData).length)return;flushLatest.current();props.onPaste?.(event,view.current?.state.selection.main.head??0);}}/>;
 });

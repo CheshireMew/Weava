@@ -164,6 +164,7 @@ export const entrySchema = z.object({
   rssMode: z.enum(['inherit', 'summary', 'full']).optional(),
   author: z.string().default(''),
   cover: z.string().default(''),
+  defaultCoverId: z.number().int().positive().optional(),
   categories: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
   termIds: z.object({ categories: z.array(z.string()), tags: z.array(z.string()) }).optional(),

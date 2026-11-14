@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { allowFileDrop, dropRange, hasDroppedFiles, useFileUploads } from '../file-drop.tsx';
+import { allowFileDrop, clipboardImages, dropRange, hasDroppedFiles, selectionRange, useFileUploads } from '../file-drop.tsx';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   $getSelection,
@@ -26,13 +26,8 @@ export function FileDropPlugin({ uploads }: { uploads: ReturnType<typeof useFile
         if (allowFileDrop(event)) root.classList.add('is-file-dragging');
       };
       const leave = () => root.classList.remove('is-file-dragging');
-      const drop = (event: DragEvent) => {
-        if (!hasDroppedFiles(event.dataTransfer)) return;
-        event.preventDefault();
-        event.stopPropagation();
-        leave();
+      const upload = (files: File[], range: Range) => {
         let insertion: ReturnType<typeof $getSelection> = null;
-        const range = dropRange(root.ownerDocument, root, event.clientX, event.clientY);
         editor.update(
           () => {
             const selection = $createRangeSelection();
@@ -41,7 +36,7 @@ export function FileDropPlugin({ uploads }: { uploads: ReturnType<typeof useFile
           },
           { discrete: true, tag: SKIP_DOM_SELECTION_TAG },
         );
-        latest.current.upload(Array.from(event.dataTransfer!.files), (row) => {
+        latest.current.upload(files, (row) => {
           if (!editor.getRootElement()) throw new Error('正文已经切换，图片已保存在媒体库中。');
           editor.update(
             () => {
@@ -74,13 +69,26 @@ export function FileDropPlugin({ uploads }: { uploads: ReturnType<typeof useFile
           );
         });
       };
+      const drop = (event: DragEvent) => {
+        if (!hasDroppedFiles(event.dataTransfer)) return;
+        event.preventDefault(); event.stopPropagation(); leave();
+        upload(Array.from(event.dataTransfer!.files), dropRange(root.ownerDocument, root, event.clientX, event.clientY));
+      };
+      const paste = (event: ClipboardEvent) => {
+        const files = clipboardImages(event.clipboardData);
+        if (!files.length) return;
+        event.preventDefault(); event.stopPropagation();
+        upload(files, selectionRange(root.ownerDocument, root));
+      };
       root.addEventListener('dragover', over);
       root.addEventListener('dragleave', leave);
       root.addEventListener('drop', drop, true);
+      root.addEventListener('paste', paste, true);
       detach = () => {
         root.removeEventListener('dragover', over);
         root.removeEventListener('dragleave', leave);
         root.removeEventListener('drop', drop, true);
+        root.removeEventListener('paste', paste, true);
       };
     });
     return () => {

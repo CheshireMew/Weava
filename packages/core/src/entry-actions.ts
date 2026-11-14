@@ -11,6 +11,8 @@ interface EntryActionsSite {
 }
 
 import { now, uuid } from '../../runtime-common/src/identity.ts';
+import { defaultCoverIds } from '../../runtime-common/src/default-covers.ts';
+import { defaultArticleCover } from './entry-cover.ts';
 
 function currentEntry(site: EntryActionsSite, id: string, revision: number) {
   const row = site.entryStore.get(id);
@@ -23,8 +25,9 @@ export function duplicateContent(site: EntryActionsSite, id: string, revision: n
   return site.entryStore.transaction(() => {
     const original = currentEntry(site, id, revision).value;
     const nextId = uuid();
+    const definition = site.entryStore.type(original.type)?.value;
     const prefix =
-      original.kind === 'page' ? '/' : site.entryStore.type(original.type)?.value.pathPrefix;
+      original.kind === 'page' ? '/' : definition?.pathPrefix;
     if (!prefix) throw new WeavaError('内容类型不存在。');
     const value = entrySchema.parse({
       ...structuredClone(original),
@@ -36,9 +39,15 @@ export function duplicateContent(site: EntryActionsSite, id: string, revision: n
       updatedAt: undefined,
       publishedAt: undefined,
       source: undefined,
+      defaultCoverId: undefined,
       seo: original.seo ? { ...original.seo, canonical: undefined } : undefined,
       blocks: cloneBlocks(original.blocks),
     });
+    const previousCover = defaultArticleCover(original, definition);
+    if (previousCover && defaultArticleCover(value, definition) === previousCover) {
+      const previousIndex = defaultCoverIds.findIndex(photo => previousCover === '/default-covers/picsum-' + photo + '.webp');
+      value.defaultCoverId = defaultCoverIds[(previousIndex + 1) % defaultCoverIds.length];
+    }
     return site.saveEntry(value, null);
   });
 }

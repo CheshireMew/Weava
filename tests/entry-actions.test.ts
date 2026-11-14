@@ -4,6 +4,7 @@ import { entrySchema } from '@weava/contracts';
 import { duplicateContent, deleteContent,restoreTrashedContent,purgeTrashedContent } from '../packages/core/src/entry-actions.ts';
 import {entryCover} from '../packages/core/src/entry-cover.ts';
 import { EntryRepository } from '../packages/core/src/entry-repository.ts';
+import * as identity from '../packages/runtime-common/src/identity.ts';
 
 // The action boundary only needs records and their list index; use SQLite in memory.
 const databases: Database.Database[] = [];
@@ -58,11 +59,18 @@ it('duplicates the full content into an independent draft with a new address and
 
 it('gives an imageless template copy its own stable default cover without changing the template', () => {
   const {site, original, put} = fixture();
-  const template = {...original, cover:'', blocks:[], document:{version:1 as const,format:'markdown' as const,source:'---\n\n作者签名'}};
+  const template = {...original, id:'be6c2282-2eb6-4309-a84b-10b074642c5a', cover:'', blocks:[], document:{version:1 as const,format:'markdown' as const,source:'---\n\n作者签名'}};
   put('entry', template.id, template);
+  // These two real IDs collide in the default photo pool.
+  const random = vi.spyOn(identity, 'uuid').mockReturnValueOnce('d8197664-9eb0-4d1e-80b6-e3ed1f03e33b');
   const copy = duplicateContent(site, template.id, 1), cover = entryCover(copy.value);
+  random.mockRestore();
   expect(cover).toMatch(/^\/default-covers\/picsum-\d+\.webp$/);
+  expect(cover).not.toBe(entryCover(template));
+  expect(entryCover(site.store.get('entry', copy.id).value)).toBe(cover);
   expect(entryCover({...copy.value,title:'新文章标题'})).toBe(cover);
+  expect(entryCover({...copy.value,cover:'/media/manual.png'})).toBe('/media/manual.png');
+  expect(entryCover({...copy.value,document:{version:1,format:'markdown',source:'![正文](/media/body.png)'}})).toBe('/media/body.png');
   expect(copy.value.document).toEqual(template.document); expect(copy.value.cover).toBe('');
   expect(site.store.get('entry', template.id).value).toEqual(template);
 });

@@ -1,10 +1,32 @@
-import { isUploadFormat, mediaUploadMaxBytes } from '@weava/contracts';
+import { isUploadFormat, mediaKind, mediaUploadMaxBytes } from '@weava/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { usePendingEditWork } from './EditSessions.tsx';
 import { uploadFile } from './upload-file.ts';
 
 export function hasDroppedFiles(data: DataTransfer | null) {
   return !!data && (Array.from(data.types).includes('Files') || data.files.length > 0);
+}
+export function clipboardImages(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files = Array.from(data.files);
+  if (!files.length) for (const item of Array.from(data.items)) {
+    if (item.kind !== 'file') continue;
+    const file = item.getAsFile();
+    if (file) files.push(file);
+  }
+  return files.filter(file => file.type.startsWith('image/') || mediaKind(file.name) === 'image');
+}
+export function selectionRange(doc: Document, root: HTMLElement) {
+  const selection = doc.defaultView?.getSelection();
+  if (selection?.rangeCount && root.contains(selection.anchorNode)) {
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(false);
+    return range;
+  }
+  const range = doc.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  return range;
 }
 export function allowFileDrop(event: Pick<DragEvent, 'dataTransfer' | 'preventDefault'>) {
   if (!hasDroppedFiles(event.dataTransfer)) return false;
@@ -69,7 +91,7 @@ export function useFileUploads(imagesOnly = true) {
           try {
             if (!isUploadFormat(item.file.name, imagesOnly))
               throw new Error(
-                imagesOnly ? '请拖入 PNG、JPG、WebP、GIF 或 AVIF 图片。' : '不支持这个文件格式。',
+                imagesOnly ? '请选择 PNG、JPG、WebP、GIF 或 AVIF 图片。' : '不支持这个文件格式。',
               );
             if (!item.file.size || item.file.size > mediaUploadMaxBytes)
               throw new Error('文件大小需要在 32 MB 以内。');

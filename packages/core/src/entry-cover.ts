@@ -11,10 +11,11 @@ function firstImage(html: string) {
 const publishedImages=new WeakMap<object,{html:string;image:string}>();
 
 /** A new article ID selects a local photo that stays fixed across edits and refreshes. */
-export function defaultArticleCover(entry: Pick<Entry, 'id' | 'kind' | 'type'>, definition?: Pick<ContentType, 'id' | 'format'>): string {
+export function defaultArticleCover(entry: Pick<Entry, 'id' | 'kind' | 'type' | 'defaultCoverId'>, definition?: Pick<ContentType, 'id' | 'format'>): string {
   if (entry.kind !== 'content' || isNoteType(definition ?? {id: entry.type})) return '';
   const index = createHash('sha256').update(entry.id).digest().readUInt32BE(0) % defaultCoverIds.length;
-  return '/default-covers/picsum-' + defaultCoverIds[index] + '.webp';
+  const chosen = entry.defaultCoverId !== undefined && defaultCoverIds.includes(entry.defaultCoverId) ? entry.defaultCoverId : defaultCoverIds[index];
+  return '/default-covers/picsum-' + chosen + '.webp';
 }
 
 function firstBodyImage(entry: Entry | PublishedEntry): string {

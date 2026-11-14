@@ -69,10 +69,10 @@ it('groups author, category and tags and changes the address when choosing a cat
   await act(async () => choices.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   expect(current.update).toHaveBeenCalledWith({ categories: ['写作'], termIds: { categories: ['category-1'], tags: ['tag-1'] }, path: '/writing/article/' });
 });
-it('keeps automatic addresses out of the English title field and saves entered titles with the category prefix', async () => {
+it.each(['be6c2282', 'be6c2282-2eb6-4309-a84b-10b074642c5a'])('keeps automatic new/copy addresses (%s) blank and saves entered titles with the category prefix', async slug => {
   const current = model();
   function Editor() {
-    const [value, setValue] = useState<Entry>({...current.record.value, id:'be6c2282-2eb6-4309-a84b-10b074642c5a', path:'/posts/be6c2282/'});
+    const [value, setValue] = useState<Entry>({...current.record.value, id:'be6c2282-2eb6-4309-a84b-10b074642c5a', path:'/posts/'+slug+'/'});
     const update = (patch: Partial<Entry>) => {
       current.update(patch);
       setValue(old => ({...old,...patch}));
@@ -83,6 +83,8 @@ it('keeps automatic addresses out of the English title field and saves entered t
     </>;
   }
   await act(async () => root.render(<Editor />));
+  expect(host.querySelector('input')!.value).toBe('');
+  await act(async () => root.render(<Editor key="reopened" />));
   const field = host.querySelector('[data-field-path="path"]')!;
   const input = field.querySelector('input')!;
   expect(input.value).toBe('');
@@ -92,7 +94,7 @@ it('keeps automatic addresses out of the English title field and saves entered t
   await click('设置分类');
   await act(async () => document.querySelector<HTMLInputElement>('.term-options input')!.click());
   expect(input.value).toBe('');
-  expect(current.update).toHaveBeenLastCalledWith(expect.objectContaining({path:'/writing/be6c2282/'}));
+  expect(current.update).toHaveBeenLastCalledWith(expect.objectContaining({path:'/writing/'+slug+'/'}));
   await fill(input, 'A Writing Guide');
   expect(field.textContent).toBe('英文标题');
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true})));

@@ -14,6 +14,7 @@ import { dismissMediaUpload, mediaUploadSnapshot } from '../apps/admin/src/media
 import { api,waitJob } from '../apps/admin/src/api.ts';
 import { entrySchema } from '../packages/contracts/src/index.ts';
 import { useMediaEditor, type MediaEditor } from '../apps/admin/src/useMediaEditor.ts';
+import {EditorView} from '@codemirror/view';
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/upload-file.ts', () => ({ uploadFile: vi.fn() }));
 vi.mock('../apps/admin/src/api.ts', () => ({ api: vi.fn(), waitJob: vi.fn() }));
@@ -26,9 +27,16 @@ function drag(target: Element, files: File[], type = 'drop') {
   Object.defineProperties(event, { dataTransfer: { value: { files, types: ['Files'], dropEffect: 'none' } }, clientX: { value: 10 }, clientY: { value: 10 } });
   target.dispatchEvent(event); return event;
 }
+function paste(target: Element, files: File[], itemsOnly = false) {
+  const event = new Event('paste', {bubbles:true,cancelable:true});
+  Object.defineProperty(event, 'clipboardData', {value:{files:itemsOnly?[]:files,items:files.map(file=>({kind:'file',getAsFile:()=>file})),types:['Files'],getData:()=>''}});
+  target.dispatchEvent(event); return event;
+}
+const transfer = (target: Element, files: File[], method: string) => method==='drop'?drag(target,files):paste(target,files,method==='items');
 function caret(doc: Document, text: Node, offset: number) {
   const range = doc.createRange(); range.setStart(text, offset); range.collapse(true);
   Object.defineProperty(doc, 'caretRangeFromPoint', { configurable: true, value: () => range.cloneRange() });
+  const selection = doc.defaultView?.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
 }
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; adminQueries.resume(); library = [];
@@ -81,31 +89,32 @@ it('crops through the keyboard, clamps the selection and sends the same crop to 
   expect(document.querySelector('dialog[aria-label="裁切图片"]')).toBeNull();
 });
 
-it.each([false, true])('uploads multiple dropped images into the visual article/note at the drop position (compact=%s)', async compact => {
+it.each(['drop','paste','items'].flatMap(method=>[false,true].map(compact=>({method,compact}))))('inserts multiple $method images at the article/note caret (compact=$compact)', async ({method,compact}) => {
   const change = vi.fn();
   await act(async () => root.render(<Editor compact={compact} value={{ version: 1, format: 'markdown', source: '左边右边' }} onChange={change} onMedia={async () => null} onError={vi.fn()} />));
   const editor = host.querySelector('[aria-label="正文编辑器"]')!; caret(document, document.createTreeWalker(editor.querySelector('p')!, NodeFilter.SHOW_TEXT).nextNode()!, 2);
-  await act(async () => { expect(drag(editor, [file()], 'dragover').defaultPrevented).toBe(true); expect(drag(editor, [file('one.png'), file('two.png')]).defaultPrevented).toBe(true); });
+  await act(async () => { expect(drag(editor, [file()], 'dragover').defaultPrevented).toBe(true); expect(transfer(editor, [file('one.png'), file('two.png')], method).defaultPrevented).toBe(true); });
   expect([...editor.querySelectorAll('img')].map(img => img.getAttribute('src'))).toEqual(['/media/one.png', '/media/two.png']);
   const children = [...editor.children]; expect(children[0].textContent).toBe('左边'); expect(children.at(-1)!.textContent).toBe('右边');
   expect(JSON.stringify(change.mock.calls.at(-1)![0])).toContain('/media/two.png'); expect(uploadFile).toHaveBeenCalledTimes(2);
 });
-it.each([false, true])('uploads into the imported HTML article/note without losing surrounding content (clean=%s)', async cleanFormatting => {
+it.each(['drop','paste','items'].flatMap(method=>[false,true].map(cleanFormatting=>({method,cleanFormatting}))))('inserts $method images into imported HTML without losing content (clean=$cleanFormatting)', async ({method,cleanFormatting}) => {
   const change = vi.fn();
   await act(async () => root.render(<HtmlPageText cleanFormatting={cleanFormatting} value="<p>左边右边</p>" onChange={change} />));
   const frame = host.querySelector('iframe')!, doc = frame.contentDocument!;
   doc.body.innerHTML = '<main id="page-text"><p>左边右边</p></main>';
   await act(async () => frame.dispatchEvent(new Event('load')));
   const editor = doc.getElementById('page-text')!; caret(doc, editor.querySelector('p')!.firstChild!, 2);
-  await act(async () => drag(editor, [file('one.png'), file('two.png')]));
+  await act(async () => transfer(editor, [file('one.png'), file('two.png')], method));
   expect(editor.querySelector('p')!.textContent).toBe('左边右边'); expect([...editor.querySelectorAll('img')].map(img => img.getAttribute('src'))).toEqual(['/media/one.png', '/media/two.png']);
   expect(change.mock.calls.at(-1)![0]).toContain('左边<img'); expect(change.mock.calls.at(-1)![0]).toContain('右边');
 });
-it('uploads files dropped in the media panel, preserving the selected group and refreshing the library', async () => {
+it.each(['drop','paste','items'])('uploads %s files in the media panel, preserving the selected group and refreshing the library', async method => {
   await act(async () => root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()} /></EditSessionsProvider>));
+  expect(document.activeElement).toBe(host.querySelector('.media-panel'));
   const group = host.querySelector<HTMLSelectElement>('[aria-label="媒体分组筛选"]')!;
   await act(async () => { group.value = 'pictures'; group.dispatchEvent(new Event('change', { bubbles: true })); });
-  await act(async () => drag(host.querySelector('.media-panel')!, [file('one.png'), file('two.png')]));
+  await act(async () => transfer(host.querySelector('.media-panel')!, [file('one.png'), file('two.png')], method));
   expect(uploadFile).toHaveBeenCalledTimes(2); expect(uploadFile).toHaveBeenCalledWith(expect.objectContaining({name:'one.png'}), expect.any(Function), expect.objectContaining({groupId:'pictures',signal:expect.any(AbortSignal)})); expect(api).not.toHaveBeenCalledWith('media/move', expect.anything());
   expect(host.querySelector('.media-grid')!.textContent).toContain('one.png'); expect(host.querySelector('.media-grid')!.textContent).toContain('two.png');
 });
@@ -153,7 +162,7 @@ it('recovers from validation failure before progress starts without an unrelated
   await act(async()=>drag(host.querySelector('.media-panel')!,[file('valid.png')]));
   expect(host.querySelector('.media-grid')!.textContent).toContain('valid.png');
 });
-it('pauses the rest of a batch after failure so retry retains the original image order', async () => {
+it.each(['drop','paste'])('pauses a %s batch after failure so retry retains the original image order', async method => {
   let fail = true;
   vi.mocked(uploadFile).mockImplementation(async file => {
     if (file.name === 'two.png' && fail) { fail = false; throw new Error('网络中断'); }
@@ -161,7 +170,7 @@ it('pauses the rest of a batch after failure so retry retains the original image
   });
   await act(async () => root.render(<Editor value={{ version: 1, format: 'markdown', source: '正文' }} onChange={vi.fn()} onMedia={async () => null} onError={vi.fn()} />));
   const editor = host.querySelector('[aria-label="正文编辑器"]')!;
-  await act(async () => drag(editor, [file('one.png'), file('two.png'), file('three.png')]));
+  await act(async () => transfer(editor, [file('one.png'), file('two.png'), file('three.png')], method));
   expect(uploadFile).toHaveBeenCalledTimes(2); expect([...editor.querySelectorAll('img[src]')].map(img => img.getAttribute('src'))).toEqual(['/media/one.png']);
   await act(async () => host.querySelector<HTMLButtonElement>('.file-upload-error button')!.click());
   expect([...editor.querySelectorAll('img[src]')].map(img => img.getAttribute('src'))).toEqual(['/media/one.png', '/media/two.png', '/media/three.png']);
@@ -178,7 +187,7 @@ it('keeps save and navigation blocked after upload failure until retry or an exp
   await expect(manager.prepare()).resolves.toBeUndefined(); await expect(manager.flush()).resolves.toBeUndefined();
   expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.disabled).toBe(false);
 });
-it('waits for an in-flight image before capturing the document for save/publish', async () => {
+it.each(['drop','paste'])('waits for an in-flight %s image before capturing the document for save/publish', async method => {
   const upload = pending<any>(); vi.mocked(uploadFile).mockReturnValue(upload.promise); let workspace: any;
   const state = { settings: { value: { name: '站点' } }, types: [{ id: 'post', value: { id: 'post' } }] };
   function Workspace() {
@@ -187,19 +196,50 @@ it('waits for an in-flight image before capturing the document for save/publish'
   }
   await act(async () => root.render(<EditSessionsProvider><Workspace /></EditSessionsProvider>));
   await act(async () => workspace.navigation.adopt({ id: 'article', revision: 1, value: entrySchema.parse({ id: 'article', kind: 'content', type: 'post', title: '文章', path: '/article/', document: { version: 1, format: 'markdown', source: '正文' } }) }));
-  await act(async () => drag(host.querySelector('[aria-label="正文编辑器"]')!, [file()]));
+  await act(async () => transfer(host.querySelector('[aria-label="正文编辑器"]')!, [file()], method));
   let save!: Promise<any>; await act(async () => { save = workspace.editor.persist(); }); expect(vi.mocked(api).mock.calls.some(([path]) => path === 'entry')).toBe(false);
   await act(async () => { upload.resolve(row(file())); await save; });
   const written = vi.mocked(api).mock.calls.find(([path]) => path === 'entry')!;
   expect(JSON.stringify(written[1])).toContain('/media/photo.png'); expect(workspace.editor.dirty).toBe(false);
 });
-it('preserves text typed while an image is uploading in Markdown source mode', async () => {
+it.each(['drop','paste','items'])('preserves text typed while a %s image uploads in Markdown source mode', async method => {
   const upload = pending<any>(); vi.mocked(uploadFile).mockReturnValue(upload.promise);
   function Source() { const [value, setValue] = useState<any>({ version: 1, format: 'markdown', source: '左边右边' }); return <Editor value={value} onChange={setValue} onMedia={async () => null} onError={vi.fn()} />; }
   await act(async () => root.render(<Source />)); await act(async () => [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label') === '切换为 Markdown')!.click());
   const text = host.querySelector('textarea')!; text.setSelectionRange(2, 2);
-  await act(async () => drag(text, [file()]));
+  await act(async () => transfer(text, [file()], method));
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(text, '新增左边右边'); text.dispatchEvent(new Event('input', { bubbles: true })); });
   await act(async () => upload.resolve(row(file())));
   expect(text.value).toContain('新增左边'); expect(text.value).toContain('/media/photo.png'); expect(text.value).toMatch(/右边$/);
+});
+it('flushes pending long-source edits before pasting images and preserves edits made during upload', async () => {
+  const upload=pending<any>();vi.mocked(uploadFile).mockReturnValue(upload.promise);
+  const source='完整正文。'.repeat(10000);
+  function Source(){const [value,setValue]=useState<any>({version:1,format:'markdown',source});return <Editor value={value} onChange={setValue} onMedia={async()=>null} onError={vi.fn()}/>;}
+  await act(async()=>root.render(<Source/>));
+  for(let i=0;i<100&&host.querySelector('[aria-busy="true"]');i++)await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为 Markdown"]')!.click());
+  for(let i=0;i<50&&!host.querySelector('.cm-content');i++)await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+  const field=host.querySelector<HTMLElement>('.cm-content')!,code=EditorView.findFromDOM(field)!;
+  await act(async()=>{
+    code.dispatch({changes:{from:0,insert:'刚输入'},selection:{anchor:3}});
+    expect(paste(field,[file()],true).defaultPrevented).toBe(true);
+  });
+  await act(async()=>code.dispatch({changes:{from:code.state.doc.length,insert:'尾部补充'}}));
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,180));});
+  await act(async()=>upload.resolve(row(file())));
+  expect(code.state.doc.toString()).toBe('刚输入\n\n![photo.png](/media/photo.png)\n\n'+source+'尾部补充');
+  expect(uploadFile).toHaveBeenCalledTimes(1);
+});
+it('leaves text and URL paste untouched in source, imported HTML and the media library', async () => {
+  await act(async()=>root.render(<Editor value={{version:1,format:'markdown',source:'正文'}} onChange={vi.fn()} onMedia={async()=>null} onError={vi.fn()}/>));
+  await act(async()=>host.querySelector<HTMLButtonElement>('[aria-label="切换为 Markdown"]')!.click());
+  await act(async()=>expect(paste(host.querySelector('textarea')!,[]).defaultPrevented).toBe(false));
+  await act(async()=>root.render(<HtmlPageText value="<p>正文</p>" onChange={vi.fn()}/>));
+  const frame=host.querySelector('iframe')!,doc=frame.contentDocument!;doc.body.innerHTML='<main id="page-text"><p>正文</p></main>';
+  await act(async()=>frame.dispatchEvent(new Event('load')));
+  await act(async()=>expect(paste(doc.getElementById('page-text')!,[]).defaultPrevented).toBe(false));
+  await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));
+  await act(async()=>expect(paste(host.querySelector('.media-panel')!,[]).defaultPrevented).toBe(false));
+  expect(uploadFile).not.toHaveBeenCalled();
 });
