@@ -149,7 +149,7 @@ it.each([false, true])('uploads a pasted image once into the current group and l
   let event!: Event;
   await act(async () => {event = paste(dialog('选择媒体').querySelector('[aria-label="搜索媒体"]')!, [image], itemsOnly);});
   expect(event.defaultPrevented).toBe(true); expect(uploadFile).toHaveBeenCalledTimes(1);
-  expect(uploadFile).toHaveBeenCalledWith(image, expect.any(Function), {groupId:'screenshots'});
+  expect(uploadFile).toHaveBeenCalledWith(image, expect.any(Function), expect.objectContaining({groupId:'screenshots',signal:expect.any(AbortSignal)}));
   expect(selected).not.toHaveBeenCalled(); expect(dialog('选择媒体').textContent).toContain('已上传');
   await act(async () => dialog('选择媒体').querySelector<HTMLButtonElement>('.media-upload-select')!.click());
   expect(selected).toHaveBeenCalledWith(expect.objectContaining({id:'pasted',url:'/media/pasted.png',kind:'image'}));

@@ -18,12 +18,14 @@ import {assertUploadSize} from '../packages/core/src/media-upload-policy.ts';
 import {defaultMediaUploadLimits} from '@weava/contracts';
 import {commentsHandlers} from '../apps/web/src/api/comments.ts';
 import {adminEntry} from '../packages/core/src/admin-content.ts';
+import {EntryRepository} from '../packages/core/src/entry-repository.ts';
 const databases:Database.Database[]=[];
 afterEach(()=>databases.splice(0).forEach(db=>db.close()));
 function fixture(){
   const db=new Database(':memory:');databases.push(db);migrateStorage(db,'unused',0);
   const type={id:'post',label:'文章',pathPrefix:'/posts/',template:'article',fields:[]};
-  const site={store:{raw:db,list:()=>[{id:type.id,value:type}]},terms:()=>[]} as any;
+  const site={store:{raw:db,list:(scope:string)=>scope==='type'?[{id:type.id,value:type}]:[]},terms:()=>[]} as any;
+  site.entryStore=new EntryRepository(site.store);
   const entry=entrySchema.parse({id:'first',kind:'content',type:'post',title:'精确中文搜索',path:'/posts/first/',document:{version:1,format:'markdown',source:'正文独有词 **needle** <script>unsearchable</script>'}});
   return {db,site,type,entry};
 }
@@ -86,6 +88,9 @@ it('partitions article groups without hiding changed publications, running sched
     if(['scheduled','running','failed','cancelled','published-update'].includes(id))db.prepare('INSERT INTO records VALUES(?,?,?,?,?)').run('publication-schedule',id,1,JSON.stringify({entryId:id,status:id==='published-update'?'scheduled':id,dueAt:'2026-12-01T01:00:00Z'}),'');
   }
   db.prepare("INSERT INTO state(key,value) VALUES('release','active') ON CONFLICT(key) DO UPDATE SET value=excluded.value").run();
+  const all=queryDrafts(site,{kind:'content',format:'article',status:'all'});
+  expect(all.items.map(row=>row.id).sort()).toEqual([...published,...scheduled,...drafts].sort());
+  expect(all.total).toBe(9);
   const ids=(group:'published'|'scheduled'|'draft')=>queryDrafts(site,{kind:'content',format:'article',group}).items.map(row=>row.id).sort();
   expect(ids('published')).toEqual(published.sort());expect(ids('scheduled')).toEqual(scheduled.sort());expect(ids('draft')).toEqual(drafts.sort());
   expect(queryDrafts(site,{group:'draft',query:'failed'}).items[0].schedules?.[0].status).toBe('failed');

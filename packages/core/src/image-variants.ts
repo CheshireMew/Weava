@@ -6,32 +6,32 @@ import { digest, now } from '../../runtime-common/src/identity.ts';
 import { inside } from '../../runtime-common/src/paths.ts';
 import type { Site } from './site.ts';
 import { digestFileAsync } from './file-io.ts';
-export const imagePresets = (site: Site) => site.store.list('image-preset');
+export const imagePresets = (site: Site) => site.media.presets();
 export function saveImagePreset(site: Site, value: unknown, revision: number | null) {
   const preset = imagePresetSchema.parse(value);
-  return site.store.put('image-preset', preset.id, preset, revision);
+  return site.media.savePreset(preset.id, preset, revision);
 }
 export async function imageVariant(
   site: Site,
   input: { id: string; revision: number; presetId?: string; spec?: unknown },
 ) {
-  const media = site.store.get('media', input.id);
+  const media = site.media.get(input.id);
   if (!media || media.revision !== input.revision)
     throw new WeavaError('媒体已变化，请重新载入。', 409);
-  const preset = input.presetId ? site.store.get('image-preset', input.presetId)?.value : null;
+  const preset = input.presetId ? site.media.preset(input.presetId)?.value : null;
   if (input.presetId && (!preset || preset.archived))
     throw new WeavaError('图片规格不存在或已归档。');
   const spec = imageSpecSchema.parse(input.presetId ? preset.spec : input.spec);
   const source = inside(site.root, media.value.url.slice(1));
   const key = digest({
-    source: media.value.hash ?? await digestFileAsync(source),
+    source: media.value.hash ?? (await digestFileAsync(source)),
     spec,
     focalPoint: media.value.focalPoint ?? { x: 50, y: 50 },
     version: 1,
   });
   const url = '/media/optimized/variant-' + key + '.' + spec.format,
     path = inside(site.root, url.slice(1));
-  const current = site.store.get('media-variant', key);
+  const current = site.media.variant(key);
   if (current && existsSync(path)) return current;
   const rawMetadata = await sharp(source, { limitInputPixels: 32000000 }).metadata();
   const metadata = rawMetadata.autoOrient ?? rawMetadata;
@@ -60,32 +60,20 @@ export async function imageVariant(
     .resize({ width: spec.width, height: spec.height, fit: spec.fit, withoutEnlargement: true })
     .toFormat(spec.format, { quality: spec.quality })
     .toFile(path);
-  if (site.store.get('media', input.id)?.revision !== input.revision)
+  if (site.media.get(input.id)?.revision !== input.revision)
     throw new WeavaError('生成期间媒体已变化，请重新生成。', 409);
-  return site.store.raw
-    .transaction(() => {
-      const existing = site.store.get('media-variant', key);
-      if (existing) return existing;
-      return site.store.put(
-        'media-variant',
-        key,
-        {
-          id: key,
-          parentId: input.id,
-          url,
-          width: info.width,
-          height: info.height,
-          bytes: statSync(path).size,
-          spec,
-          focalPoint: media.value.focalPoint ?? { x: 50, y: 50 },
-          createdAt: now(),
-        },
-        null,
-        '生成图片规格',
-      );
-    })
-    .immediate();
+  return site.media.saveVariant(key, {
+    id: key,
+    parentId: input.id,
+    url,
+    width: info.width,
+    height: info.height,
+    bytes: statSync(path).size,
+    spec,
+    focalPoint: media.value.focalPoint ?? { x: 50, y: 50 },
+    createdAt: now(),
+  });
 }
 
-export const mediaVariants = (site: Pick<Site, 'store'>, id: string | null) =>
-  site.store.list('media-variant').filter((row) => row.value.parentId === id);
+export const mediaVariants = (site: Pick<Site, 'media'>, id: string | null) =>
+  site.media.variants(id);

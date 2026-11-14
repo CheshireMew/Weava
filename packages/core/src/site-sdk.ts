@@ -3,10 +3,11 @@ import Database from 'better-sqlite3';
 import {join} from 'node:path';
 import {existsSync} from 'node:fs';
 import type {Site} from './site.ts';
+import type {Release} from '@weava/contracts';
 import {queryPublished,queryEntries} from './query.ts';
 import {renderDocument} from './documents.ts';
 import {pageMetadata,metadataHead} from './seo.ts';
-import {imageAttributes} from './media.ts';
+import { imageAttributes } from './media-display.ts';
 import {inside} from '../../runtime-common/src/paths.ts';
 import {readonlyView} from './readonly-view.ts';
 export interface WebsiteContext{
@@ -46,8 +47,8 @@ export class BusinessStore{
  }
  close(){this.db.close();}
 }
-export function websiteContext(site:Site,business:BusinessStore,tasks:WebsiteContext['tasks'],request:Request,preview=false,entry?:any,readOnly=false):WebsiteContext{
- const release=site.visibleRelease(false),settings=preview?site.settings().value:release?.settings??site.settings().value;
+export function websiteContext(site:Site,business:BusinessStore,tasks:WebsiteContext['tasks'],request:Request,preview=false,entry?:any,readOnly=false,snapshot?:Release|null):WebsiteContext{
+ const release=snapshot===undefined?site.visibleRelease(false):snapshot,settings=snapshot!==undefined?release?.settings??site.settings().value:preview?site.settings().value:release?.settings??site.settings().value;
  return {id:process.env.WEAVA_SITE_ID??'site',root:site.root,preview,entry:readonlyView(entry),settings:readonlyView(settings),
   request:{url:new URL(request.url),method:request.method,owner:site.authenticate(/(?:^|;\s*)weava-session=([^;]+)/.exec(request.headers.get('cookie')??'')?.[1]??'')},
   resources:{path:relative=>inside(process.env.WEAVA_RESOURCE_ROOT??site.root,relative)},

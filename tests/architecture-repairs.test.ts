@@ -24,6 +24,7 @@ import {publicInventory} from '../packages/manager/src/public-inventory.ts';
 import {applyFeatures,checkFeatures,selection} from '../packages/manager/src/operations.ts';
 import {atomic,loadInstallation,updateInstallation,descriptor} from '../packages/manager/src/state.ts';
 import {requestHost} from '../packages/manager/src/host.ts';
+import {legacyStorage} from './fixtures/legacy-storage.ts';
 import {fixtureBuild,fixtureProgram} from './fixtures/managed-program.ts';
 import {queueJsonImport} from '../packages/core/src/json-import.ts';
 import {previewTemporaryCleanup} from '../packages/core/src/temporary-files.ts';
@@ -60,7 +61,7 @@ it('ARC-R08 migrates existing list covers without changing authored revisions or
  const site=fixture(),row=site.saveEntry({...page(),document:{version:1,format:'markdown',source:'![Cover](https://example.com/cover.png)'}},null);
  const count=site.store.raw.prepare('SELECT COUNT(*) n FROM revisions').get();
  site.store.raw.prepare("UPDATE entry_list SET summary=json_remove(summary,'$.cover') WHERE id=?").run(row.id);
- site.store.raw.prepare('DELETE FROM schema_migrations WHERE version>=14').run();site.close();
+ legacyStorage(site.store.raw,13);site.close();
  expect(()=>new Site(site.root,{mode:'open'})).toThrow(/需要迁移/);
  const migrated=new Site(site.root,{mode:'migrate'});sites.push(migrated);
  expect(migrated.store.get('entry',row.id)!.revision).toBe(row.revision);expect(migrated.store.raw.prepare('SELECT COUNT(*) n FROM revisions').get()).toEqual(count);
@@ -116,19 +117,23 @@ it('ARC-R14 checks references again while holding the maintenance lease',async()
 },20000);
 
 async function port(){const server=createServer();server.listen(0,'127.0.0.1');await once(server,'listening');const value=(server.address() as any).port;await new Promise<void>(resolve=>server.close(()=>resolve()));return value as number;}
-it('ARC-R15 reuses the actual launch port after an unexpected managed process exit',async()=>{
+it('ARC-R15 retains activation and the actual launch port after an unexpected managed process exit',async()=>{
  const site=fixture(),home=join(site.root,'host'),configured=await port(),override=await port();site.close();
- const code=`import{createServer}from'node:http';const server=createServer((q,r)=>{r.setHeader('content-type','application/json');r.end(JSON.stringify({nonce:process.env.WEAVA_RUN_NONCE,pid:process.pid}));if(q.url==='/crash')setTimeout(()=>process.exit(7),40);});server.listen(Number(process.env.PORT),'127.0.0.1');process.on('message',m=>{if(m.action==='drain')process.send({controlId:m.controlId,value:{drained:true}});if(m.action==='shutdown')server.close(()=>process.exit(0));});`;
+ const code=`import{createServer}from'node:http';let validating=process.env.WEAVA_VALIDATION==='1';const server=createServer((q,r)=>{r.setHeader('content-type','application/json');r.end(JSON.stringify({nonce:process.env.WEAVA_RUN_NONCE,pid:process.pid,validating,probe:process.env.WEAVA_UPGRADE_PROBE}));if(q.url==='/crash')setTimeout(()=>process.exit(7),40);});server.listen(Number(process.env.PORT),'127.0.0.1');process.on('message',m=>{if(m.action==='resume'){validating=false;process.send({controlId:m.controlId,value:{resumed:true}});}if(m.action==='drain')process.send({controlId:m.controlId,value:{drained:true}});if(m.action==='shutdown')server.close(()=>process.exit(0));});`;
  const program=fixtureProgram(home,code);atomic(join(site.root,'site.json'),{version:2,id:'fixture',port:configured,features:[],template:'blank'});atomic(join(site.root,'program.json'),selection(home,program));
  updateInstallation(home,value=>{value.sites.fixture={root:site.root,autostart:false};});
  const source=pathToFileURL(resolve('packages/manager/src/host.ts')).href;
  const child=spawn(process.execPath,['--import','tsx','--input-type=module','-e',`import{serveHost}from ${JSON.stringify(source)};await serveHost(${JSON.stringify(home)});`],{cwd:process.cwd(),windowsHide:true,stdio:['ignore','ignore','pipe']});let errors='';child.stderr.on('data',data=>errors+=data);
  try{
   let started=false;for(let n=0;n<100;n++){try{await requestHost(home,'status');started=true;break;}catch{}if(child.exitCode!==null)throw new Error(errors);await new Promise(r=>setTimeout(r,100));}expect(started,errors).toBe(true);
-  const first=await requestHost(home,'start',{id:'fixture',port:override});await(await fetch('http://127.0.0.1:'+override+'/crash')).body?.cancel();
+  const first=await requestHost(home,'start',{id:'fixture',port:override,validation:true,probeToken:'test-probe'});
+  await requestHost(home,'activate',{id:'fixture'});
+  expect(await(await fetch('http://127.0.0.1:'+override+'/__health')).json()).toMatchObject({validating:false});
+  await(await fetch('http://127.0.0.1:'+override+'/crash')).body?.cancel();
   let nonce=first.nonce;for(let n=0;n<120&&nonce===first.nonce;n++){await new Promise(r=>setTimeout(r,100));try{nonce=(await(await fetch('http://127.0.0.1:'+override+'/__health',{signal:AbortSignal.timeout(500)})).json() as any).nonce;}catch{}}
   expect(nonce).not.toBe(first.nonce);
   let status=await requestHost(home,'status');for(let n=0;n<30&&status.sites[0].status==='starting';n++){await new Promise(r=>setTimeout(r,100));status=await requestHost(home,'status');}
   expect(status.sites[0].status).toBe('running');
+  expect(await(await fetch('http://127.0.0.1:'+override+'/__health')).json()).toMatchObject({validating:false,probe:''});
  }finally{if(child.exitCode===null){await requestHost(home,'shutdown',{timeoutMs:5000}).catch(()=>{});if(child.exitCode===null)await Promise.race([once(child,'exit'),new Promise(r=>setTimeout(r,3000))]);if(child.exitCode===null)child.kill();}}
 },30000);

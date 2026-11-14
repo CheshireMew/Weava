@@ -16,6 +16,8 @@ import { JobStore } from './job-store.ts';
 import { SiteSettings } from './site-settings.ts';
 import { SiteContent } from './site-content.ts';
 import { SiteReleases } from './site-releases.ts';
+import { EntryRepository } from './entry-repository.ts';
+import { MediaRepository } from './media-repository.ts';
 import { SiteBlocks } from './site-blocks.ts';
 /** Composes site services and preserves the public entry points used by extensions and CLI. */
 export class Site {
@@ -31,6 +33,8 @@ export class Site {
   readonly configuration: SiteSettings;
   readonly content: SiteContent;
   readonly publication: SiteReleases;
+  readonly entryStore: EntryRepository;
+  readonly media: MediaRepository;
   readonly blocks: SiteBlocks;
   constructor(public root: string, options: { mode?: 'open' | 'migrate' } = {}) {
     this.root = resolve(root);
@@ -38,6 +42,8 @@ export class Site {
     this.store = new Storage(root, true, options.mode);
     this.auth = new OwnerAuth(this.store, this.root);
     this.jobStore = new JobStore(this.store);
+    this.media = new MediaRepository(this.store);
+    this.entryStore = new EntryRepository(this.store);
     this.configuration = new SiteSettings(this);
     this.content = new SiteContent(this);
     this.publication = new SiteReleases(this);

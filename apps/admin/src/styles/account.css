@@ -1,0 +1,77 @@
+.login {
+  width: 400px;
+  max-width: 90vw;
+  margin: 10vh auto;
+}
+.login-brand {
+  color: var(--ink);
+  font-size: 25px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  margin-bottom: 36px;
+}
+.login h1 {
+  font-size: 32px;
+}
+.login p {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.login label {
+  margin-top: 30px;
+}
+.login button {
+  width: 100%;
+  margin: 12px 0 30px;
+}
+.login > a {
+  font-size: 0.929rem;
+  color: var(--ink-muted);
+}
+.password-field {
+  margin: 16px 0;
+}
+.login .password-field {
+  margin-top: 30px;
+}
+.password-field > label {
+  margin: 0 0 8px;
+}
+.password-input {
+  position: relative;
+}
+.password-input > input {
+  padding-right: 48px;
+}
+.password-input > input::-ms-reveal {
+  display: none;
+}
+.password-input > button {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.password-input > button:hover {
+  background: var(--surface-secondary);
+}
+.loading-screen {
+  padding: 100px;
+  text-align: center;
+  color: var(--ink-muted);
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

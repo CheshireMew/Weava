@@ -1,0 +1,71 @@
+.muted {
+  color: var(--ink-muted);
+}
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+}
+@container (max-width: 800px) {
+  .editor-grid.settings-open { grid-template-columns: minmax(0, 1fr); }
+  .entry-settings { border-inline-start: 0; border-top: 1px solid var(--line); }
+  .writing { padding-inline: 28px; }
+}
+@media (max-width: 1300px) {
+  .content-workspace.has-record { grid-template-columns: minmax(0, 1fr); }
+  .has-record .library { display: none; }
+}
+@media (max-width: 1100px) {
+  .library, .panel { padding: 28px; }
+  .library-search { max-width: none; }
+  .library-filters > select[aria-label='内容排序'] { margin-inline-start: 0; }
+  .settings-panels { grid-template-columns: minmax(0, 1fr); }
+  .split-panel { grid-template-columns: 180px minmax(0, 1fr); }
+  .form-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .split-panel { grid-template-columns: minmax(0, 1fr); }
+  .object-list { display: flex; gap: 8px; overflow: auto; align-items: stretch; }
+  .object-list button { min-width: 140px; width: auto; max-width: 240px; }
+  .split-panel > .form-card { border-inline-start: 0; border-top: 1px solid var(--line); padding: 24px 0; }
+}
+@media (max-width: 700px) {
+  :root { --control-height: 44px; }
+  .app { --sidebar-width: 0px; --topbar-height: 56px; }
+  .sidebar { display: none; }
+  .topbar { display: flex; min-height: 56px; height: 56px; gap: 10px; padding-inline: 16px; }
+  .mobile-toggle { display: flex; border: 0; padding: 8px; }
+  .breadcrumb { display: flex; margin-inline-end: auto; font-size: var(--font-xs); }
+  .view-site { font-size: 0; }
+  .content-workspace.has-record { display: block; }
+  .library { padding: 24px 16px 16px; }
+  .library-header { padding-bottom: 20px; }
+  .library-header h1 { font-size: 26px; }
+  .library-tools { --library-control-height: 44px; }
+  .library-search { flex-basis: 100%; }
+  .library-filters > select { flex: 1 1 130px; max-width: none; }
+  .library-views > summary { min-height: 44px; }
+  .content-directory { min-width: 680px; }
+  .editor-bar { padding: 12px 16px; min-height: 62px; height: auto; flex-wrap: wrap; gap: 10px; }
+  .editor-bar > div { flex-wrap: wrap; }
+  .writing { padding: 24px 20px; }
+  .title-input { font-size: 26px; }
+  .entry-settings { padding: 24px 20px; }
+  button, .button, input, select { min-height: 44px; }
+  input, select, textarea { font-size: 16px; }
+  input[type='checkbox'], input[type='radio'] { min-height: 0; }
+  .entry-settings input, .entry-settings select, .library-search input { font-size: 16px; }
+  .format-toolbar button { min-width: 40px; min-height: 44px; }
+  .panel { padding: 24px 20px; }
+  .panel-title { flex-wrap: wrap; align-items: center; gap: 16px; }
+  .panel-title > select { width: auto; }
+  .form-columns { grid-template-columns: minmax(0, 1fr); }
+  .plan-action { grid-template-columns: minmax(0, 1fr) auto; }
+  .plan-action > span { grid-column: 1 / -1; }
+  .date-range { gap: 8px; flex-wrap: wrap; }
+  .date-range input { width: 135px; }
+  .release-list > div { gap: 15px; }
+  .release-list small { word-break: break-all; }
+  .modal { padding: 20px; max-height: 92dvh; }
+  .metrics { gap: 10px; }
+}

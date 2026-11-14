@@ -1,14 +1,15 @@
 import { build } from 'esbuild';
-import { copyFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { extension } from '../../core/src/extensions.ts';
 import type { Site } from '../../core/src/site.ts';
+import { installCryptoSource } from './crypto-source.ts';
 export async function installCryptoExtension(site: Site, target: string) {
   const framework = process.env.WEAVA_FRAMEWORK ?? resolve(import.meta.dirname, '../../..');
-  const sourceTemplate = join(framework, 'scripts/crypto-extension.ts');
-  const extensionTemplate = existsSync(sourceTemplate)?sourceTemplate:join(framework,'runtime/crypto-assets/legacy.ts');
+  const source = join(framework, 'packages/crypto-extension/src');
+  const extensionSource = existsSync(join(source, 'legacy.ts')) ? source : join(framework, 'runtime/crypto-assets');
   const extensionTarget = join(target, 'extensions/index.ts');
-  if (!existsSync(extensionTarget)) copyFileSync(extensionTemplate, extensionTarget);
+  if (!existsSync(extensionTarget)) installCryptoSource(extensionSource, join(target, 'extensions'), 'legacy');
   await build({
     entryPoints: [extensionTarget],
     outfile: join(target, 'extensions/index.mjs'),

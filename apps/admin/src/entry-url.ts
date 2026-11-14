@@ -3,6 +3,14 @@ import type { Entry, Term } from '@weava/contracts';
 export const englishSlug = (value: string) => /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(value);
 export const normalizeSlug = (value: string) => value.trim().toLowerCase().replace(/\s+/g, '-');
 
+export function sanitizeEnglishTitle(value: string) {
+  return normalizeSlug(value.normalize('NFKD').replace(/\p{M}/gu, ''))
+    .replace(/['‘’]/g, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 export function entryUrlParts(path: string, id: string) {
   const parts = path.split('/').filter(Boolean);
   const slug = parts.pop() || id.slice(0, 8);

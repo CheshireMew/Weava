@@ -15,7 +15,7 @@ export async function customPageResponse(
       const previewRequest = new Request(new URL(entry.path, url.origin), request);
       const response = await renderer.render(
         previewRequest,
-        contextFor(previewRequest, true, entry),
+        contextFor(previewRequest, true, entry, release),
       );
       if (response) {
         response.headers.set('Cache-Control', 'private, no-store');

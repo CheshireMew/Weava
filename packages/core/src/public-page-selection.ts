@@ -14,21 +14,26 @@ import { wordpressArchiveEntry } from './wordpress-archives.ts';
 import { collectionArchiveEntry } from './collections.ts';
 import { readPublicationPreview } from './publication.ts';
 import { validatePagePagination } from './public-pagination.ts';
-export function selectPublicPage(site: Site, url: URL, owner: boolean) {
+export function selectPublicPage(site: Site, url: URL, owner: boolean, snapshot?: Release | null) {
   const preview = url.pathname.startsWith('/__preview/');
   if (preview && !owner) throw new WeavaError('请先登录后台。', 401);
   const candidateId = preview ? url.searchParams.get('candidate') : null;
   const candidate = candidateId ? readPublicationPreview(site, candidateId) : null;
   const publicDocument = Object.values(systemRoutes).some((path) => path === url.pathname);
   let release: Release | null =
-    candidate ?? site.visibleRelease(owner && !publicDocument) ??
+    candidate ??
+    (snapshot === undefined
+      ? site.visibleRelease(owner && !publicDocument)
+      : snapshot
+        ? site.visibleRelease(owner && !publicDocument, snapshot.id)
+        : null) ??
     (preview
       ? {
           id: 'preview',
           createdAt: new Date().toISOString(),
           label: '草稿预览',
           entries: [],
-          types: site.store.list('type').map((r) => r.value),
+          types: site.entryStore.types().map((r) => r.value),
           settings: site.settings().value,
         }
       : null);
@@ -36,21 +41,12 @@ export function selectPublicPage(site: Site, url: URL, owner: boolean) {
   let entry: PublishedEntry | undefined;
   if (preview && candidate) {
     const id = decodeURIComponent(url.pathname.slice(11).replace(/\/$/, ''));
-    entry = release.entries.find(entry => entry.id === id);
+    entry = release.entries.find((entry) => entry.id === id);
     if (!entry) throw new WeavaError('本次发布中没有这篇内容。', 404);
   } else if (preview) {
     const id = decodeURIComponent(url.pathname.slice(11).replace(/\/$/, ''));
     const version = Number(url.searchParams.get('revision'));
-    const stored = version
-      ? site.store.raw
-          .prepare('SELECT data FROM revisions WHERE scope=? AND id=? AND revision=?')
-          .get('entry', id, version)
-      : null;
-    let value = version
-      ? stored
-        ? JSON.parse((stored as any).data)
-        : null
-      : site.store.get('entry', id)?.value;
+    let value = version ? site.entryStore.revision(id, version) : site.entryStore.get(id)?.value;
     if (id.startsWith('layout:')) {
       const layout = layouts(site).find((row) => row.id === id.slice(7))?.value;
       if (!layout) throw new WeavaError('布局不存在。', 404);
@@ -60,7 +56,7 @@ export function selectPublicPage(site: Site, url: URL, owner: boolean) {
         title: '示例标题',
         description: '示例摘要',
         path: '/layout-preview/',
-        type: site.store.list('type')[0]?.id ?? 'post',
+        type: site.entryStore.types()[0]?.id ?? 'post',
         template: layout.kind === 'template' ? layout.id : 'page',
         document: { version: 1, format: 'markdown', source: '## 示例正文\n\n这里显示内容正文。' },
         blocks: layout.kind === 'template' ? [] : layout.blocks,
@@ -71,14 +67,14 @@ export function selectPublicPage(site: Site, url: URL, owner: boolean) {
           ...entrySchema.parse(value),
           html: renderDocument(value.document),
           modifiedAt: value.updatedAt ?? new Date().toISOString(),
-          revisionId: version || site.store.get('entry', id)?.revision || 0,
+          revisionId: version || site.entryStore.get(id)?.revision || 0,
         }
       : undefined;
     if (!entry) throw new WeavaError('草稿修订不存在。', 404);
     release = {
       ...release,
       settings: site.settings().value,
-      types: site.store.list('type').map((r) => r.value),
+      types: site.entryStore.types().map((r) => r.value),
       layouts: layouts(site).map((row) => row.value),
     };
     const selectedLayout = url.searchParams.get('layout');
@@ -104,7 +100,8 @@ export function selectPublicPage(site: Site, url: URL, owner: boolean) {
   } else
     entry =
       release.entries.find((v) => v.path === normalizePath(url.pathname)) ??
-      collectionArchiveEntry(release, url) ?? wordpressArchiveEntry(release, url);
+      collectionArchiveEntry(release, url) ??
+      wordpressArchiveEntry(release, url);
   const pageLayouts = entry ? referencedLayouts(entry, release) : [];
   validatePublicQuery(url.searchParams, release, [
     ...(entry?.blocks ?? []),

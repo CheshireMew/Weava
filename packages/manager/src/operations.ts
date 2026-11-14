@@ -1,3 +1,4 @@
+import { programCommand } from '../../runtime-common/src/program-command.ts';
 import {spawn} from 'node:child_process';
 import {existsSync,mkdirSync,copyFileSync,readFileSync,writeFileSync,readdirSync,lstatSync,renameSync,statSync,symlinkSync} from 'node:fs';
 import {join,resolve,relative,dirname} from 'node:path';
@@ -18,12 +19,12 @@ export async function withLease<T>(home:string,root:string,p:Program,fn:()=>Prom
  try{return await leaseScope.run(environment,fn);}finally{if(child.connected)child.send({release:true});await new Promise<void>(resolve=>{if(child.exitCode!==null)return resolve();child.once('exit',()=>resolve());});}
 }
 export function run(program:Program,node:string,entry:string,args:string[],env:Record<string,string>={}):Promise<any>{
-  return new Promise((resolve,reject)=>{
-    const child=spawn(node,[join(program.root,'runtime',entry),...args],{cwd:program.root,windowsHide:true,env:{...process.env,...leaseScope.getStore(),WEAVA_DATABASE_MODE:'open',WEAVA_FRAMEWORK:program.root,WEAVA_PROGRAM_ROOT:program.root,WEAVA_ADMIN_DIST:join(program.root,'admin'),WEAVA_WORKER:join(program.root,'runtime/worker.mjs'),WEAVA_SOURCE_WORKER:'0',...env},stdio:['ignore','pipe','pipe']});
-    let out='',err='';child.stdout.on('data',b=>out+=b);child.stderr.on('data',b=>err=(err+b).slice(-16000));
-    const timer=setTimeout(()=>{child.kill();reject(new Error('程序操作超时，操作记录已保留，请执行 site recover。'));},300000);
-    child.once('error',reject);child.once('close',code=>{if(code!==0)return reject(new Error(err||out||'程序操作失败。'));try{resolve(JSON.parse(out.trim().split('\n').at(-1)!));}catch{reject(new Error('程序未返回有效 JSON：'+out.slice(-2000)));}});
-    child.once('close',()=>clearTimeout(timer));
+  return programCommand({
+    root: program.root, node, entry, args,
+    env: { ...leaseScope.getStore(), WEAVA_DATABASE_MODE:'open', WEAVA_FRAMEWORK:program.root, WEAVA_PROGRAM_ROOT:program.root, WEAVA_ADMIN_DIST:join(program.root,'admin'), WEAVA_WORKER:join(program.root,'runtime/worker.mjs'), WEAVA_SOURCE_WORKER:'0', ...env },
+    timeoutMs: 300000, json: 'last-line',
+    timeoutMessage: '程序操作超时，操作记录已保留，请执行 site recover。',
+    failureMessage: '程序操作失败：', invalidMessage: '程序未返回有效 JSON：',
   });
 }
 export function selection(installationRoot:string,p:Program,siteBuildId?:string,siteBuildHash?:string){return deploymentSchema.parse({version:2,programId:p.manifest.id,manifestHash:p.manifestHash,siteBuildId,siteBuildHash,installationRoot,selectedAt:new Date().toISOString()});}

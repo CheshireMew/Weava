@@ -1,250 +1,138 @@
 import { defineMiddleware } from 'astro:middleware';
-import { readFileSync, existsSync } from 'node:fs';
-import { join, resolve, extname } from 'node:path';
-import { site, siteExtension, analytics, features, maintenance, validating, ready, siteRenderer, contextFor } from './runtime.ts';
-import { requiredFeature } from '../../../packages/core/src/site-features.ts';
-import { inside, normalizePath, mediaResponse, mediaIdentity, mediaFile, siteIconHead, imageAttributes } from '@weava/core';
 import { WeavaError } from '@weava/contracts';
-import { gzip } from 'node:zlib';
-import { promisify } from 'node:util';
-import { randomBytes } from 'node:crypto';
-import { assertRequestOrigin, assertRequestTransport } from '../../../packages/core/src/request-safety.ts';
-import { requestIdentity } from '@weava/core';
+import {
+  site,
+  siteExtension,
+  analytics,
+  features,
+  maintenance,
+  validating,
+  ready,
+  siteRenderer,
+  contextFor,
+} from './runtime.ts';
 import { isAdminPage } from '../../../packages/core/src/admin-access.ts';
-import { assetResponse } from '../../../packages/core/src/asset-response.ts';
-import { releaseIndex } from '../../../packages/core/src/release-index.ts';
-import {localizeCodeControls} from '../../../packages/core/src/public-locale.ts';
-import {publicUrlRedirect} from '../../../packages/core/src/public-url.ts';
-import {PublicResponseCache, conditionalPublicResponse} from '../../../packages/core/src/public-response-cache.ts';
-import {digest} from '../../../packages/runtime-common/src/identity.ts';
-import {declaredCrawler} from '../../../packages/core/src/analytics-agents.ts';
-import {advertiseCurrentSitemap} from './public-documents.ts';
-const compress = promisify(gzip);
+import { assertRequestTransport } from '../../../packages/core/src/request-safety.ts';
+import { localizeCodeControls } from '../../../packages/core/src/public-locale.ts';
+import {
+  PublicResponseCache,
+  conditionalPublicResponse,
+} from '../../../packages/core/src/public-response-cache.ts';
+import { digest } from '../../../packages/runtime-common/src/identity.ts';
+import { advertiseCurrentSitemap } from './public-documents.ts';
+import { requestGate, requestNetwork } from './request-policy.ts';
+import { staticAssets } from './static-assets.ts';
+import { publicRoute } from './public-routing.ts';
+import { responseHeaders, compressResponse } from './response-policy.ts';
+import { recordMissingPage, recordCrawlerPage } from './request-analytics.ts';
 const publicResponses = new PublicResponseCache();
-const developmentNonces = new WeakMap<Response, string>();
-const mime: Record<string, string> = {
-  '.css': 'text/css',
-  '.js': 'text/javascript',
-  '.json': 'application/json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-  '.gif': 'image/gif',
-  '.vtt': 'text/vtt',
-  '.srt': 'text/plain',
-  '.html': 'text/html',
-  '.pdf': 'application/pdf',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mp3': 'audio/mpeg',
-  '.woff2': 'font/woff2',
-  '.xml': 'application/xml',
-  '.txt': 'text/plain',
-};
 const serve = defineMiddleware(async (context, next) => {
-  let peer='';try{peer=context.clientAddress;}catch{}
-  const identity=requestIdentity(context.request,peer);
-  const probe = validating && ['GET','HEAD'].includes(context.request.method) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(peer) && !!process.env.WEAVA_UPGRADE_PROBE && context.request.headers.get('x-weava-upgrade-probe')===process.env.WEAVA_UPGRADE_PROBE;
-  assertRequestTransport(context.request,identity.secure,peer,probe||context.request.headers.get('authorization')==='Bearer '+site.cliToken());
-  assertRequestOrigin(context.request,identity.protocol);
-  const path = context.url.pathname;
-  if (!ready && path !== '/__health') return new Response('网站正在初始化，请稍后重试。',{status:503,headers:{'Retry-After':'1','Cache-Control':'no-store'}});
-  if (maintenance && path !== '/__health' && !probe && !(validating&&context.request.method==='GET'&&context.request.headers.get('authorization')==='Bearer '+site.cliToken())) return new Response('网站正在维护，请稍后重试。',{status:503,headers:{'Retry-After':'60','Cache-Control':'no-store'}});
-  const feature = requiredFeature(path);
-  if (feature && !features.includes(feature)) return new Response('Not found',{status:404});
-  if (path === '/__health')
-    return Response.json({
-      status: ready ? 'ready' : 'starting',
-      releaseId: site.store.state('release'),
-      ...(site.authenticate(context.cookies.get('weava-session')?.value??'') || context.request.headers.get('authorization')==='Bearer '+site.cliToken()?{site:site.root,pid:process.pid,nonce:process.env.WEAVA_RUN_NONCE??''}:{}),
-    },{status:ready?200:503,headers:{'Cache-Control':'no-store','Vary':'Cookie, Authorization'}});
-  const adminPath=site.auth.adminPath();
-  if ((path==='/admin'||path.startsWith('/admin/')||site.auth.retiredAdminPaths().some(old=>path===old||path.startsWith(old+'/'))) && !isAdminPage(path,adminPath))
-    return new Response('Not found',{status:404,headers:{'Cache-Control':'no-store'}});
-  if (import.meta.env.DEV && isAdminPage(path, adminPath)) {
-    const { adminDevelopmentHtml } = await import('./admin-development.ts');
-    const nonce = randomBytes(18).toString('base64');
-    const html = (await adminDevelopmentHtml(context.url.pathname + context.url.search))
-      .replace('</head>', siteIconHead(imageAttributes(site, site.settings().value.logo, 64).src) + '</head>')
-      .replace(/<script\b/g, `<script nonce="${nonce}"`);
-    const response = new Response(html, { headers: {
-      'Content-Type': 'text/html; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'X-Robots-Tag': 'noindex, nofollow',
-    } });
-    developmentNonces.set(response, nonce);
-    return response;
-  }
-  if(path.startsWith('/_admin/')&&!path.startsWith('/_admin/assets/'))return new Response('Not found',{status:404});
-  if (isAdminPage(path,adminPath) || path.startsWith('/_admin/assets/')) {
-    const framework = process.env.WEAVA_FRAMEWORK ?? resolve(process.cwd(), '../..');
-    const base = process.env.WEAVA_ADMIN_DIST ?? join(framework, 'apps/admin/dist');
-    const file = path.startsWith('/_admin/')
-      ? inside(base, decodeURIComponent(path.slice(8)))
-      : join(base, 'index.html');
-    if (!existsSync(file)) return new Response('后台尚未构建，请运行 build。', { status: 503 });
-    if(path.startsWith('/_admin/assets/'))return assetResponse(file,context.request,mime[extname(file)]??'application/octet-stream');
-    return new Response(readFileSync(file, 'utf8').replace('</head>', siteIconHead(imageAttributes(site, site.settings().value.logo, 64).src) + '</head>'), {
-      headers: {
-        'Content-Type': mime[extname(file)] ?? 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'X-Robots-Tag': 'noindex, nofollow',
-      },
-    });
-  }
-  if (path.startsWith('/media/')) {
-    let identity: string, file: string;
-    try { identity = mediaIdentity(path); file = mediaFile(process.env.WEAVA_RESOURCE_ROOT??site.root, identity); }
-    catch { return new Response('Not found', { status: 404 }); }
-    const privateMedia = site.isPrivateMedia(identity);
-    if (privateMedia && !site.authenticate(context.cookies.get('weava-session')?.value ?? '') &&
-      context.request.headers.get('authorization') !== 'Bearer ' + site.cliToken())
-      return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'private, no-store', 'Vary': 'Cookie, Authorization' } });
-    const type = mime[extname(file)] ?? 'application/octet-stream';
-    const headers: Record<string, string> = {
-      'Content-Type': type,
-      'Cache-Control': privateMedia ? 'private, no-store' : 'public, max-age=3600, must-revalidate',
-      'Vary': 'Cookie, Authorization',
-      'Accept-Ranges': 'bytes',
-    };
-    if (type === 'text/html')
-      headers['Content-Security-Policy'] =
-        "sandbox allow-scripts; default-src 'self' data: https:; script-src 'unsafe-inline' https:; connect-src https:";
-    else if(type==='image/svg+xml')headers['Content-Security-Policy']="sandbox; default-src 'none'; style-src 'unsafe-inline'";
-    else if(!/^(image|audio|video)\//.test(type) && type!=='text/vtt') headers['Content-Disposition']='attachment';
-    return mediaResponse(file, context.request, headers);
-  }
-  if (path.startsWith('/site-assets/')) {
-    const file = inside(join(site.root,'public'), decodeURIComponent(path.slice(13)));
-    if (!existsSync(file)) return new Response('Not found',{status:404});
-    return assetResponse(file, context.request, mime[extname(file)] ?? 'application/octet-stream');
-  }
-  const normalized = publicUrlRedirect(context.request, site.visibleRelease(), { protocol: identity.protocol, enforceOrigin: !import.meta.env.DEV });
-  if (normalized) return new Response(null, { status: 301, headers: { Location: normalized } });
-  if (!/^\/(?:api\/admin|api\/v1|media|__preview|_admin|__health)(?:\/|$)/.test(path)) {
-    const renderer = await siteRenderer;
-    if (renderer) { const response = await renderer.render(context.request, contextFor(context.request)); if (response !== null) return response; }
-  }
-  if (!features.includes('content') && path === '/') return new Response('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Weava</title><main><h1>网站已就绪</h1></main></html>',{headers:{'Content-Type':'text/html; charset=utf-8'}});
-  if (!path.startsWith('/api/')) {
-    const redirect = site.redirect(context.url, site.authenticate(context.cookies.get('weava-session')?.value ?? ''));
-    if (redirect) return new Response(null, { status: 301, headers: { Location: redirect } });
-    // An unavailable WordPress ID is a missing page, rather than a copy of the homepage.
-    if (path === '/' && (context.url.searchParams.has('p') || context.url.searchParams.has('page_id')))
-      return new Response('页面未找到', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'X-Robots-Tag': 'noindex,nofollow' } });
-    const custom = await (await siteExtension)?.route?.(context.request, site.visibleRelease());
-    if (custom) return custom;
-  }
+  const gated = requestGate(context, { site, features, maintenance, validating, ready });
+  if (gated) return gated;
+  const asset = await staticAssets(context, site);
+  if (asset) return asset;
+  const routed = await publicRoute(context, {
+    site,
+    features,
+    siteExtension,
+    siteRenderer,
+    contextFor,
+  });
+  if (routed) return routed;
   const response = await next();
-  if (!path.startsWith('/_astro/') && !path.startsWith('/api/')) response.headers.set('Cache-Control', 'no-cache');
+  if (!context.url.pathname.startsWith('/_astro/') && !context.url.pathname.startsWith('/api/'))
+    response.headers.set('Cache-Control', 'no-cache');
   return response;
 });
 export const onRequest = defineMiddleware(async (context, next) => {
   let response: Response;
-  const generation = !import.meta.env.DEV && ready && !maintenance ? digest([site.store.state('release'), site.store.list('extension-config').map(row => [row.id, row.revision])]) : '';
-  const cacheKey = publicResponses.key(context.request, generation, Number(process.env.WEAVA_PUBLIC_CACHE_SECONDS) || 0);
+  const admin =
+    isAdminPage(context.url.pathname, site.auth.adminPath()) ||
+    context.url.pathname.startsWith('/_admin/');
+  const programAsset =
+    context.url.pathname.startsWith('/_admin/assets/') ||
+    context.url.pathname.startsWith('/_astro/');
+  if (!admin && !programAsset && !/^\/(api|media|site-assets)(\/|$)/.test(context.url.pathname))
+    context.locals.weavaRelease = site.visibleRelease();
+  const generation =
+    !import.meta.env.DEV && ready && !maintenance
+      ? digest([context.locals.weavaRelease?.id, site.configuration.extensionRevisions()])
+      : '';
+  const cacheKey = publicResponses.key(
+    context.request,
+    generation,
+    Number(process.env.WEAVA_PUBLIC_CACHE_SECONDS) || 0,
+  );
   try {
     const cached = publicResponses.get(cacheKey);
     if (cached) {
-      let peer='';try{peer=context.clientAddress;}catch{}
-      const identity=requestIdentity(context.request,peer);
-      assertRequestTransport(context.request,identity.secure,peer,false);
+      const { peer, identity } = requestNetwork(context);
+      assertRequestTransport(context.request, identity.secure, peer, false);
     }
     response = cached ?? (await serve(context, next)) ?? new Response(null, { status: 500 });
     if (!cached && context.url.pathname === '/robots.txt' && response.status === 200) {
-      if (context.request.method === 'GET') response = await advertiseCurrentSitemap(response, site.visibleRelease());
+      if (context.request.method === 'GET')
+        response = await advertiseCurrentSitemap(response, context.locals.weavaRelease ?? null);
       response.headers.set('Cache-Control', 'no-cache');
     }
-    if (!cached && context.request.method === 'GET') await publicResponses.remember(cacheKey, response);
-  }
-  catch (error) {
-    if (!(error instanceof WeavaError)) console.error('Request failed',error);
-    response = new Response(error instanceof WeavaError?error.message:'网站暂时无法完成请求。', { status: error instanceof WeavaError?error.status:500, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } });
-  }
-  response.headers.set('X-Content-Type-Options','nosniff');
-  response.headers.set('Referrer-Policy','strict-origin-when-cross-origin');
-  response.headers.set('X-Frame-Options','SAMEORIGIN');
-  const admin=isAdminPage(context.url.pathname,site.auth.adminPath())||context.url.pathname.startsWith('/_admin/');
-  if(admin)response.headers.set('Referrer-Policy','no-referrer');
-  if(admin) {
-    const nonce = developmentNonces.get(response);
-    const scripts = nonce ? `'self' 'nonce-${nonce}'` : "'self'";
-    const connections = import.meta.env.DEV ? `'self' ${context.url.protocol === 'https:' ? 'wss' : 'ws'}://${context.url.host}` : "'self'";
-    response.headers.set('Content-Security-Policy',`default-src 'self'; script-src ${scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src ${connections}; frame-src 'self'; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'`);
-  }
-  else if(!context.url.pathname.startsWith('/media/'))response.headers.set('Content-Security-Policy',(response.headers.get('Content-Security-Policy')??'')+"; frame-ancestors 'self'; base-uri 'self'");
-  const programAsset=context.url.pathname.startsWith('/_admin/assets/')||context.url.pathname.startsWith('/_astro/');
-  if(response.status===404&&context.request.method==='GET'&&!admin&&!programAsset&&!/^\/(api|media|site-assets|__|_)/.test(context.url.pathname)&&response.headers.get('content-type')?.includes('text/html')&&features.includes('analytics')&&context.request.headers.get('dnt')!=='1'&&context.cookies.get('weava-exclude')?.value!=='1'&&!site.authenticate(context.cookies.get('weava-session')?.value??'')&&!site.release()?.entries.some(entry=>entry.path===context.url.pathname&&entry.visibility==='private')){
-    let peer='';try{peer=context.clientAddress;}catch{}
-    try{analytics.recordMissing(context.url.pathname,context.request.headers.get('referer')??'',context.request.headers.get('user-agent')??'',requestIdentity(context.request,peer).network,site.settings().value.timezone);}catch{}
-  }
-  if (!admin && !programAsset && !context.url.pathname.startsWith('/media/') &&
-      !context.url.pathname.startsWith('/api/') && response.status === 200 &&
-      response.headers.get('content-type')?.includes('text/html')) {
-    const release = site.visibleRelease();
-    if (release) {
-      const html = localizeCodeControls(await (await siteExtension).transformHtml(await response.text(), release, context.url),release.settings.language);
-      const headers = new Headers(response.headers); headers.delete('Content-Length');
-      response = new Response(html, { status: response.status, headers });
+    if (
+      !cached &&
+      !admin &&
+      !programAsset &&
+      !/^\/(?:media|api|site-assets)\//.test(context.url.pathname) &&
+      response.status === 200 &&
+      response.headers.get('content-type')?.includes('text/html')
+    ) {
+      const release = context.locals.weavaRelease;
+      if (release) {
+        const html = localizeCodeControls(
+          await (await siteExtension).transformHtml(await response.text(), release, context.url),
+          release.settings.language,
+        );
+        const headers = new Headers(response.headers);
+        headers.delete('Content-Length');
+        response = new Response(html, { status: response.status, headers });
+      }
     }
+    if (!cached && context.request.method === 'GET')
+      await publicResponses.remember(cacheKey, response);
+  } catch (error) {
+    if (!(error instanceof WeavaError)) console.error('Request failed', error);
+    response = new Response(
+      error instanceof WeavaError ? error.message : '网站暂时无法完成请求。',
+      {
+        status: error instanceof WeavaError ? error.status : 500,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+      },
+    );
   }
+  responseHeaders(context, response, admin);
+  recordMissingPage(context, response, { site, analytics, features }, admin, programAsset);
   if (!programAsset) {
-    const vary = new Set((response.headers.get('Vary') ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    const vary = new Set(
+      (response.headers.get('Vary') ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
     vary.add('Cookie');
     response.headers.set('Vary', [...vary].join(', '));
-    if (!context.url.pathname.startsWith('/media/') && site.authenticate(context.cookies.get('weava-session')?.value ?? ''))
+    if (
+      !context.url.pathname.startsWith('/media/') &&
+      site.authenticate(context.cookies.get('weava-session')?.value ?? '')
+    )
       response.headers.set('Cache-Control', 'private, no-store');
   }
-  if (cacheKey && response.status === 200 && !response.headers.has('set-cookie') && /html|xml|text\/plain/i.test(response.headers.get('content-type') ?? '') && !/private|no-store/i.test(response.headers.get('cache-control') ?? '')) {
+  if (
+    cacheKey &&
+    response.status === 200 &&
+    !response.headers.has('set-cookie') &&
+    /html|xml|text\/plain/i.test(response.headers.get('content-type') ?? '') &&
+    !/private|no-store/i.test(response.headers.get('cache-control') ?? '')
+  ) {
     const body = await response.clone().text();
     response = conditionalPublicResponse(context.request, response, body);
   }
-  if (!admin && !programAsset && features.includes('analytics') && context.request.method === 'GET' &&
-      (response.status === 304 || response.headers.get('content-type')?.includes('text/html'))) {
-    const agent = declaredCrawler(context.request.headers.get('user-agent') ?? '');
-    const release = agent && site.visibleRelease();
-    if (agent && release) try {
-      const page = releaseIndex(release).byPath.get(normalizePath(context.url.pathname));
-      if (page && page.visibility !== 'private') {
-        let peer = '';
-        try { peer = context.clientAddress; } catch {}
-        analytics.recordCrawler(page.path, agent, response.status, requestIdentity(context.request, peer).network);
-      }
-    } catch {}
-  }
-  const type = response.headers.get('content-type') ?? '';
-  if (
-    context.request.method === 'HEAD' || context.url.pathname.startsWith('/media/') ||
-    response.status !== 200 ||
-    response.headers.has('content-encoding') || response.headers.get('X-Weava-Stream') === '1' ||
-    !/(^text\/|application\/(json|javascript|xml)|image\/svg\+xml)/i.test(type)
-  )
-    return response;
-  const headers = new Headers(response.headers);
-  headers.set(
-    'Vary',
-    [
-      ...new Set(
-        (headers.get('Vary') ?? '')
-          .split(',')
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .concat('Accept-Encoding'),
-      ),
-    ].join(', '),
-  );
-  const accepts = context.request.headers.get('accept-encoding') ?? '';
-  const gzipAllowed = accepts.split(',').some((part) => {
-    const [name, ...params] = part.trim().split(';');
-    return name === 'gzip' && !params.some((p) => /^\s*q=0(?:\.0*)?\s*$/.test(p));
-  });
-  if (!gzipAllowed) return new Response(response.body, { status: response.status, headers });
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length < 1024) return new Response(bytes, { status: response.status, headers });
-  const zipped = await compress(bytes);
-  headers.set('Content-Encoding', 'gzip');
-  headers.set('Content-Length', String(zipped.length));
-  return new Response(zipped, { status: response.status, headers });
+  recordCrawlerPage(context, response, { site, analytics, features }, admin, programAsset);
+  return compressResponse(context, response);
 });

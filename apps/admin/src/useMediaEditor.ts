@@ -59,12 +59,7 @@ export function useMediaEditor(refresh: () => void, onError: (message: string) =
   const receiveUpload = (row: MediaRecord) => {
     const current = managed.session.record;
     if (!current || current.id !== row.id || current.revision >= row.revision || managed.session.saving) return;
-    const dirty = managed.session.dirty;
-    managed.session.adopt(row);
-    if (dirty) {
-      const { name, alt, caption, focalPoint } = current.value;
-      managed.session.change({ ...row, value: { ...row.value, name, alt, caption, focalPoint } });
-    }
+    managed.session.receive(row,{preserveEdits:true});
   };
   async function performMutation(work: () => Promise<void>) {
     if (pending.current) throw new Error('媒体操作尚未完成，请稍候。');

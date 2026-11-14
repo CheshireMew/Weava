@@ -7,6 +7,18 @@ export function sameEditableValue(a:any,b:any):boolean{
   const left=Object.keys(a).filter(key=>a[key]!==undefined),right=Object.keys(b).filter(key=>b[key]!==undefined);
   return left.length===right.length&&left.every(key=>Object.hasOwn(b,key)&&sameEditableValue(a[key],b[key]));
 }
+/** Apply only edits made after the base snapshot to the latest server value. Arrays are atomic fields. */
+export function rebaseEditableValue(base:any,local:any,remote:any):any {
+  if (sameEditableValue(base,local)) return remote;
+  if (![base,local,remote].every(value=>value&&typeof value==='object'&&!Array.isArray(value))) return local;
+  const value={...remote};
+  for(const key of new Set([...Object.keys(base),...Object.keys(local)])) {
+    if(sameEditableValue(base[key],local[key])) continue;
+    if(Object.hasOwn(local,key)) value[key]=rebaseEditableValue(base[key],local[key],remote[key]);
+    else delete value[key];
+  }
+  return value;
+}
 export class EditSession<R extends EditableRecord> {
   record: R | null;
   recovery: R | null = null;
@@ -57,7 +69,13 @@ export class EditSession<R extends EditableRecord> {
   adopt = (row: R | null) => {
     this.generation++;this.recoveredCopy=undefined; this.record = row; this.baseRecord = row ? structuredClone(row) : null; this.baselineValue = row?.value; this.modified=false; this.findRecovery(); this.notify();
   };
-  receive(row: R | null) {
+  receive(row: R | null, options: {preserveEdits?:boolean} = {}) {
+    if(options.preserveEdits&&row&&this.record&&this.record.id===row.id&&this.dirty&&!this.running) {
+      const value=rebaseEditableValue(this.baselineValue,this.record.value,row.value);
+      this.adopt(row);
+      this.change({...row,value});
+      return;
+    }
     if (!this.dirty && !this.running && !sameEditableValue(this.record,row)) this.adopt(row);
   }
   /** Serialize a server mutation with saves; retain fields edited while it was running. */
@@ -69,13 +87,7 @@ export class EditSession<R extends EditableRecord> {
     this.running = (async () => {
       const row = await write(snapshot);
       if (row && snapshot && row.id === snapshot.id && this.generation === generation) {
-        const value = { ...row.value };
-        for (const key of new Set([...Object.keys(snapshot.value), ...Object.keys(this.record!.value)])) {
-          if (!sameEditableValue(snapshot.value[key], this.record!.value[key])) {
-            if (Object.hasOwn(this.record!.value, key)) value[key] = this.record!.value[key];
-            else delete value[key];
-          }
-        }
+        const value = rebaseEditableValue(snapshot.value,this.record!.value,row.value);
         this.record = { ...row, value };
         this.baseRecord = structuredClone(row); this.baselineValue = row.value; this.changed();
         if (this.dirty) this.remember();
@@ -117,7 +129,7 @@ export class EditSession<R extends EditableRecord> {
         const unchanged = sameEditableValue(this.record?.value,snapshot.value);
         this.baselineValue = row.value;
         this.baseRecord = structuredClone(row);
-        this.record = unchanged ? row : {...row,value:this.record!.value};
+        this.record = unchanged ? row : {...row,value:rebaseEditableValue(snapshot.value,this.record!.value,row.value)};
         this.changed();
         if (unchanged) { try { this.copies?.acknowledge(snapshot);if(this.recoveredCopy)this.copies?.discard(this.recoveredCopy);this.recoveredCopy=undefined;this.findRecovery(); } catch { this.notice = '网站已保存，但浏览器副本未能更新。'; } }
         else this.remember();

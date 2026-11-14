@@ -1,0 +1,37 @@
+/* Fixed groups keep visual and Markdown controls in the same positions. */
+.article-editor .editor-toolbar-slot > .format-toolbar.grouped-toolbar { flex-wrap: nowrap; height: 48px; min-height: 48px; flex-basis: 48px; justify-content: safe center; gap: 0; }
+.format-toolbar.grouped-toolbar { flex-wrap: nowrap; height: 50px; min-height: 50px; flex-basis: 50px; overflow-x: auto; overflow-y: hidden; gap: 0; }
+.grouped-toolbar .toolbar-group { display: inline-flex; align-items: center; gap: 2px; flex: none; white-space: nowrap; }
+.grouped-toolbar .toolbar-menu-label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.article-editor .grouped-toolbar button { min-width: 34px; min-height: 36px; padding: 8px; }
+.article-editor .grouped-toolbar .editor-mode-toggle { width: 36px; min-width: 36px; }
+.article-editor .grouped-toolbar button svg { width: 18px; height: 18px; }
+.grouped-toolbar .toolbar-menu-label > svg:last-child { width: 12px; height: 12px; }
+.article-editor .grouped-toolbar .toolbar-divider { height: 20px; margin-inline: 9px; }
+.grouped-toolbar button[aria-label='常用内容'] { white-space: nowrap; font-size: 13px; }
+.admin-popover.writing-format-menu { width: min(260px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 24px)); overflow-y: auto; padding: 6px; }
+.writing-format-menu > button, .writing-menu-section > button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 4px; text-align: left; background: transparent; }
+.writing-format-menu button:hover { background: var(--surface-secondary); }
+.writing-format-menu label { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.writing-palette { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); padding: 10px 4px; }
+.writing-palette > button { width: 24px; min-width: 24px; height: 26px; padding: 0; border: 1px solid #bbb; border-radius: 4px; font-weight: 700; }
+.writing-palette > button:last-child { width: auto; padding-inline: 5px; font-size: 11px; font-weight: 400; }
+.writing-palette-menu > .writing-palette { border: 0; padding-block: 6px; }
+.admin-popover.writing-alignment-menu { width: auto; }
+.writing-alignment-options { display: flex; gap: 4px; }
+.writing-alignment-options > button { display: inline-flex; align-items: center; justify-content: center; width: 38px; padding: 8px; }
+.editor-details { margin-block: 1.5em; border-block: 1px solid var(--line); padding: 1em 0; }
+.editor-details > summary { font-weight: 600; cursor: pointer; }
+.editor-details > summary button { margin-left: 12px; padding: 2px 8px; font-size: 12px; font-weight: 400; }
+.editor-details-content { padding-top: 1em; }
+.editor-footnote { display: inline; }
+.editor-footnote button { font: inherit; color: var(--accent); padding: 0 2px; border: 0; background: transparent; cursor: pointer; }
+.editor-footnote sup { line-height: 0; font-size: .72em; }
+.writing-snippets-dialog { width: min(820px, calc(100vw - 32px)); }
+.writing-snippet-search { display: flex; gap: 8px; }
+.writing-snippet-search input { flex: 1; }
+.writing-snippet-list { margin-block: 16px; max-height: 50vh; overflow: auto; }
+.writing-snippet-list > div { display: flex; align-items: center; gap: 8px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.writing-snippet-list span { flex: 1; overflow-wrap: anywhere; }
+.writing-snippets-dialog .visual-editor { min-height: 160px; max-height: 45vh; overflow: auto; }
+

@@ -9,6 +9,7 @@ import {readJobLog} from '../../../packages/core/src/job-logs.ts';
 import {httpRequests} from '../../../packages/core/src/http-lifecycle.ts';
 import {queueAutomaticBackup} from '../../../packages/core/src/backup-management.ts';
 import {recoverMediaDeletions} from '../../../packages/core/src/media-deletion.ts';
+import type {Release} from '@weava/contracts';
 const root=resolve(process.env.WEAVA_SITE??resolve(process.env.WEAVA_FRAMEWORK??process.cwd(),'../WeavaSites/demo'));
 const runtimeFile=join(root,'runtime.json');
 if(existsSync(runtimeFile)){
@@ -33,7 +34,7 @@ export let maintenance=process.env.WEAVA_VALIDATION==='1';
 export let validating=process.env.WEAVA_VALIDATION==='1';
 export const siteExtension=extension(site,features.includes('analytics')?{analytics}:{},{startPaused:true});
 export const siteRenderer=loadSiteRenderer(root).then(async renderer=>{const file=join(root,'program.json');if(existsSync(file))await migrateWebsite(root,JSON.parse(readFileSync(file,'utf8')).siteBuildId,'open');return renderer;});
-export const contextFor=(request:Request,preview=false,entry?:any)=>websiteContext(site,business,{enqueue:jobs.enqueue.bind(jobs),get:site.job.bind(site),log:(id,offset)=>{site.job(id);return readJobLog(join(site.root,'logs',id+'.log'),offset);}},request,preview,entry,validating&&!!process.env.WEAVA_UPGRADE_PROBE&&request.headers.get('x-weava-upgrade-probe')===process.env.WEAVA_UPGRADE_PROBE);
+export const contextFor=(request:Request,preview=false,entry?:any,snapshot?:Release|null)=>websiteContext(site,business,{enqueue:jobs.enqueue.bind(jobs),get:site.job.bind(site),log:(id,offset)=>{site.job(id);return readJobLog(join(site.root,'logs',id+'.log'),offset);}},request,preview,entry,validating&&!!process.env.WEAVA_UPGRADE_PROBE&&request.headers.get('x-weava-upgrade-probe')===process.env.WEAVA_UPGRADE_PROBE,snapshot);
 const state={pid:process.pid,status:'starting',startedAt:now(),port:Number(process.env.PORT??4322),nonce:process.env.WEAVA_RUN_NONCE??'',programId:process.env.WEAVA_PROGRAM_ID??''};
 export let ready=false;
 const initialization=Promise.all([siteExtension,siteRenderer]).then(async([manager])=>{
@@ -52,7 +53,7 @@ const watch=setInterval(()=>{void tick().catch(e=>console.error(e));},5000);watc
 const geoWatch=setInterval(()=>{if(!maintenance&&actualAnalytics)void actualAnalytics.geo.update(false).catch(()=>{});},86400000);geoWatch.unref();
 let stopping=false;
 async function shutdown(){
- if(stopping)return;stopping=true;clearInterval(watch);clearInterval(geoWatch);jobs.stop();
+ if(stopping)return;stopping=true;clearInterval(watch);clearInterval(geoWatch);await jobs.stop();
  try{await (await siteExtension).stop();actualAnalytics?.close();actualBusiness?.close();site.close();}
  catch(e){console.error('网站关闭失败',e);}
  atomicJson(runtimeFile,{...state,status:'stopped'});process.exit(0);

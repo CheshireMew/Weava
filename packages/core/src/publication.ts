@@ -78,6 +78,7 @@ function buildPublication(site: PublicationSite, options: PublishOptions) {
         id: entry.id,
         title: entry.title,
         path: entry.path,
+        url: new URL(entry.path, release.settings.domain).href,
         cover: entry.cover,
         description: entry.description,
         author: entry.author,

@@ -1,7 +1,7 @@
 import { WeavaError as DomainError } from '@weava/contracts';
 import type { Analytics } from './analytics.ts';
 import type { Engagement } from './engagement.ts';
-import { imageAttributes } from './media.ts';
+import { imageAttributes } from './media-display.ts';
 import { queryDrafts } from './query.ts';
 import { siteFeatures } from './site-features.ts';
 import type { Site } from './site.ts';
@@ -27,7 +27,9 @@ export function queryAdminEntries(
     ...result,
     items: result.items.map((row) => {
       const entry = published.get(row.id);
-      const thumbnail = row.value.cover ? imageAttributes(site, row.value.cover, {width:100,height:68}) : undefined;
+      const thumbnail = row.value.cover
+        ? imageAttributes(site, row.value.cover, { width: 100, height: 68 })
+        : undefined;
       return {
         ...row,
         thumbnail: thumbnail?.src ?? '',
@@ -46,30 +48,29 @@ export function queryAdminEntries(
     }),
   };
 }
-export function adminEntry(site: Pick<Site, 'store' | 'terms'>, id: string) {
-  const row = site.store.get('entry', id);
+export function adminEntry(site: Pick<Site, 'entryStore' | 'terms'>, id: string) {
+  const row = site.entryStore.get(id);
   if (!row) throw new DomainError('内容不存在。', 404);
-  const publication=site.store.raw.prepare("SELECT revision FROM published_entry_revisions WHERE entry_id=? AND release_id=(SELECT value FROM state WHERE key='release')").get(id) as {revision:number}|undefined;
+  const revision = site.entryStore.publishedRevision(id);
   return {
     ...row,
-    published:!!publication,
-    hasChanges:publication?.revision!==row.revision,
+    published: revision !== undefined,
+    hasChanges: revision !== row.revision,
     value: projectTerms(
       row.value,
       site.terms().map((row) => row.value),
     ),
   };
 }
-export const contentTypes = (site: Pick<Site, 'store'>) => site.store.list('type');
-export function entryIdAtPath(site:Pick<Site,'store'|'settings'>,input:string){
-  const path=new URL(input,site.settings().value.domain).pathname;
-  return (site.store.raw.prepare("SELECT id FROM entry_list WHERE json_extract(summary,'$.path')=?").get(path) as {id:string}|undefined)?.id;
+export const contentTypes = (site: Pick<Site, 'entryStore'>) => site.entryStore.types();
+export function entryIdAtPath(site: Pick<Site, 'entryStore' | 'settings'>, input: string) {
+  const path = new URL(input, site.settings().value.domain).pathname;
+  return site.entryStore.idAtPath(path);
 }
-export function entryLabel(site: Pick<Site, 'store'>, id: string) {
-  const entry = site.store.get('entry', id)?.value;
+export function entryLabel(site: Pick<Site, 'entryStore'>, id: string) {
+  const entry = site.entryStore.get(id)?.value;
   return { title: entry?.title ?? id, path: entry?.path ?? '' };
 }
-export function commentEntryIds(site:Pick<Site,'store'>,query='') {
-  if(!query.trim())return [];
-  return (site.store.raw.prepare("SELECT id FROM entry_list WHERE instr(lower(coalesce(json_extract(summary,'$.title'),'')||' '||coalesce(json_extract(summary,'$.path'),'')),lower(?))>0").all(query.trim()) as {id:string}[]).map(row=>row.id);
+export function commentEntryIds(site: Pick<Site, 'entryStore'>, query = '') {
+  return site.entryStore.matchingIds(query);
 }

@@ -15,6 +15,7 @@ export class SiteContent {
     private site: Pick<
       Site,
       | 'store'
+      | 'entryStore'
       | 'extensionBlockDefinitions'
       | 'fieldWidgets'
       | 'release'
@@ -136,11 +137,9 @@ export class SiteContent {
   restore(id: string, version: number, revision: number) {
     return this.site.store.raw
       .transaction(() => {
-        const row = this.site.store.raw
-          .prepare('SELECT data FROM revisions WHERE scope=? AND id=? AND revision=?')
-          .get('entry', id, version) as any;
-        if (!row) throw new WeavaError('版本不存在。', 404);
-        return this.site.saveEntry({ ...JSON.parse(row.data), status: 'draft' }, revision);
+        const value = this.site.entryStore.revision(id, version);
+        if (!value) throw new WeavaError('版本不存在。', 404);
+        return this.site.saveEntry({ ...value, status: 'draft' }, revision);
       })
       .immediate();
   }

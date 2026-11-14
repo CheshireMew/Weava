@@ -72,7 +72,10 @@ async function perform(path: string, body: unknown, execute: () => Promise<any>)
   try {
     const value = await execute();
     if(value?.status==='complete'&&value.operation)completedDomains=affectedQueries(jobDomains(value.operation));
-    if (path === 'login' || path === 'account-access/complete') adminQueries.resume();
+    if (path === 'login' || path === 'account-access/complete') {
+      adminQueries.resume();
+      if(typeof window!=='undefined')window.dispatchEvent(new Event('weava-session-restored'));
+    }
     if (path === 'logout') signedOut();
     return value;
   } catch (error) {
@@ -108,27 +111,6 @@ export async function submitJob(path:string,body:unknown,key:string=crypto.rando
   return perform(path,body,()=>createAdminClient({onUnauthorized:unauthorized,headers:{'Idempotency-Key':key}}).request(path,body));
 }
 export async function waitJob(job: any, onProgress: (job: any) => void) {
-  let interval = 150;
-  while (['queued', 'running'].includes(job.status)) {
-    onProgress(job);
-    await new Promise((resolve) => setTimeout(resolve, interval));
-    try {
-      job = await api(`job/${job.id}`);
-      interval = Math.min(500, interval * 2);
-    } catch (error: any) {
-      throw new ApiClientError(
-        '暂时无法读取进度，任务可能仍在执行。',
-        error.status ?? 0,
-        { jobId: job.id, cause: error.details },
-      );
-    }
-  }
-  onProgress(job);
-  adminQueries.invalidate(false, affectedQueries(jobDomains(job.operation ?? '')));
-  if (job.status !== 'complete')
-    throw new ApiClientError(job.message, job.errorStatus ?? 400, {
-      jobId: job.id,
-      cause: job.errorDetails,
-    });
-  return job;
+  const {waitTrackedJob}=await import('./task-tracker.ts');
+  return waitTrackedJob(job,onProgress);
 }

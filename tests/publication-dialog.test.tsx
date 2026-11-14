@@ -7,7 +7,7 @@ vi.mock('../apps/admin/src/background-tasks.ts',()=>({awaitTask:vi.fn(async()=>(
 let host:HTMLDivElement,root:Root;
 beforeEach(()=>{(globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;host=document.createElement('div');document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
-const review=()=>({scope:'entries',baseReleaseId:'previous',settingsChanged:false,layoutsChanged:false,routesChanged:false,termsChanged:false,entries:[{id:'article:1',title:'第一篇文章',path:'/first/',cover:'/media/cover.webp',description:'用于发布前检查的摘要',author:'柴郡',visibility:'public',revision:37,action:'add'},{id:'article:2',title:'第二篇文章',path:'/second/',cover:'',description:'',author:'',visibility:'private',revision:45,action:'update'}],removed:[],options:{candidateId:'frozen-candidate',ids:['article:1','article:2'],revisions:{'article:1':37,'article:2':45}}});
+const review=()=>({scope:'entries',baseReleaseId:'previous',settingsChanged:false,layoutsChanged:false,routesChanged:false,termsChanged:false,entries:[{id:'article:1',title:'第一篇文章',path:'/first/',url:'https://blog.example.com/posts/6fb11af5/',cover:'/media/cover.webp',description:'用于发布前检查的摘要',author:'柴郡',visibility:'public',revision:37,action:'add'},{id:'article:2',title:'第二篇文章',path:'/second/',url:'https://blog.example.com/guide/hello-world/',cover:'',description:'',author:'',visibility:'private',revision:45,action:'update'}],removed:[],options:{candidateId:'frozen-candidate',ids:['article:1','article:2'],revisions:{'article:1':37,'article:2':45}}});
 async function click(label:string){await act(async()=>[...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent===label||button.getAttribute('aria-label')===label)!.click());}
 it('shows content cards with cover, title, summary and author without page previews',async()=>{
  const model:any={publication:review(),setPublication:vi.fn(),busy:false,submit:vi.fn()};
@@ -16,6 +16,11 @@ it('shows content cards with cover, title, summary and author without page previ
  expect(host.querySelectorAll('article.publication-review-card')).toHaveLength(2);
  expect(host.querySelector('iframe, [aria-label="页面预览"], [aria-label="预览宽度"]')).toBeNull();
  expect(host.querySelector('button.publication-review-card')).toBeNull();expect(host.textContent).toContain('私密');
+ expect([...host.querySelectorAll('.publication-review-path')].map(node=>node.textContent)).toEqual([
+  'https://blog.example.com/posts/6fb11af5/',
+  'https://blog.example.com/guide/hello-world/',
+ ]);
+ expect(host.querySelectorAll('.publication-review-url')).toHaveLength(2);
  expect(model.submit).not.toHaveBeenCalled();
 });
 it('returns to editing without publishing and confirms only the reviewed candidate',async()=>{

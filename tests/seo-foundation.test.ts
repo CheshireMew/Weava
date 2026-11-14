@@ -178,6 +178,15 @@ it('bounds cache memory and lifetime, invalidates publication generations and ho
   expect(unchanged.status).toBe(304);
   expect(conditionalPublicResponse(new Request(req, { method: 'HEAD' }), new Response('Body'), 'Body').body).toBeNull();
 });
+it('separates response variants by every Vary header and rejects Vary star',async()=>{
+  const cache=new PublicResponseCache(),request=(language:string,theme='light')=>new Request('https://example.test/tool/',{headers:{'Accept-Language':language,'X-Theme':theme}});
+  const remember=(language:string,body:string)=>cache.remember(cache.key(request(language),'one',30),new Response(body,{headers:{'Content-Type':'text/html',Vary:'Accept-Language, X-Theme'}}));
+  await remember('en','English');expect(cache.get(cache.key(request('zh'),'one',30))).toBeNull();
+  await remember('zh','中文');expect(await cache.get(cache.key(request('en'),'one',30))!.text()).toBe('English');expect(await cache.get(cache.key(request('zh'),'one',30))!.text()).toBe('中文');
+  expect(cache.get(cache.key(request('en','dark'),'one',30))).toBeNull();
+  await cache.remember(cache.key(request('en'),'one',30),new Response('Uncacheable',{headers:{'Content-Type':'text/html',Vary:'*'}}));
+  expect(cache.get(cache.key(request('en'),'one',30))).toBeNull();
+});
 
 it('deduplicates imported search observations, separates dimensions and returns revision-bound maintenance suggestions', () => {
   const site = new Site(join(process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tasks/seo-foundation-20261111/tests', randomUUID())); sites.push(site);

@@ -2,7 +2,7 @@ import { contentViews, creationTemplates } from './authoring.ts';
 import type { ExtensionManager } from './extension-manager.ts';
 import type { Extension } from './extensions.ts';
 import { layouts } from './layouts.ts';
-import { imageAttributes } from './media.ts';
+import { imageAttributes } from './media-display.ts';
 import { programStatus } from './programs.ts';
 import { publicationPlans } from './publication-plans.ts';
 import { schedules } from './schedules.ts';
@@ -30,11 +30,11 @@ export function adminState(
         )
       : {}),
     ...(options.panel === 'appearance' ? { siteInfo: settings.value.siteInfo } : {}),
-    types: site.store.list('type'),
+    types: site.entryStore.types(),
     contentViews: contentViews(site),
     creationTemplates: creationTemplates(site),
     terms: site.terms(),
-    authors: (site.store.raw.prepare("SELECT DISTINCT trim(json_extract(summary,'$.author')) name FROM entry_list WHERE kind='content' AND trim(coalesce(json_extract(summary,'$.author'),''))<>'' ORDER BY name").all() as {name:string}[]).map(row => row.name),
+    authors: site.entryStore.authors(),
     layouts: layouts(site),
     schedules: options.summary
       ? options.entryId
@@ -43,16 +43,12 @@ export function adminState(
       : schedules(site),
     publicationPlans: options.summary ? [] : publicationPlans(site),
     entries: options.summary ? [] : site.entries(),
-    entryCount: site.store.raw
-      .prepare("SELECT COUNT(*) n FROM records WHERE scope='entry'")
-      .get() as { n: number },
-    media: options.summary ? [] : site.store.list('media'),
+    entryCount: { n: site.entryStore.count() },
+    media: options.summary ? [] : site.media.list(),
     jobs: options.summary ? (options.panel === 'operations' ? site.jobs(true) : []) : site.jobs(),
     releases: options.summary
       ? options.panel === 'operations'
-        ? (site.store.raw
-            .prepare('SELECT id,created_at FROM releases ORDER BY created_at DESC LIMIT 20')
-            .all() as { id: string; created_at: string }[])
+        ? site.publication.recent(20)
         : []
       : site.releases(),
     themes: [
@@ -61,13 +57,30 @@ export function adminState(
       { id: 'library', label: '资料库' },
       ...(extension?.themes ?? []),
     ],
-    extensionPanels: [{ id: 'library', label: '资料库', themes: ['library'], fields: [
-      {key:'brandTitle',label:'品牌名称',type:'text'},
-      {key:'brandSubtitle',label:'品牌署名',type:'text'},
-      {key:'favicon',label:'网站图标',type:'media'},
-      {key:'footerLinks',label:'页脚链接',type:'group',multiple:true,summaryField:'label',fields:[
-        {key:'label',label:'名称',type:'text'},{key:'url',label:'网址',type:'text'}]},
-    ] } satisfies NonNullable<Extension['panels']>[number], ...(extension?.panels ?? [])],
+    extensionPanels: [
+      {
+        id: 'library',
+        label: '资料库',
+        themes: ['library'],
+        fields: [
+          { key: 'brandTitle', label: '品牌名称', type: 'text' },
+          { key: 'brandSubtitle', label: '品牌署名', type: 'text' },
+          { key: 'favicon', label: '网站图标', type: 'media' },
+          {
+            key: 'footerLinks',
+            label: '页脚链接',
+            type: 'group',
+            multiple: true,
+            summaryField: 'label',
+            fields: [
+              { key: 'label', label: '名称', type: 'text' },
+              { key: 'url', label: '网址', type: 'text' },
+            ],
+          },
+        ],
+      } satisfies NonNullable<Extension['panels']>[number],
+      ...(extension?.panels ?? []),
+    ],
     fieldWidgets: site.fieldWidgets,
     extensionBlocks: Object.keys(extension?.blocks ?? {}),
     extensionBlockDefinitions: Object.fromEntries(

@@ -1,0 +1,9 @@
+.publication-schedules { order: 5; flex: 1 0 100%; padding: 0 24px 16px; font-size: 13px; color: var(--ink-secondary); }
+.publication-schedules > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.comment-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 42px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--surface-soft); font-size: 13px; }
+.backup-inventory-item { padding-block: 16px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.backup-inventory-item:last-child { border-bottom: 0; }
+.data-table-scroll { width: 100%; overflow-x: auto; }
+.data-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
+.data-table-scroll th, .data-table-scroll td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .publication-open { flex-basis: 150px; } .publication-schedules { padding-inline: 14px; } }

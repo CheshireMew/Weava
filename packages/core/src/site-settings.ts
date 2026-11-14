@@ -11,6 +11,10 @@ import {isReservedContentPath} from '@weava/contracts';
 import {mediaUploadLimits} from '../../contracts/src/api-models.ts';
 export class SiteSettings {
   constructor(private site: Pick<Site, 'store' | 'settings' | 'terms'>) {}
+  extensionRuntimeRevisions() {
+    return this.site.store.raw.prepare("SELECT scope,id,revision FROM records WHERE scope IN ('extension-config','extension-schema','extension-block') ORDER BY scope,id").all();
+  }
+  extensionRevisions() { return this.site.store.list('extension-config').map(row => [row.id, row.revision] as const); }
   settings() {
     return this.site.store.get('settings', 'site')!;
   }

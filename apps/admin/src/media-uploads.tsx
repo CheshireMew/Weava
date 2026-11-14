@@ -15,6 +15,8 @@ export interface MediaUpload {
 let sequence = 0, active = 0;
 let uploads: MediaUpload[] = [];
 const files = new Map<number, File>(), listeners = new Set<() => void>();
+const controllers=new Map<number,AbortController>();
+let generation=0,paused=false,lifecycle=false;
 const notify = () => listeners.forEach(listener => listener());
 const change = (id: number, update: Partial<MediaUpload>) => {
   uploads = uploads.map(item => item.id === id ? { ...item, ...update } : item);
@@ -23,23 +25,43 @@ const change = (id: number, update: Partial<MediaUpload>) => {
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
 export const mediaUploadSnapshot = () => uploads;
 export const useMediaUploads = () => useSyncExternalStore(subscribe, mediaUploadSnapshot);
+function installLifecycle(){
+  if(lifecycle||typeof window==='undefined')return;
+  lifecycle=true;
+  // Library uploads survive panel navigation, but their File objects cannot survive a page reload.
+  window.addEventListener('beforeunload',event=>{
+    if(uploads.some(item=>item.status!=='complete')){event.preventDefault();event.returnValue='文件尚未上传完成。';}
+  });
+  window.addEventListener('weava-session-ended',()=>{
+    generation++;paused=false;
+    for(const controller of controllers.values())controller.abort();
+    controllers.clear();
+    for(const item of uploads)if(item.preview)URL.revokeObjectURL(item.preview);
+    files.clear();uploads=[];notify();
+  });
+  window.addEventListener('weava-session-expired',()=>{paused=true;for(const controller of controllers.values())controller.abort();});
+  window.addEventListener('weava-session-restored',()=>{paused=false;pump();});
+}
 
 function pump() {
-  while (active < 2) {
+  while (!paused&&active < 2) {
     const item = uploads.find(item => item.status === 'queued');
     if (!item) return;
     active++;
+    const started=generation,controller=new AbortController();controllers.set(item.id,controller);
     change(item.id, { status: 'uploading', message: '上传 0%' });
-    void uploadFile(files.get(item.id)!, message => change(item.id, { message }), { groupId: item.groupId })
+    void uploadFile(files.get(item.id)!, message => {if(started===generation)change(item.id,{message});}, { groupId: item.groupId,signal:controller.signal })
       .then(row => {
+        if(started!==generation)return;
         files.delete(item.id);
         if (item.preview) URL.revokeObjectURL(item.preview);
         change(item.id, { status: 'complete', message: '已上传', row, preview: undefined });
-      }, (error: Error) => change(item.id, { status: 'failed', message: error.message }))
-      .finally(() => { active--; pump(); });
+      }, (error: Error) => {if(started===generation)change(item.id, { status: 'failed', message: paused?'登录已失效，请重新登录后重试上传。':error.message });})
+      .finally(() => { controllers.delete(item.id);active--; pump(); });
   }
 }
 export function startMediaUploads(selected: File[], groupId?: string) {
+  installLifecycle();
   // Keep recent completions available until the refreshed library contains them.
   for (const item of uploads.filter(item => item.status === 'complete').slice(0, -12)) dismissMediaUpload(item.id);
   for (const file of selected) {

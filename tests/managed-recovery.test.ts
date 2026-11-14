@@ -9,7 +9,7 @@ import {atomic,hash,saveInstallation,loadInstallation} from '../packages/manager
 import {recoverFiles,authoredFingerprint} from '../packages/manager/src/recovery.ts';
 import {repairProgramLinks,repairSiteBuildLink} from '../packages/manager/src/relink.ts';
 import {createBackup,verifyBackup} from '../packages/core/src/backup.ts';
-const base='D:/Tools/cache/weava/tasks/shared-runtime-20261105';
+const base=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/shared-runtime-20261105';
 function fixture(){const root=join(base,'recovery-'+randomUUID());mkdirSync(root,{recursive:true});return root;}
 describe('managed recovery and dependency references',()=>{
  it('keeps registrations made by independent concurrent commands',async()=>{

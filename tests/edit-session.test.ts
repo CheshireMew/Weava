@@ -1,6 +1,27 @@
 import { expect, it } from 'vitest';
 import { EditSession } from '../apps/admin/src/edit-session.ts';
 const row = {id:'entry',revision:1,value:{name:'Original'}};
+it('rebases continued typing onto a merged save response without losing independent or nested server changes',async()=>{
+  const initial={...row,value:{name:'Original',description:'Before',theme:{color:'red',width:600},optional:'remove me'} as any};
+  const writes:typeof initial[]=[],local=storage();let finish!:(value:typeof initial)=>void;
+  const session=new EditSession(initial,async snapshot=>{writes.push(structuredClone(snapshot));return writes.length===1?new Promise(resolve=>finish=resolve):{...snapshot,revision:snapshot.revision+1};},()=>{},local,'settings');
+  session.change({...initial,value:{...initial.value,name:'First'}});const saving=session.save();
+  session.change({...initial,value:{name:'Continued',description:'Before',theme:{color:'blue',width:600}}});
+  finish({...initial,revision:2,value:{...initial.value,name:'First',description:'Other window',theme:{color:'red',width:900},serverOnly:true}});
+  await saving;
+  expect(writes[1]).toMatchObject({revision:2,value:{name:'Continued',description:'Other window',theme:{color:'blue',width:900},serverOnly:true}});
+  expect(writes[1].value).not.toHaveProperty('optional');expect(session.dirty).toBe(false);expect(local.length).toBe(0);
+});
+it('preserves all edited media fields when accepting a newer upload result, including clearing a group',()=>{
+  const initial={...row,value:{name:'Original',groupId:'first' as string|null,optimization:{status:'pending'}}};
+  const session=new EditSession(initial,async value=>value,()=>{});
+  session.change({...initial,value:{...initial.value,groupId:'second'}});
+  session.receive({...initial,revision:2,value:{...initial.value,name:'Server name',optimization:{status:'complete'}}},{preserveEdits:true});
+  expect(session.record).toMatchObject({revision:2,value:{name:'Server name',groupId:'second',optimization:{status:'complete'}}});
+  session.change({...session.record!,value:{...session.record!.value,groupId:null}});
+  session.receive({...initial,revision:3},{preserveEdits:true});
+  expect(session.record?.value.groupId).toBeNull();expect(session.dirty).toBe(true);
+});
 it('rebases edits made during a server mutation and serializes autosave with its returned revision',async()=>{
   const initial={...row,value:{name:'Original',groupId:'first',archived:false}}, writes:any[]=[],local=storage();
   const session=new EditSession(initial,async value=>{writes.push(value);return {...value,revision:value.revision+1};},()=>{},local,'media');

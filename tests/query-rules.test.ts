@@ -15,6 +15,7 @@ import { queryEntries, queryDrafts, contentQuery } from '../packages/core/src/qu
 import { queryPublicCatalog } from '../packages/core/src/public-query.ts';
 import { querySorts } from '../packages/core/src/query-rules.ts';
 import {SCHEMA_VERSION} from '../packages/core/src/schema-version.ts';
+import { EntryRepository } from '../packages/core/src/entry-repository.ts';
 
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach((db) => db.close()));
@@ -83,9 +84,10 @@ function fixture() {
     createdAt: '',
   };
   const site = {
-    store: { raw: db, list: () => [{ id: type.id, value: type }] },
+    store: { raw: db, list: (scope: string) => scope === 'type' ? [{ id: type.id, value: type }] : scope === 'term' ? terms.map(value => ({ id: value.id, value })) : [] },
     terms: () => terms.map((value) => ({ id: value.id, value })),
   } as unknown as Site;
+  site.entryStore = new EntryRepository(site.store);
   return { db, site, release };
 }
 it('shows default covers for existing empty article summaries without reading bodies or rewriting records', () => {

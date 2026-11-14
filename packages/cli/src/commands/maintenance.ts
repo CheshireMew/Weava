@@ -94,7 +94,7 @@ export function registerMaintenanceCommands({
   backup.command('list').option('--path <path>').action(async options=>output(await request('backup/inventory'+(options.path?'?'+new URLSearchParams({path:resolve(options.path)}):''))));
   backup.command('policy').option('--input <file>','保存包含 value 与 revision 的备份计划').action(async options=>output(await request('backup/policy',options.input?JSON.parse(readFileSync(resolve(options.input),'utf8')):undefined)));
 
-  const upgrade = program.command('upgrade');
+  const upgrade = program.command('upgrade').description('旧格式站点的离线升级；托管站点使用 site update / site recover');
 
   upgrade
     .command('verify')

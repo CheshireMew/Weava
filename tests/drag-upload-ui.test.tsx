@@ -13,6 +13,7 @@ import { uploadFile } from '../apps/admin/src/upload-file.ts';
 import { dismissMediaUpload, mediaUploadSnapshot } from '../apps/admin/src/media-uploads.tsx';
 import { api,waitJob } from '../apps/admin/src/api.ts';
 import { entrySchema } from '../packages/contracts/src/index.ts';
+import { useMediaEditor, type MediaEditor } from '../apps/admin/src/useMediaEditor.ts';
 vi.mock('../apps/admin/src/Selectors.tsx', () => ({ useSelectors: () => ({ media: async () => null }) }));
 vi.mock('../apps/admin/src/upload-file.ts', () => ({ uploadFile: vi.fn() }));
 vi.mock('../apps/admin/src/api.ts', () => ({ api: vi.fn(), waitJob: vi.fn() }));
@@ -44,6 +45,20 @@ beforeEach(() => {
   });
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); delete (document as any).caretRangeFromPoint; vi.restoreAllMocks(); });
+
+it.each(['pictures',null])('preserves a pending media group choice (%s) when a duplicate upload returns',async groupId=>{
+  let editor!:MediaEditor;
+  const source={...row(file()),value:{...row(file()).value,groupId:'original',alt:'original'}};
+  function View(){editor=useMediaEditor(vi.fn(),vi.fn());return null;}
+  vi.mocked(api).mockImplementation(async(_path:any,body:any):Promise<any>=>({...source,revision:3,value:{...source.value,...body.value}}));
+  await act(async()=>root.render(<EditSessionsProvider><View/></EditSessionsProvider>));
+  await act(async()=>editor.choose(source));
+  await act(async()=>editor.setSelected(current=>({...current!,value:{...current!.value,groupId}})));
+  await act(async()=>editor.receiveUpload({...source,revision:2,value:{...source.value,groupId:'uploaded',alt:'server description'}}));
+  expect(editor.selected).toMatchObject({revision:2,value:{groupId,alt:'server description'}});
+  await act(async()=>editor.flush());
+  expect(api).toHaveBeenCalledWith('media/info',expect.objectContaining({revision:2,value:expect.objectContaining({groupId,alt:'server description'})}));
+});
 
 it('crops through the keyboard, clamps the selection and sends the same crop to the media API',async()=>{
   const source=row(file()),cropped={...source,id:'cropped',value:{...source.value,url:'/media/cropped.png'}};library=[source];
@@ -91,7 +106,7 @@ it('uploads files dropped in the media panel, preserving the selected group and 
   const group = host.querySelector<HTMLSelectElement>('[aria-label="媒体分组筛选"]')!;
   await act(async () => { group.value = 'pictures'; group.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => drag(host.querySelector('.media-panel')!, [file('one.png'), file('two.png')]));
-  expect(uploadFile).toHaveBeenCalledTimes(2); expect(uploadFile).toHaveBeenCalledWith(expect.objectContaining({name:'one.png'}), expect.any(Function), {groupId:'pictures'}); expect(api).not.toHaveBeenCalledWith('media/move', expect.anything());
+  expect(uploadFile).toHaveBeenCalledTimes(2); expect(uploadFile).toHaveBeenCalledWith(expect.objectContaining({name:'one.png'}), expect.any(Function), expect.objectContaining({groupId:'pictures',signal:expect.any(AbortSignal)})); expect(api).not.toHaveBeenCalledWith('media/move', expect.anything());
   expect(host.querySelector('.media-grid')!.textContent).toContain('one.png'); expect(host.querySelector('.media-grid')!.textContent).toContain('two.png');
 });
 it('keeps library uploads alive after leaving the panel and does not hold navigation pending',async()=>{
@@ -102,10 +117,22 @@ it('keeps library uploads alive after leaving the panel and does not hold naviga
   await act(async()=>drag(host.querySelector('.media-panel')!,[file('background.png')]));
   expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='上传文件')!.disabled).toBe(false);
   await expect(manager.prepare()).resolves.toBeUndefined();await expect(manager.flush()).resolves.toBeUndefined();
+  const leave=new Event('beforeunload',{cancelable:true});window.dispatchEvent(leave);expect(leave.defaultPrevented).toBe(true);
   await act(async()=>root.render(<div>继续编辑</div>));
   await act(async()=>upload.resolve(row(file('background.png'))));
   expect(mediaUploadSnapshot().find(item=>item.name==='background.png')?.status).toBe('complete');
   expect(host.textContent).toBe('继续编辑');
+  const done=new Event('beforeunload',{cancelable:true});window.dispatchEvent(done);expect(done.defaultPrevented).toBe(false);
+});
+it('aborts uploads on logout, clears queued files and ignores late responses from the previous session',async()=>{
+  const upload=pending<any>();vi.mocked(uploadFile).mockReturnValue(upload.promise);
+  await act(async()=>root.render(<EditSessionsProvider><MediaManager onError={vi.fn()} onOpen={vi.fn()}/></EditSessionsProvider>));
+  await act(async()=>drag(host.querySelector('.media-panel')!,[file('one.png'),file('two.png'),file('queued.png')]));
+  const signals=vi.mocked(uploadFile).mock.calls.map(call=>call[2]!.signal!);expect(signals).toHaveLength(2);
+  await act(async()=>window.dispatchEvent(new Event('weava-session-ended')));
+  expect(signals.every(signal=>signal.aborted)).toBe(true);expect(mediaUploadSnapshot()).toEqual([]);
+  await act(async()=>upload.resolve(row(file('one.png'))));
+  expect(mediaUploadSnapshot()).toEqual([]);expect(uploadFile).toHaveBeenCalledTimes(2);
 });
 it('keeps failed files available for retry and blocks unsupported files from opening in the browser', async () => {
   vi.mocked(uploadFile).mockRejectedValueOnce(new Error('网络中断'));

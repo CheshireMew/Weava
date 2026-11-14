@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, posix, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { validationToolsRoot } from './setup-validation.ts';
+import { checkModuleSource } from './module-dependencies.ts';
 
 /** Use the parser already installed for template validation, including type-only imports. */
 export function checkModuleBoundaries() {
@@ -12,7 +13,7 @@ export function checkModuleBoundaries() {
     for (const entry of readdirSync(root, { withFileTypes: true })) {
       const file = join(root, entry.name).replaceAll('\\', '/');
       if (entry.isDirectory()) walk(file);
-      else if (/\.tsx?$/.test(file) && !file.endsWith('.d.ts')) files.push(file);
+      else if (/\.(?:tsx?|astro)$/.test(file)) files.push(file);
     }
   }
   for (const root of [
@@ -41,47 +42,7 @@ export function checkModuleBoundaries() {
       };
       inspect(ast);
     }
-    for (const statement of ast.statements) {
-      if (
-        !(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) ||
-        !statement.moduleSpecifier
-      )
-        continue;
-      const clause = statement.importClause,
-        names = clause?.namedBindings ?? statement.exportClause;
-      if (
-        statement.isTypeOnly ||
-        clause?.isTypeOnly ||
-        (!clause?.name &&
-          names?.elements?.length &&
-          names.elements.every((entry: any) => entry.isTypeOnly))
-      )
-        continue;
-      const specifier = statement.moduleSpecifier.text,
-        sub = specifier.slice('@weava/contracts/'.length);
-      const base = specifier.startsWith('.')
-        ? posix.normalize(posix.join(posix.dirname(file), specifier))
-        : specifier === '@weava/core'
-          ? 'packages/core/src/index.ts'
-          : specifier === '@weava/contracts'
-            ? 'packages/contracts/src/index.ts'
-            : specifier.startsWith('@weava/contracts/')
-              ? 'packages/contracts/src/' + (sub === 'api' ? 'admin-api' : sub) + '.ts'
-              : null;
-      const target = [base, base + '.ts', base + '.tsx', base + '/index.ts'].find(
-        (candidate) => candidate && paths.has(candidate),
-      );
-      if (!target) continue;
-      if (
-        (file.startsWith('packages/contracts/') && !target.startsWith('packages/contracts/')) ||
-        (file.startsWith('packages/runtime-common/') &&
-          !target.startsWith('packages/runtime-common/') &&
-          !target.startsWith('packages/contracts/')) ||
-        (file.startsWith('packages/core/') && target.startsWith('apps/'))
-      )
-        throw new Error('模块依赖方向错误：' + file + ' → ' + target);
-      targets.push(target);
-    }
+    targets.push(...checkModuleSource(file, readFileSync(file, 'utf8'), paths));
     edges.set(file, targets);
   }
   const complete = new Set<string>(),
@@ -101,7 +62,9 @@ export function checkModuleBoundaries() {
     complete.add(file);
   }
   for (const file of files) visit(file);
-  console.log(`模块依赖检查通过：${files.length} 个源码文件，无代码循环依赖。`);
+  console.log(
+    `模块依赖检查通过：${files.length} 个源码文件（含 Astro、类型与动态导入），无静态执行依赖环。`,
+  );
 }
 if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename))
   checkModuleBoundaries();

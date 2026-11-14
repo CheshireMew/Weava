@@ -1,3 +1,5 @@
+import { queryPublicCatalog } from './public-query.ts';
+import { nextPublicationTime } from './publication-time.ts';
 import { normalizePath } from './paths.ts';
 
 import { privateMedia } from './media-policy.ts';
@@ -40,6 +42,10 @@ export class SiteReleases {
     > &
       import('./publication.ts').PublicationSite,
   ) {}
+  query(release: Release, input: import('@weava/contracts').ContentQuery, search = false) { return queryPublicCatalog(this.site.store.raw, release, input, search); }
+  nextDueAt() { return nextPublicationTime(this.site.store); }
+  recent(limit: number) { return this.site.store.raw.prepare('SELECT id,created_at FROM releases ORDER BY created_at DESC LIMIT ?').all(limit) as { id: string; created_at: string }[]; }
+  currentId(): string | undefined { return this.site.store.state('release'); }
   release(id?: string): Release | null {
     const key = id ?? this.site.store.state('release');
     if (!key) return null;
@@ -102,7 +108,7 @@ export class SiteReleases {
   isPrivateMedia(path: string) {
     return privateMedia(this.site.store.raw, path);
   }
-  redirect(url: URL, includePrivate = false) {
+  redirect(url: URL, includePrivate = false, snapshot?:Release|null) {
     const path = normalizePath(url.pathname);
     const parameter = url.searchParams.has('p')
       ? 'p'
@@ -111,7 +117,7 @@ export class SiteReleases {
         : null;
     const queryKey =
       path === '/' && parameter ? '/?' + parameter + '=' + url.searchParams.get(parameter) : path;
-    const release = this.site.visibleRelease(includePrivate);
+    const release = snapshot===undefined?this.site.visibleRelease(includePrivate):snapshot?this.site.visibleRelease(includePrivate,snapshot.id):null;
     const value = release?.redirects?.[queryKey];
     if (!value || release&&releaseIndex(release).byPath.has(queryKey)) return null;
     if (value.entryId && release&&!releaseIndex(release).byId.has(value.entryId)) return null;

@@ -46,3 +46,17 @@ it('surfaces upload failures and rejects unsupported or oversized files before s
   await expect(uploadFile(new File([],'empty.png'),()=>{})).rejects.toThrow('为空');
   expect(requests).toHaveLength(1);
 });
+it('cancels the real upload transport and never starts it after cancellation during the limits request',async()=>{
+  let finish!:(value:any)=>void;vi.mocked(api).mockReturnValueOnce(new Promise(resolve=>finish=resolve) as any);
+  const requests=transport(),first=new AbortController();
+  const waiting=uploadFile(new File(['data'],'image.png'),()=>{},{signal:first.signal});
+  first.abort();finish(defaultMediaUploadLimits);await expect(waiting).rejects.toThrow();expect(requests).toHaveLength(0);
+  const sent:any[]=[];
+  class Request {
+    upload={};onabort?:()=>void;onloadend?:()=>void;aborted=false;
+    open(){} setRequestHeader(){} send(){sent.push(this);}abort(){this.aborted=true;this.onabort?.();this.onloadend?.();}
+  }
+  vi.stubGlobal('XMLHttpRequest',Request);const controller=new AbortController();
+  const active=uploadFile(new File(['data'],'image.png'),()=>{},{signal:controller.signal});await Promise.resolve();
+  expect(sent).toHaveLength(1);controller.abort();await expect(active).rejects.toThrow(/取消/);expect(sent[0].aborted).toBe(true);
+});

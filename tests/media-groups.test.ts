@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it,vi } from 'vitest';
+import {updateMediaOptimization} from '../packages/core/src/media.ts';
 import { Site, mediaGroups, saveMediaGroup, moveMedia, queryMedia, saveMediaMetadata } from '@weava/core';
 import { entrySchema } from '@weava/contracts';
 const sites: Site[] = [], root = (process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests') + '/media-groups-' + Date.now(); let sequence = 0;
@@ -6,6 +7,19 @@ const create = () => { const site = new Site(root + '/' + sequence++); sites.pus
 afterEach(() => sites.splice(0).forEach((site) => site.close()));
 const media = (site: Site, id: string) => site.store.put('media', id, { id, name: id + '.txt', url: '/media/' + id + '.txt', derivatives: [], createdAt: '2026-10-30', archived: false }, null);
 describe('media organization without moving files', () => {
+  it('serializes metadata with a second connection optimizing the same media without losing either result',()=>{
+    const site=create(),row=media(site,'race'),worker=new Site(site.root);sites.push(worker);worker.store.raw.pragma('busy_timeout=1');
+    const read=site.store.get.bind(site.store);let attempted=false;
+    const spy=vi.spyOn(site.store,'get').mockImplementation((scope,id)=>{
+      const value=read(scope,id);
+      if(scope==='media'&&id===row.id&&!attempted){attempted=true;expect(()=>updateMediaOptimization(worker,id,{optimization:{status:'complete'},derivatives:[{url:'/media/optimized.webp'}]})).toThrow(/locked/);}
+      return value;
+    });
+    try{saveMediaMetadata(site,row.id,{name:'User title'},row.revision);}finally{spy.mockRestore();}
+    const optimized=updateMediaOptimization(worker,row.id,{optimization:{status:'complete'},derivatives:[{url:'/media/optimized.webp'}]});
+    const final=saveMediaMetadata(site,row.id,{name:'Continued edit'},optimized.revision);
+    expect(attempted).toBe(true);expect(final.value).toMatchObject({name:'Continued edit',optimization:{status:'complete'},derivatives:[{url:'/media/optimized.webp'}]});
+  });
   it('renames and archives groups while preserving identity, membership and URLs', () => {
     const site = create(), group = saveMediaGroup(site, { id: 'images', label: '插图' }, null), file = media(site, 'a');
     const moved = moveMedia(site, [{ id: file.id, revision: file.revision }], group.id)[0];

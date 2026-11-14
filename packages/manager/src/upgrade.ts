@@ -460,7 +460,10 @@ export async function recoverProtected(home: string, root: string, restoreData =
       )
         throw new Error('已完成升级；回退数据需要明确使用 --restore-data。');
       const operation = journal.online?.operation ?? prepared.operation;
-      await requestHost(home, 'start', { id });
+      // The journal must remain pending until recovery has verified the real
+      // service. Validation startup keeps a restarted instance behind maintenance
+      // while allowing the existing upgrade journal to remain authoritative.
+      await requestHost(home, 'start', { id, validation: true });
       await checkService(root, { agent: 'WeavaUpgradeCheck' });
       await requestHost(home, 'activate', { id });
       maintenance(home, id, false, operation);

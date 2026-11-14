@@ -108,6 +108,22 @@ it('automatically saves after typing stops, clears recovery storage, and only bl
   expect(closePage().defaultPrevented).toBe(false);
 });
 
+it('keeps local recovery during composition and waits for the completed text before autosaving', async () => {
+  await mount();
+  await act(async () => document.dispatchEvent(new Event('compositionstart', { bubbles: true })));
+  await act(async () => model.update({ title: 'zhong' }));
+  await advance(1500);
+  expect(rows.get('article')?.copies[0].record.value.title).toBe('zhong');
+  expect(mocks.api.mock.calls.filter(([path]) => path === 'entry')).toHaveLength(0);
+  await act(async () => {
+    model.update({ title: '中文' });
+    document.dispatchEvent(new Event('compositionend', { bubbles: true }));
+  });
+  await advance(1200);
+  expect(server.value.title).toBe('中文');
+  expect(model.dirty).toBe(false);
+});
+
 it('keeps the last keystroke on immediate close and offers one recoverable draft after reopening', async () => {
   await mount();
   await act(async () => model.update({ document: { version: 1, format: 'markdown', source: '刚输入的最后一句' } }));

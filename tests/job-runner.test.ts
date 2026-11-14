@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it,vi } from 'vitest';
 import { join, resolve } from 'node:path';
 import { writeFileSync } from 'node:fs';
 import {spawn} from 'node:child_process';
@@ -7,6 +7,20 @@ import { JobRunner, Site, readJsonBody, Analytics } from '@weava/core';
 import {createAdminDispatcher} from '../apps/web/src/api/dispatch.ts';
 import {executeContentMutation} from '../packages/core/src/content-mutations.ts';
 const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/job-runner-'+Date.now();
+it('runs backups exclusively and tolerates a backup write reservation during its heartbeat',async()=>{
+  const site=new Site(join(base,'backup-reservation')),locker=new Site(site.root),runner=new JobRunner(site,{framework:resolve('.'),source:true});
+  let finish!:(value:any)=>void;
+  const background=vi.spyOn((runner as any).background,'run').mockImplementation(()=>new Promise(resolve=>finish=resolve));
+  const publish=vi.spyOn((runner as any).publication,'run').mockResolvedValue({releaseId:'fixture'});
+  try{
+    const backup=runner.enqueue('backup',{}),publication=runner.enqueue('publish',{});
+    runner.pause(false);runner.pump();expect(background).toHaveBeenCalledTimes(1);expect(publish).not.toHaveBeenCalled();expect(site.job(publication.id).status).toBe('queued');
+    locker.store.raw.exec('BEGIN IMMEDIATE');const started=Date.now();
+    await new Promise(resolve=>setTimeout(resolve,1100));expect(Date.now()-started).toBeLessThan(2000);expect(site.job(backup.id).status).toBe('running');
+    locker.store.raw.exec('ROLLBACK');finish({path:'fixture'});
+    await runner.wait(backup.id,2000);await runner.wait(publication.id,2000);expect(publish).toHaveBeenCalledTimes(1);
+  }finally{if(locker.store.raw.inTransaction)locker.store.raw.exec('ROLLBACK');finish?.({});await runner.stop();background.mockRestore();publish.mockRestore();locker.close();site.close();}
+});
 it('runs the nearest scheduled publication at its deadline without waiting for a five-second sweep',async()=>{
  const site=new Site(join(base,'nearest-schedule')),runner=new JobRunner(site,{framework:resolve('.'),source:true,startPaused:false,schedulePublications:true});
  try{
@@ -39,7 +53,8 @@ it('keeps an atomically committed command successful if its worker loses the res
  try{
   const row=site.saveEntry(entrySchema.parse({id:'one',kind:'page',title:'One',path:'/one/'}),null);
   const run=(await import('vitest')).vi.spyOn((runner as any).service,'run').mockImplementation(async(_operation,payload:any)=>{
-   await executeContentMutation(site,undefined,payload.operation,payload.payload,payload.jobId);
+   const durable=site.job(payload.jobId);
+   await executeContentMutation(site,undefined,durable.operation,durable.payload,durable.id);
    throw new Error('Result connection lost after commit');
   });
   const job=runner.command('schedule-create',{id:row.id,revision:row.revision,dueAt:new Date(Date.now()+60000).toISOString()});

@@ -1,7 +1,7 @@
 /** A site-owned extension: old URL compatibility follows the current public release. */
 export const wordpressCompatibilityExtension = String.raw`
 export default ({ queryEntries }) => ({
-  id: 'wordpress-compat', apiVersion: 1, version: '1.2.0', label: 'WordPress 旧网址',
+  id: 'wordpress-compat', apiVersion: 1, version: '1.3.0', label: 'WordPress 旧网址',
   async route(request, release) {
     if (!release) return null;
     const url = new URL(request.url);
@@ -17,7 +17,12 @@ export default ({ queryEntries }) => ({
     const escape = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
     const absolute = path => new URL(path, release.settings.domain).href;
     const originalRedirect = options.httpRedirects?.find(item => item.path === path);
-    if (originalRedirect) return move(originalRedirect.target + (url.search ? (originalRedirect.target.includes('?') ? '&' : '?') + url.search.slice(1) : ''), originalRedirect.status);
+    const current = entries.find(entry => entry.path === path);
+    // An imported response alias must not redirect away from its own canonical page.
+    const canonical = entry => absolute(entry.seo?.canonical || entry.path);
+    const canonicalAlias = current && originalRedirect &&
+      originalRedirect.target === current.source?.wordpressResponsePath && canonical(current) === absolute(current.path);
+    if (originalRedirect && !canonicalAlias) return move(originalRedirect.target + (url.search ? (originalRedirect.target.includes('?') ? '&' : '?') + url.search.slice(1) : ''), originalRedirect.status);
     if (path === '/robots.txt' && options.robotsText !== undefined)
       return new Response(options.robotsText, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     const xml = body => new Response('<?xml version="1.0" encoding="UTF-8"?>' + body, { headers: { 'Content-Type': 'application/xml; charset=utf-8', 'X-Robots-Tag': 'noindex, follow' } });
@@ -27,10 +32,11 @@ export default ({ queryEntries }) => ({
         options.sitemapGroups.map(group => '<sitemap><loc>' + escape(absolute(group.path)) + '</loc></sitemap>').join('') + '</sitemapindex>');
       const group = options.sitemapGroups.find(group => group.path === path);
       if (group) {
-        const selected = entries.filter(entry => entry.source?.wordpressSitemapGroups?.includes(path) ||
-          !entry.source?.wordpressSitemapGroups && entry.indexable && (
+        const selected = entries.filter(entry => entry.indexable !== false && canonical(entry) === absolute(entry.path) && (
+          entry.source?.wordpressSitemapGroups?.includes(path) ||
+          !entry.source?.wordpressSitemapGroups && (
             path === '/post-sitemap.xml' && entry.kind === 'content' && entry.type === 'post' ||
-            path === '/page-sitemap.xml' && entry.kind === 'page'));
+            path === '/page-sitemap.xml' && entry.kind === 'page')));
         return xml('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">' +
           selected.map(entry => '<url><loc>' + escape(absolute(entry.path)) + '</loc>' +
             (entry.modifiedAt ? '<lastmod>' + escape(entry.modifiedAt) + '</lastmod>' : '') +
@@ -43,7 +49,7 @@ export default ({ queryEntries }) => ({
       return posts.length ? move(posts[Math.floor(Math.random() * posts.length)].path, 302) : null;
     }
     if (path.endsWith('.html/') && entries.some(entry => entry.path === path.slice(0, -1))) {
-      if (entries.some(entry => entry.source?.wordpressResponsePath === path)) return null;
+      if (entries.some(entry => entry.source?.wordpressResponsePath === path && canonical(entry) === absolute(path))) return null;
       return move(path.slice(0, -1) + url.search);
     }
     const legacy = /^(.*\/)page\/(\d+)\/$/.exec(path);

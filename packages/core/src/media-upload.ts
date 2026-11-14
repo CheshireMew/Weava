@@ -8,7 +8,8 @@ import { WeavaError } from '../../contracts/src/errors.ts';
 import { inside } from '../../runtime-common/src/paths.ts';
 import { digestFileAsync } from './file-io.ts';
 import type { JobRunner } from './job-runner.ts';
-import { prepareMedia, queueMediaOptimization } from './media.ts';
+import { prepareMedia, mediaStorageTarget } from './media-files.ts';
+import { queueMediaOptimization } from './media-optimization.ts';
 import { validateMediaFormat } from './media-format.ts';
 import type { Site } from './site.ts';
 import { closeStagedRequest, expireUploads, registerStagedRequest, temporaryPath } from './temporary-files.ts';
@@ -290,19 +291,21 @@ export async function completeMediaUpload(site: Site, id: string, jobId: string)
         .prepare('UPDATE media_uploads SET verified=1 WHERE id=? AND job_id=?')
         .run(id, jobId);
     }
-    const prepared = await prepareMedia(
-      site,
-      existsSync(selected) ? selected : staging,
-      upload.name,
-      { hash: upload.sha256!, move: true, optimize: false },
-    );
-    const destination = prepared.value.url.slice(1);
-    // Persist a readable recovery location before releasing the owned staging
-    // file. A retry can resume here even if the database commit is interrupted.
+    const destination = mediaStorageTarget(site, upload.sha256!, upload.name).path;
+    const source = existsSync(selected) ? selected : existsSync(staging) ? staging : inside(site.root, destination);
+    // Older interrupted uploads may already have moved without recording their
+    // destination. Only adopt that durable file after verifying its identity.
+    if (source !== staging && await digestFileAsync(source) !== upload.sha256)
+      throw new WeavaError('上传恢复文件校验失败，请保留文件并重新上传。', 409);
+    // Write the recovery intent before moving bytes. Until the move finishes,
+    // retries use staging; afterwards they use this same durable destination.
     const recorded = site.store.raw
       .prepare('UPDATE media_uploads SET path=? WHERE id=? AND job_id=?')
       .run(destination, id, jobId);
     if (recorded.changes !== 1) throw new WeavaError('上传任务已变化，请重新读取上传状态。', 409);
+    const prepared = await prepareMedia(site, source, upload.name, {
+      hash: upload.sha256!, move: true, optimize: false,
+    });
     const record = site.store.raw
       .transaction(() => {
         if (find(site, id).job_id !== jobId)

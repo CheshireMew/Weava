@@ -69,25 +69,30 @@ it('groups author, category and tags and changes the address when choosing a cat
   await act(async () => choices.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   expect(current.update).toHaveBeenCalledWith({ categories: ['写作'], termIds: { categories: ['category-1'], tags: ['tag-1'] }, path: '/writing/article/' });
 });
-it('shows only the English title and saves it with the selected category prefix', async () => {
+it('keeps automatic addresses out of the English title field and saves entered titles with the category prefix', async () => {
   const current = model();
   function Editor() {
-    const [value, setValue] = useState<Entry>({...current.record.value, path:'/posts/be6c2282/'});
+    const [value, setValue] = useState<Entry>({...current.record.value, id:'be6c2282-2eb6-4309-a84b-10b074642c5a', path:'/posts/be6c2282/'});
     const update = (patch: Partial<Entry>) => {
       current.update(patch);
       setValue(old => ({...old,...patch}));
     };
     return <>
       <EntryUrlField value={value} onChange={update} />
-      <EntryOptionsBar placement="metadata" model={{...current, record:{...current.record,value}, update}} />
+      <EntryOptionsBar placement="metadata" model={{...current, record:{...current.record,id:value.id,value}, update}} />
     </>;
   }
   await act(async () => root.render(<Editor />));
   const field = host.querySelector('[data-field-path="path"]')!;
   const input = field.querySelector('input')!;
-  expect(input.value).toBe('be6c2282');
+  expect(input.value).toBe('');
+  expect(input.getAttribute('placeholder')).toBeNull();
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', {bubbles:true})));
+  expect(current.update).not.toHaveBeenCalled();
   await click('设置分类');
   await act(async () => document.querySelector<HTMLInputElement>('.term-options input')!.click());
+  expect(input.value).toBe('');
+  expect(current.update).toHaveBeenLastCalledWith(expect.objectContaining({path:'/writing/be6c2282/'}));
   await fill(input, 'A Writing Guide');
   expect(field.textContent).toBe('英文标题');
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true})));
@@ -95,6 +100,34 @@ it('shows only the English title and saves it with the selected category prefix'
   expect(current.update).toHaveBeenLastCalledWith({path:'/writing/a-writing-guide/'});
   await click('移除分类 写作');
   expect(current.update).toHaveBeenLastCalledWith(expect.objectContaining({path:'/posts/a-writing-guide/'}));
+  await fill(input, '');
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', {bubbles:true})));
+  expect(current.update).toHaveBeenLastCalledWith({path:'/posts/be6c2282/'});
+  expect(input.value).toBe('');
+});
+it.each([
+  ['Debunking 8 Popular Weight Loss Myths, Backed by 227 Scientific References', 'debunking-8-popular-weight-loss-myths-backed-by-227-scientific-references'],
+  ["  It's a Guide: A/B & C___D — Café!  ", 'its-a-guide-a-b-c-d-cafe'],
+  ['---Hello___World!!!---', 'hello-world'],
+  ['!@#$ 中文 😀', ''],
+])('cleans unsupported characters in an entered English title: %s', async (text, expected) => {
+  const current = model();
+  const value = {...current.record.value, id:'be6c2282-2eb6-4309-a84b-10b074642c5a', path:'/guide/original-title/'};
+  await act(async () => root.render(<EntryUrlField value={value} onChange={current.update} />));
+  const input = host.querySelector('input')!;
+  await fill(input, text);
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', {bubbles:true})));
+  expect(input.value).toBe(expected);
+  expect(current.update).toHaveBeenLastCalledWith({path:'/guide/' + (expected || 'be6c2282') + '/'});
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+it('keeps an existing imported address intact until its English title is edited', async () => {
+  const current = model();
+  await act(async () => root.render(<EntryUrlField value={{...current.record.value, path:'/认知/旧文章——标题/'}} onChange={current.update} />));
+  const input = host.querySelector('input')!;
+  await act(async () => input.dispatchEvent(new FocusEvent('focusout', {bubbles:true})));
+  expect(input.value).toBe('旧文章——标题');
+  expect(current.update).not.toHaveBeenCalled();
 });
 it('saves a legacy category alias before applying it to the article address', async () => {
   const current = model();

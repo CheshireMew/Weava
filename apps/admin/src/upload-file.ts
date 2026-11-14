@@ -7,16 +7,23 @@ import { affectedQueries } from './query-effects.ts';
 export async function uploadFile(
   file: File,
   onProgress: (message: string) => void,
-  options: { groupId?: string } = {},
+  options: { groupId?: string; signal?:AbortSignal } = {},
 ) {
+  options.signal?.throwIfAborted();
   if (file.size < 1) throw new Error('附件为空，请选择有内容的文件。');
   if (!isUploadFormat(file.name)) throw new Error('不支持这个文件格式。');
   const maximum=mediaUploadLimit(file.name,await api('media/limits'));
+  options.signal?.throwIfAborted();
   if(file.size>maximum)throw new Error('附件大小需要在 '+maximum/1048576+' MB 以内。');
   onProgress('上传 0%');
   const row = await new Promise<ReturnType<typeof adminApi.uploadMediaFile.response.parse>>(
     (resolve, reject) => {
       const request = new XMLHttpRequest();
+      if(options.signal?.aborted){reject(new Error('上传已取消，请重新选择或重试。'));return;}
+      const abort=()=>{request.abort();reject(new Error('上传已取消，请重新选择或重试。'));};
+      options.signal?.addEventListener('abort',abort,{once:true});
+      request.onloadend=()=>options.signal?.removeEventListener('abort',abort);
+      request.onabort=()=>reject(new Error('上传已取消，请重新选择或重试。'));
       const query = new URLSearchParams({
         name: file.name,
         ...(options.groupId ? { groupId: options.groupId } : {}),

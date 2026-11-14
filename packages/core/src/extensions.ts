@@ -35,7 +35,14 @@ export async function extension(
   services: Record<string, any> = {},
   options: { mode?: 'runtime' | 'worker'; migrate?: boolean; startPaused?:boolean } = {},
 ): Promise<ExtensionManager> {
-  let manager = cache.get(site);
-  if (!manager) { manager = ExtensionManager.open(site, services, options.mode ?? 'runtime', options.migrate ?? false, options.startPaused ?? false); cache.set(site, manager); }
-  return manager;
+  const previous = cache.get(site);
+  if(previous) {
+    const manager=await previous;
+    if(!manager.isStopped)return manager;
+    if(cache.get(site)!==previous)return extension(site,services,options);
+  }
+  const manager=ExtensionManager.open(site,services,options.mode??'runtime',options.migrate??false,options.startPaused??false);
+  cache.set(site,manager);
+  try{return await manager;}
+  catch(error){if(cache.get(site)===manager)cache.delete(site);throw error;}
 }

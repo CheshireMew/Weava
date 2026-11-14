@@ -57,7 +57,7 @@ export function ContentLibrary({ model, showSavedViews = false }: {
       </div>
       <div className="library-overview">
         <div className="library-status-tabs" role="group" aria-label="内容状态">
-          {Object.entries({ published: '已发布', scheduled: '已排期', draft: '草稿' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => { setStatus(key); setLibraryPage(1); }}>{label}</button>)}
+          {Object.entries({ all: '全部', published: '已发布', draft: '草稿', scheduled: '已排期' }).map(([key, label]) => <button key={key} aria-pressed={status === key} onClick={() => { setStatus(key); setLibraryPage(1); }}>{label}</button>)}
         </div>
         {!notes&&!selectedType&&types.length>1?<div className="library-create library-create-picker"><Popover label={createLabel} menu className="library-create-menu" trigger={<><Plus size={18}/>{createLabel}</>}>
           {types.map(type=><button type="button" role="menuitem" key={type.id} onClick={()=>void newEntry(type.id)}>{'新建'+type.value.label}</button>)}
@@ -97,7 +97,7 @@ export function ContentLibrary({ model, showSavedViews = false }: {
           }}
           apply={(query) => {
             setFilter(query.query ?? '');
-            setStatus(['draft','archived'].includes(query.status??'') ? 'draft' : 'published');
+            setStatus(query.status === 'all' ? 'all' : ['draft','archived'].includes(query.status??'') ? 'draft' : 'published');
             setVisibility(query.visibility ?? 'all');
             setLibraryType(query.type ?? '');
             setFieldFilters(
@@ -122,7 +122,7 @@ export function ContentLibrary({ model, showSavedViews = false }: {
           <div className="library-empty" role="status"><p>
             {hasFilters
               ? '没有符合筛选条件的内容。'
-              : status==='scheduled' ? '没有已排期的文章。' : status==='draft' ? '还没有草稿。' : '还没有已发布的文章。'}
+              : status==='all' ? '还没有文章。' : status==='scheduled' ? '没有已排期的文章。' : status==='draft' ? '还没有草稿。' : '还没有已发布的文章。'}
           </p></div>
         )}
         {items.length > 0 && <ContentEntries model={model} selectable={false} showType={!libraryType && types.length > 1} />}

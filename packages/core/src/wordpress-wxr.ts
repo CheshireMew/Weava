@@ -9,7 +9,7 @@ import { prepareWxrAttachments } from './wordpress-wxr-assets.ts';
 import { convertWxr, type ParsedWxr } from './wordpress-wxr-conversion.ts';
 import { optionKey, type WxrOptions } from './wordpress-wxr-options.ts';
 import { wxrDigest, type WxrInput } from './wordpress-wxr-xml.ts';
-import { queueMediaOptimization } from './media.ts';
+import { queueMediaOptimization } from './media-optimization.ts';
 export type { WxrOptions } from './wordpress-wxr-options.ts';
 export type { WxrInput } from './wordpress-wxr-xml.ts';
 const revision = (site: Site) =>

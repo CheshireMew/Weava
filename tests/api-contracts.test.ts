@@ -14,8 +14,8 @@ import {Site,Analytics,Engagement} from '@weava/core';
 import {entrySchema} from '@weava/contracts';
 import {contentHandlers} from '../apps/web/src/api/content.ts';
 it('keeps the reviewed cover, summary and author alongside the frozen publication revision',()=>{
- const review=adminApi.publication.response.parse({scope:'entries',baseReleaseId:null,settingsChanged:false,layoutsChanged:false,routesChanged:false,termsChanged:false,entries:[{id:'article',title:'待发布文章',path:'/article/',cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37,action:'add'}],removed:[],options:{candidateId:'review',ids:['article'],revisions:{article:37}}});
- expect(review.entries[0]).toMatchObject({cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37});
+ const review=adminApi.publication.response.parse({scope:'entries',baseReleaseId:null,settingsChanged:false,layoutsChanged:false,routesChanged:false,termsChanged:false,entries:[{id:'article',title:'待发布文章',path:'/article/',url:'https://example.com/article/',cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37,action:'add'}],removed:[],options:{candidateId:'review',ids:['article'],revisions:{article:37}}});
+ expect(review.entries[0]).toMatchObject({url:'https://example.com/article/',cover:'/media/cover.webp',description:'摘要内容',author:'柴郡',visibility:'private',revision:37});
  expect(review.options).toMatchObject({candidateId:'review',revisions:{article:37}});
 });
 

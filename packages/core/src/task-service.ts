@@ -5,13 +5,14 @@ import { WeavaError } from '@weava/contracts';
 import type { JobRunnerOptions } from './job-runner.ts';
 
 interface Request { id: number; operation: string; payload: any; resolve: (value:any)=>void; reject: (error:Error)=>void }
-interface Worker { child: ChildProcess; ready: boolean; request?: Request; timer?: ReturnType<typeof setTimeout>; timeout?:boolean }
+interface Worker { child: ChildProcess; ready: boolean; recycling?:boolean; request?: Request; timer?: ReturnType<typeof setTimeout>; stopTimer?:ReturnType<typeof setTimeout>; closed:Promise<void>; timeout?:boolean }
 /** Bounded reusable IPC workers. Authored commands retain their existing managed job identity. */
 export class TaskService {
   private workers = new Set<Worker>();
   private queue: Request[] = [];
   private next = 0;
   private stopped = false;
+  private stopping?:Promise<void>;
   get isStopped() { return this.stopped; }
   get pending() { return this.queue.length + [...this.workers].filter(worker=>worker.request).length; }
   get processCount() { return this.workers.size; }
@@ -33,11 +34,18 @@ export class TaskService {
     const compiled=!this.options.source&&existsSync(queryFile);
     const args=['--max-old-space-size=768',...(compiled?[queryFile]:['--import','tsx',join(this.options.framework,'packages/core/src/query-worker.ts')]),this.root];
     const child=spawn(process.execPath,args,{cwd:this.options.framework,windowsHide:true,stdio:['ignore','ignore','pipe','ipc'],env:{...process.env,WEAVA_SITE:this.root}});
-    const worker:Worker={child,ready:false};this.workers.add(worker);
+    let closed!:()=>void;
+    const worker:Worker={child,ready:false,closed:new Promise(resolve=>closed=resolve)};this.workers.add(worker);
     let errorText=''; child.stderr?.on('data',bytes=>{errorText=(errorText+String(bytes)).slice(-8192);});
     worker.timer=setTimeout(()=>{child.kill();},15000);
     child.on('message',(message:any)=>{
       if(message?.type==='ready'){clearTimeout(worker.timer);worker.ready=true;this.pump();return;}
+      if(message?.type==='recycle'&&worker.request&&worker.request.id===message.id){
+        const request=worker.request;worker.request=undefined;worker.ready=false;worker.recycling=true;
+        clearTimeout(worker.timer);worker.timer=setTimeout(()=>child.kill(),5000);
+        if(this.stopped)request.reject(new WeavaError('服务正在停止。',503));else this.queue.unshift(request);
+        return;
+      }
       if(message?.type!=='result'||worker.request?.id!==message.id)return;
       clearTimeout(worker.timer);const request=worker.request!;worker.request=undefined;
       if(message.error)request.reject(new WeavaError(message.error.message,message.error.status??500,message.error.details));else request.resolve(message.value);
@@ -45,11 +53,12 @@ export class TaskService {
     });
     child.on('error',error=>{errorText=error.message;});
     child.once('close',code=>{
-      clearTimeout(worker.timer);this.workers.delete(worker);
+      clearTimeout(worker.timer);clearTimeout(worker.stopTimer);this.workers.delete(worker);
       worker.request?.reject(new WeavaError(worker.timeout?'任务超过执行期限，已停止；可重试。':'计算进程退出，请重试。'+(errorText?' '+errorText.slice(-1000):' ('+code+')'),worker.timeout?408:503));
       // If startup failed, reject the bounded waiting group instead of spawning forever.
-      if(!worker.ready)for(const request of this.queue.splice(0))request.reject(new WeavaError('计算进程无法启动。'+errorText.slice(-1000),503));
+      if(!worker.ready&&!worker.recycling)for(const request of this.queue.splice(0))request.reject(new WeavaError('计算进程无法启动。'+errorText.slice(-1000),503));
       this.pump();
+      closed();
     });
   }
   private dispatch(worker:Worker,request:Request){
@@ -63,9 +72,16 @@ export class TaskService {
     for(let index=this.queue.length-1;index>=0;index--)if(this.queue[index].payload?.jobId===id){const [request]=this.queue.splice(index,1);request.reject(new WeavaError('任务已取消。',409));}
     for(const worker of this.workers)if(worker.request?.payload?.jobId===id)worker.child.kill();
   }
-  stop(){
+  stop(graceMs=5000):Promise<void>{
+    if(this.stopping)return this.stopping;
     this.stopped=true;
     for(const request of this.queue.splice(0))request.reject(new WeavaError('服务正在停止。',503));
-    for(const worker of this.workers){clearTimeout(worker.timer);if(worker.child.connected)worker.child.send({type:'stop'},()=>{});}
+    for(const worker of this.workers){
+      // Keep the execution/startup deadline. A queued stop cannot interrupt a stuck task.
+      worker.stopTimer=setTimeout(()=>worker.child.kill(),Math.max(1,graceMs));
+      if(worker.child.connected)worker.child.send({type:'stop'},error=>{if(error)worker.child.kill();});
+      else worker.child.kill();
+    }
+    return this.stopping=Promise.all([...this.workers].map(worker=>worker.closed)).then(()=>{});
   }
 }

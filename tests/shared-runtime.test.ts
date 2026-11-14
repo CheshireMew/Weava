@@ -2,6 +2,7 @@ import {describe,it,expect} from 'vitest';
 import {mkdirSync,writeFileSync,readFileSync,existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import Database from 'better-sqlite3';
 import {Site} from '../packages/core/src/site.ts';
 import {Analytics} from '../packages/core/src/analytics.ts';
 import {SCHEMA_VERSION} from '../packages/core/src/storage.ts';
@@ -12,7 +13,8 @@ import {inspect,atomic,hash} from '../packages/manager/src/state.ts';
 import {BusinessStore,withWebsite,getWebsite} from '../packages/core/src/site-sdk.ts';
 import {getWebsite as publicWebsite} from '../packages/core/src/site-public.ts';
 import {migrateWebsite} from '../packages/core/src/site-migrations.ts';
-const task='D:/Tools/cache/weava/tasks/shared-runtime-20261105';
+import {legacyStorage} from './fixtures/legacy-storage.ts';
+const task=process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tasks/shared-runtime-20261105';
 mkdirSync(task,{recursive:true});
 function root(){const path=join(task,'unit-'+randomUUID());mkdirSync(path,{recursive:true});return path;}
 describe('shared runtime and site data contracts',()=>{
@@ -25,7 +27,7 @@ describe('shared runtime and site data contracts',()=>{
   const business=new BusinessStore(path);expect(business.get('tool','two')).toBe(2);expect(business.version('tool')).toBe(2);business.close();
  });
  it('requires an explicit operation for an existing older database and keeps read inspection inert',()=>{
-  const path=root();let site=new Site(path);site.store.raw.prepare('DELETE FROM schema_migrations WHERE version=?').run(SCHEMA_VERSION);site.close();
+  const path=root();let site=new Site(path);legacyStorage(site.store.raw,16);site.close();
   const before=hash(readFileSync(join(path,'weava.sqlite')));
   expect(inspect(path).schemaVersion).toBe(SCHEMA_VERSION-1);
   expect(()=>new Site(path)).toThrow(/需要迁移/);
@@ -39,10 +41,10 @@ describe('shared runtime and site data contracts',()=>{
   const migrated=new Site(path,{mode:'migrate'});expect(migrated.engagementSecret()).toBeTruthy();migrated.close();
  });
  it('requires explicit analytics migration for legacy data',()=>{
-  const path=root(),site=new Site(path),analytics=new Analytics(path);
-  analytics.raw.exec('DROP TABLE weava_analytics_schema');analytics.close();
+  const path=root(),site=new Site(path),legacy=new Database(join(path,'analytics.sqlite'));
+  legacy.exec("CREATE TABLE events(id TEXT PRIMARY KEY,kind TEXT NOT NULL,ts TEXT NOT NULL,path TEXT NOT NULL,visitor TEXT NOT NULL,session TEXT NOT NULL,url TEXT NOT NULL,label TEXT NOT NULL,zone TEXT NOT NULL,referrer TEXT NOT NULL,release_id TEXT NOT NULL); INSERT INTO events VALUES('old','view','2026-01-01T00:00:00Z','/old/','visitor','session','','','','','release');");legacy.close();
   expect(()=>new Analytics(path)).toThrow(/显式迁移/);
-  const migrated=new Analytics(path,{mode:'migrate'});expect(migrated.raw.prepare('SELECT version FROM weava_analytics_schema').get()).toEqual({version:1});migrated.close();site.close();
+  const migrated=new Analytics(path,{mode:'migrate'});expect(migrated.raw.prepare('SELECT version FROM weava_analytics_schema').get()).toEqual({version:3});expect(migrated.raw.prepare('SELECT path,views FROM view_counts').get()).toEqual({path:'/old/',views:1});expect(migrated.raw.prepare("SELECT name FROM sqlite_master WHERE name='search_events'").get()).toBeTruthy();migrated.close();site.close();
  });
  for(const template of starters)it('creates the '+template+' starter without copying framework code',()=>{
   const path=root(),site=new Site(path);

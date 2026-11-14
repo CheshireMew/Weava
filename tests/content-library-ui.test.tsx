@@ -193,12 +193,12 @@ it('uses the existing status and sorting setters from the new controls', async (
   expect(current.setLibraryPage).toHaveBeenCalledWith(1);
 });
 
-it('offers exactly the three publishing groups and resets pagination when switching', async () => {
+it('puts all articles first, drafts before scheduled articles, and resets pagination when switching', async () => {
   const current=model();current.libraryPage=3;
   await act(async()=>root.render(<ContentLibrary model={current}/>));
   const tabs=host.querySelectorAll<HTMLButtonElement>('[aria-label="内容状态"] button');
-  expect([...tabs].map(button=>button.textContent)).toEqual(['已发布','已排期','草稿']);
-  for(const [index,status] of ['published','scheduled','draft'].entries()) {
+  expect([...tabs].map(button=>button.textContent)).toEqual(['全部','已发布','草稿','已排期']);
+  for(const [index,status] of ['all','published','draft','scheduled'].entries()) {
     await act(async()=>tabs[index].click());
     expect(current.setStatus).toHaveBeenLastCalledWith(status);expect(current.setLibraryPage).toHaveBeenLastCalledWith(1);
     current.status=status;await act(async()=>root.render(<ContentLibrary model={current}/>));

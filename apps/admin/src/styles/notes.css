@@ -1,0 +1,38 @@
+.notes-library { width: 100%; max-width: 840px; height: 100%; min-height: 0; margin: 0 auto; padding: 28px 32px; overflow-y: auto; }
+.notes-library > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.notes-library h1 { margin: 0; font-size: 24px; }
+.notes-library > header button { flex-shrink: 0; font-size: 14px; padding: 9px 14px; }
+.notes-tools { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.notes-tools > button { flex-shrink: 0; height: var(--control-height); white-space: nowrap; }
+.notes-search { display: flex; flex: 1; min-width: 0; align-items: center; gap: 10px; height: var(--control-height); padding: 0 12px; border: 1px solid var(--control-line); border-radius: 8px; }
+.notes-search:focus-within { border-color: var(--focus); }
+.notes-search svg { flex: 0 0 18px; color: var(--ink-muted); }
+.notes-search input { width: 100%; min-width: 0; min-height: 0; height: 100%; padding: 0; border: 0; outline: 0; border-radius: 0; background: transparent; font-size: 14px; }
+.notes-list-item { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+.notes-list-open { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; justify-items: start; align-items: start; gap: 8px; text-align: left; border: 0; border-radius: 6px; background: transparent; padding: 18px 8px; line-height: 1.65; }
+.notes-list-open > span { width: 100%; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; font-size: 15px; }
+.notes-list-open time { font-size: 12px; color: var(--ink-muted); }
+.notes-list-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 12px; color: var(--ink-muted); }
+.note-composer { display: flex; flex-direction: column; width: min(680px, calc(100vw - 40px)); max-height: min(86dvh, 900px); margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); overflow: hidden; box-shadow: 0 16px 64px #00000024; }
+.note-composer::backdrop { background: #20202066; }
+.note-composer-header { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.note-composer-header h2 { margin: 0; font-size: 17px; }
+.note-composer-header > button { width: 32px; min-height: 32px; padding: 6px; border: 0; background: transparent; }
+.note-composer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px; }
+.note-composer .note-writing { width: 100%; max-width: none; margin: 0; padding: 0; }
+.note-composer .note-author { margin-bottom: 12px; }
+.note-composer .note-author > .admin-popover, .note-composer .note-author > button { margin-left: auto; }
+.note-composer .note-author > button { min-width: 32px; min-height: 32px; padding: 5px; border: 0; background: transparent; }
+.note-composer .page-html-editor, .note-composer .document-editor { border: 0; border-radius: 0; }
+.note-composer .page-text-toolbar { padding: 4px 0 8px; gap: 2px; }
+.note-composer .page-text-toolbar button { font-size: 13px; padding-inline: 9px; }
+.note-composer .format-toolbar { padding-inline: 0; flex-wrap: nowrap; }
+.note-composer .visual-editor { min-height: 220px; padding: 14px 0; font-size: 16px; line-height: 1.7; }
+.note-composer .editor-placeholder { top: 14px; font-size: 16px; }
+.note-composer-footer { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--line); }
+.note-composer-footer button { min-height: 38px; font-size: 14px; padding: 8px 16px; }
+.panel, .editing-area, .notes-library, .entry-list, .note-composer-body, .modal:not(.publication-dialog) { scrollbar-gutter: stable; }
+@media (max-width: 600px) { .notes-library { padding: 20px 16px; } .note-composer { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); } .note-composer-body { padding: 16px; } }
+@media (max-width: 700px) { .comment-settings { margin-left: 0; } }
+
+

@@ -35,7 +35,10 @@ export function PublicationDialog({ model, error, onPublished }: {
               <strong>{entry.title}</strong>
               {entry.author && <span className="publication-review-author">{entry.author}</span>}
               {entry.description && <span className="publication-review-description">{entry.description}</span>}
-              <span className="publication-review-path">{entry.path}</span>
+              <div className="publication-review-url">
+                <span>发布网址</span>
+                <span className="publication-review-path">{entry.url ?? entry.path}</span>
+              </div>
             </div>
           </article>)}
         </div>

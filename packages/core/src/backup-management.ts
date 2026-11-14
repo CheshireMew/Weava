@@ -23,7 +23,7 @@ export function queueAutomaticBackup(site:Site,jobs:Pick<JobRunner,'enqueue'>,cl
   const todayDue=resolveDay(today),due=Date.parse(todayDue)<=clock?todayDue:resolveDay(shiftDay(today,-1));
   if(policy.updatedAt&&Date.parse(due)<Date.parse(policy.updatedAt))return null;
   const key='automatic-backup:'+policy.revision+':'+due;
-  if(site.store.raw.prepare('SELECT id FROM jobs WHERE idempotency=?').get(key))return null;
+  if(site.jobStore.idempotent(key))return null;
   return jobs.enqueue('backup',{path:policy.value.path,label:'自动备份',scheduledAt:due},key);
 }
 export function recordBackupVerification(site:Site,path:string,error=''){

@@ -4,19 +4,8 @@ import sharp from 'sharp';
 import { WeavaError } from '@weava/contracts';
 import {appendSiteEvent} from './site-events.ts';
 
-export interface ArticleComment {
-  id: string;
-  entryId: string;
-  author: string;
-  body: string;
-  createdAt: string;
-  status?: 'visible' | 'hidden' | 'pending';
-  parentId?: string | null;
-  replyTo?: string | null;
-  isOwner?: boolean;
-  likes?: number;
-  liked?: boolean;
-}
+import type {ArticleComment} from '@weava/contracts';
+export type {ArticleComment} from '@weava/contracts';
 export class Engagement {
   private clock: () => number;
   private code: () => string;

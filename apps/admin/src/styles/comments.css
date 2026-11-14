@@ -1,0 +1,38 @@
+.comments-panel .panel-title h1 { flex-shrink: 0; white-space: nowrap; }
+.comments-panel > :not(dialog) { width: 100%; }
+.comments-panel input[type='checkbox'] { width: 16px; height: 16px; min-height: 0; padding: 0; flex: 0 0 16px; margin: 0; }
+.comments-panel .checkbox { margin: 0; gap: 8px; white-space: nowrap; }
+.comments-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.comments-tools > button, .comments-tools > select { flex-shrink: 0; height: 42px; min-height: 42px; }
+.comments-tools > select { width: 130px; }
+.comment-search { display: flex; align-items: center; gap: 10px; flex: 1 1 240px; min-width: 0; height: 42px; border: 1px solid var(--control-line); border-radius: var(--radius-control); padding-inline: 12px; color: var(--ink-muted); }
+.comment-search:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
+.comment-search input { border: 0; background: transparent; padding: 0; height: 100%; min-height: 0; outline: none; }
+.comment-search svg { flex-shrink: 0; }
+.comment-filter-popover .library-filter-body { gap: 16px; }
+.comment-filter-popover label { margin: 0; }
+.comment-date-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.comment-date-filters input { font-size: 13px; padding-inline: 8px; }
+.comment-list { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.admin-comment { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); }
+.admin-comment.without-selection { grid-template-columns: minmax(0, 1fr) auto; }
+.admin-comment:last-child { border-bottom: 0; }
+.admin-comment > .comment-selection { margin-top: 3px; }
+.comment-content { min-width: 0; }
+.admin-comment header { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 14px; line-height: 21px; }
+.admin-comment header strong { overflow-wrap: anywhere; }
+.admin-comment header time, .admin-comment header .comment-state { color: var(--ink-muted); font-size: 12px; }
+.admin-comment header .comment-state.pending { color: var(--warning-ink); }
+.comment-entry { display: block; margin-top: 4px; font-size: 13px; line-height: 20px; color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.comment-entry:hover { color: var(--accent); text-decoration: underline; }
+.admin-comment .comment-body { font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+.admin-comment .comment-reply-to { font-size: 12px; color: var(--ink-muted); overflow-wrap: anywhere; margin: 4px 0 0; }
+.comment-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.comment-actions > button, .comment-bulk > button { min-height: 32px; padding: 4px 9px; font-size: 13px; }
+.comment-reply { margin-top: 14px; }
+.comment-reply label { margin: 0 0 10px; }
+.comment-reply textarea { min-height: 96px; max-height: 280px; font-size: 14px; }
+.comment-reply .inline > button { min-height: 36px; padding: 6px 12px; font-size: 13px; }
+.comment-recovered-reply { margin-bottom: 18px; }
+.comment-empty { padding: 24px 16px; margin: 0; }
+.comment-pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin: 24px 0; }

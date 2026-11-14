@@ -1,0 +1,71 @@
+/* Article writing follows the supplied Substack editor reference. */
+.app.writing-focus { background: var(--surface); }
+.writing-focus .main-shell { margin: 0; height: 100dvh; border: 0; border-radius: 0; }
+.writing-focus .content-workspace.has-record { display: grid; height: 100%; }
+.article-editor { container-type: normal; scrollbar-gutter: stable; --writing-font: 'Times New Roman', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif; --writing-width: 816px; --writing-inset: 28px; --entry-option-inset: 10px; }
+.article-editor .editor-chrome { padding-bottom: 0; }
+.article-editor .editor-bar { min-height: 64px; padding: 10px 24px; flex-wrap: nowrap; gap: 12px; border: 0; }
+.article-editor .editor-back { width: 36px; min-width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--ink); }
+.article-editor .editor-back > span { display: none; }
+.article-editor .editor-back svg { width: 20px; height: 20px; }
+.article-editor .save-status { gap: 7px; min-height: 24px; padding: 2px 8px; border: 1px solid var(--line); border-radius: 5px; font-size: 12px; line-height: 18px; color: var(--ink-secondary); white-space: nowrap; }
+.article-editor .editor-bar > .editor-save-slot { flex: 0 0 112px; }
+.article-editor .editor-actions { margin-left: auto; flex-wrap: nowrap; gap: 8px; }
+.article-editor .editor-actions > button { min-height: 42px; padding: 10px 19px; font-size: 14px; font-weight: 650; border-radius: 9px; }
+.article-editor .editor-preview { border-color: transparent; background: var(--surface-secondary); color: var(--ink); }
+.article-editor .editor-settings-toggle { position: fixed; right: 18px; bottom: 18px; min-height: 42px; padding: 9px 15px; border: 0; border-radius: 9px; background: var(--surface-secondary); color: var(--ink); font-weight: 600; box-shadow: 0 1px 4px #00000006; }
+.article-editor .editor-more > summary { width: 42px; height: 42px; padding: 0; justify-content: center; border-radius: 9px; background: var(--surface-secondary); }
+.article-editor .editor-more > summary svg { margin: 0; }
+.article-editor .editor-more .action-menu-items { right: auto; left: 0; top: auto; bottom: calc(100% + 8px); width: 196px; border-radius: 10px; box-shadow: 0 4px 20px #00000012; }
+.article-editor .editor-toolbar-slot { width: 100%; max-width: 1104px; margin-inline: auto; padding: 0 24px; }
+.article-editor .editor-toolbar-slot > .format-toolbar { justify-content: flex-start; flex-wrap: nowrap; width: 100%; margin: auto; border: 0; padding: 3px 0; height: 46px; min-height: 46px; flex-basis: 46px; gap: 4px; overflow-x: auto; }
+.article-editor .editor-toolbar-slot .format-toolbar > * { flex-shrink: 0; }
+.article-editor .format-toolbar button { min-width: 38px; min-height: 38px; padding: 8px; color: #454545; }
+.article-editor .format-toolbar button svg { width: 19px; height: 19px; }
+.article-editor .format-toolbar select { font-size: 14px; min-height: 38px; padding-left: 12px; }
+.article-editor .format-toolbar .toolbar-divider { height: 24px; margin-inline: 10px; }
+.article-editor .editor-toolbar-slot .inline-input { max-width: 760px; margin: 8px auto; }
+.article-editor .editor-grid.settings-open { grid-template-columns: minmax(0, 1fr); }
+.article-editor .writing { max-width: var(--writing-width); padding: 24px var(--writing-inset) 64px; }
+.article-editor .entry-title-row { display: block; }
+.article-editor .title-input { display: block; font-family: var(--writing-font); font-size: 40px; font-weight: 700; line-height: 1.35; letter-spacing: -0.025em; padding: 0; }
+.article-editor .entry-metadata + [data-field-path] { margin-top: 24px; }
+.article-editor .visual-editor { padding: 0; min-height: calc(100dvh - 310px); color: #3b3b3b; font-family: var(--writing-font); font-size: 20px; line-height: 1.65; }
+.article-editor .editor-placeholder { top: 0; font-family: var(--writing-font); font-size: 20px; line-height: 1.65; }
+.article-editor .editor-paragraph { margin-bottom: 12px; }
+.article-editor .visual-editor :is(ol, ul) { margin-block: 1.2em; padding-inline-start: 1.5em; }
+.article-editor .visual-editor > ol > li:not(.editor-nested-listitem) { margin-block: 1.2em; }
+.article-editor .visual-editor ol > li::marker { font-family: var(--writing-font); font-weight: 400; font-variant-numeric: lining-nums proportional-nums; }
+.article-editor .visual-editor :is(ol, ul) :is(ol, ul) { margin-block: .4em; }
+.article-editor .visual-editor .editor-nested-listitem { list-style: none; }
+.article-editor .visual-editor h1, .article-editor .visual-editor h2, .article-editor .visual-editor h3 { font-family: var(--writing-font); line-height: 1.5; margin-block: 38px 20px; letter-spacing: -0.02em; text-wrap: wrap; }
+.article-editor .visual-editor h1 { font-size: 32px; }
+.article-editor .visual-editor h2 { font-size: 28px; }
+.article-editor .visual-editor h3 { font-size: 24px; }
+.article-editor .visual-editor :is(h4,h5,h6) { font-family: var(--writing-font); line-height: 1.5; margin-block: 28px 16px; }
+.article-editor .visual-editor h4 { font-size: 22px; }
+.article-editor .visual-editor h5 { font-size: 20px; }
+.article-editor .visual-editor h6 { font-size: 18px; }
+.article-editor .visual-editor a { text-decoration: underline; }
+.article-editor .visual-editor img, .article-editor .visual-editor video { border-radius: 4px; }
+.article-editor .markdown-editor { padding-top: 0; min-height: 55dvh; }
+.article-editor .page-editing > .writing { max-width: 1280px; }
+.article-settings-dialog { position: fixed; inset: 0 0 0 auto; width: min(380px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; border-left: 1px solid var(--line); background: var(--surface); color: var(--ink); box-shadow: -8px 0 40px #0000000a; }
+.article-settings-dialog::backdrop { background: #30303014; }
+.article-settings-dialog .entry-settings { padding: 28px; border: 0; background: var(--surface); }
+.article-settings-dialog .entry-settings-heading { position: sticky; top: -28px; z-index: 1; padding-block: 12px; background: var(--surface); }
+.article-settings-dialog .entry-settings-heading h2 { color: var(--ink); font-size: 17px; font-weight: 650; }
+@media (max-width: 760px) {
+  .article-editor .editor-bar { min-height: 64px; padding: 10px 14px; gap: 8px; }
+  .article-editor .editor-actions > button { min-height: 40px; padding-inline: 14px; }
+  .article-editor { --writing-inset: 24px; }
+  .article-editor .editor-toolbar-slot > .format-toolbar { justify-content: flex-start; }
+  .article-editor .format-toolbar .toolbar-divider { margin-inline: 5px; }
+  .article-editor .writing { padding: 20px var(--writing-inset) 64px; }
+  .article-editor .title-input { font-size: 32px; }
+  .article-editor .visual-editor, .article-editor .editor-placeholder { font-size: 18px; line-height: 1.65; }
+  .article-editor .entry-metadata + [data-field-path] { margin-top: 20px; }
+  .article-editor .editor-settings-toggle { bottom: 14px; right: 14px; }
+  .article-settings-dialog .entry-settings { padding: 24px; }
+}
+

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ArticleComment } from '@weava/core';
+import type { ArticleComment } from '@weava/contracts';
 import { api } from './api.ts';
 import { useAdminQuery } from './useAdminQuery.ts';
 import { CommentSettings, type SiteSettingProps } from './SiteSettingControls.tsx';

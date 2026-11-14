@@ -2,7 +2,7 @@ import { mediaUploadMaxBytes, WeavaError } from '@weava/contracts';
 import { existsSync, statSync } from 'node:fs';
 import { inside } from '../../runtime-common/src/paths.ts';
 import { downloadPublicAttachment as attachmentBytes } from './attachment-download.ts';
-import { prepareMedia } from './media.ts';
+import { prepareMedia } from './media-files.ts';
 import { pathWithin } from './paths.ts';
 import type { Site } from './site.ts';
 import type { convertWxr } from './wordpress-wxr-conversion.ts';

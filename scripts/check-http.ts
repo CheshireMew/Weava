@@ -31,4 +31,9 @@ if(!reusable){
 const link=join(output,'node_modules'),target=join(framework,'node_modules');
 if(!existsSync(link))symlinkSync(target,link,'junction');
 else if(!lstatSync(link).isSymbolicLink()||realpathSync.native(link).toLowerCase()!==realpathSync.native(target).toLowerCase())throw new Error('HTTP 校验依赖关联与当前工作区不一致。');
-await run([join(framework,'node_modules/vitest/vitest.mjs'),'run','tests/http-lifecycle.test.ts'],framework,{...env,WEAVA_TEST_WEB_ENTRY:entry,WEAVA_REQUIRE_HTTP_TESTS:'1',WEAVA_TEST_OUTPUT:join(base,'http-cases')});
+const recoveryOnly=process.argv.includes('--recovery');
+const targets=recoveryOnly
+  ? ['tests/recovery-boundaries.test.ts','--testNamePattern=recovery through the current HTTP server']
+  : ['tests/http-lifecycle.test.ts','tests/recovery-boundaries.test.ts'];
+await run([join(framework,'node_modules/vitest/vitest.mjs'),'list',...targets,'--no-static-parse','--json='+join(base,'http-collected.json')],framework,{...env,WEAVA_TEST_WEB_ENTRY:entry,WEAVA_REQUIRE_HTTP_TESTS:'1',WEAVA_REQUIRE_RECOVERY_HTTP:'1',WEAVA_TEST_OUTPUT:join(base,'http-cases')});
+await run([join(framework,'node_modules/vitest/vitest.mjs'),'run',...targets,'--reporter=default','--reporter=json','--outputFile.json='+join(base,'http-results.json')],framework,{...env,WEAVA_TEST_WEB_ENTRY:entry,WEAVA_REQUIRE_HTTP_TESTS:'1',WEAVA_REQUIRE_RECOVERY_HTTP:'1',WEAVA_TEST_OUTPUT:join(base,'http-cases')});

@@ -9,7 +9,7 @@ import {inside} from '../../runtime-common/src/paths.ts';
 import {digest,now} from '../../runtime-common/src/identity.ts';
 import {atomicJson} from '../../runtime-common/src/files.ts';
 import {renderDocument,plain} from './documents.ts';
-import {uploadMedia} from './media.ts';
+import { uploadMedia } from './media-files.ts';
 import {Analytics} from './analytics.ts';
 import {sourceContentHash} from './source-content.ts';
 import {entryMediaReferences} from './media-references.ts';

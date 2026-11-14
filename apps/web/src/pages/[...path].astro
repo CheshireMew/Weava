@@ -31,9 +31,10 @@ import SiteInfoLinks from '../components/SiteInfoLinks.astro';
 import { WeavaError, supportsDiscussion } from '@weava/contracts';
 const owner=site.authenticate(Astro.cookies.get('weava-session')?.value??'');
 let page:ReturnType<typeof selectPublicPage>;
-try {page=selectPublicPage(site,Astro.url,owner);}
+try {page=selectPublicPage(site,Astro.url,owner,Astro.locals.weavaRelease);}
 catch(error) {if(!(error instanceof WeavaError))throw error;return new Response(error.message,{status:error.status,headers:{'Content-Type':'text/plain; charset=utf-8'}});}
 const {preview,release,entry}=page;
+Astro.locals.weavaRelease=release;
 const privateArticle = entry?.visibility === 'private';
 if (preview || privateArticle) {
   Astro.response.headers.set('Cache-Control', 'private, no-store');

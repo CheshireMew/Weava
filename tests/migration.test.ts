@@ -1,10 +1,13 @@
-import { it, expect } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { it, expect, vi } from 'vitest';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Site } from '@weava/core';
 import { migrateCrypto } from '../packages/core/src/migrate.ts';
+import { convertCryptoSite } from '../packages/crypto-migration/src/convert.ts';
+import { SiteReleases } from '../packages/core/src/site-releases.ts';
 it('reuses imported identities and reports target edits without overwriting them', async () => {
-  const base = (process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/migration-' + Date.now(),
+  const base =
+      (process.env.WEAVA_TEST_OUTPUT ?? 'D:/Tools/cache/weava/tests') + '/migration-' + Date.now(),
     source = join(base, 'source'),
     target = join(base, 'target'),
     capture = join(base, 'capture');
@@ -32,6 +35,11 @@ it('reuses imported identities and reports target edits without overwriting them
     }),
   );
   await migrateCrypto(source, target, capture);
+  expect(readFileSync(join(target, 'extensions/index.ts'), 'utf8')).toContain(
+    './crypto-src/legacy.ts',
+  );
+  expect(existsSync(join(target, 'extensions/crypto-src/refresh.ts'))).toBe(true);
+  expect(existsSync(join(target, 'extensions/crypto-src/routes.ts'))).toBe(true);
   const initial = new Site(target),
     release = initial.release()!.id;
   initial.close();
@@ -48,4 +56,28 @@ it('reuses imported identities and reports target edits without overwriting them
   expect(after.store.get('entry', 'test')!.value.title).toBe('保留站主修改');
   expect(after.release()!.id).toBe(release);
   after.close();
+
+  const wrapper = readFileSync(join(target, 'extensions/index.ts'), 'utf8');
+  const sourceFile = join(target, 'extensions/crypto-src/refresh.ts');
+  const editableSource =
+    readFileSync(sourceFile, 'utf8') + '\n// Instance customization retained on rollback.\n';
+  writeFileSync(sourceFile, editableSource);
+  const publish = vi.spyOn(SiteReleases.prototype, 'publish').mockImplementationOnce(() => {
+    throw new Error('conversion publication failed');
+  });
+  try {
+    await expect(convertCryptoSite(target, target, { apply: true })).rejects.toThrow(
+      'conversion publication failed',
+    );
+  } finally {
+    publish.mockRestore();
+  }
+  expect(readFileSync(join(target, 'extensions/index.ts'), 'utf8')).toBe(wrapper);
+  expect(readFileSync(sourceFile, 'utf8')).toBe(editableSource);
+  const converted = await convertCryptoSite(target, target, { apply: true });
+  expect(converted.release).toBeTruthy();
+  expect(readFileSync(join(target, 'extensions/index.ts'), 'utf8')).toContain(
+    './crypto-src/index.ts',
+  );
+  expect(existsSync(join(target, 'extensions/crypto-src/blocks.ts'))).toBe(true);
 });

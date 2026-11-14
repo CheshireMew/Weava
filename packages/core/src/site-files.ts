@@ -22,7 +22,7 @@ export function siteFiles(root:string) {
       if(info.isDirectory())visit(path);else if(info.isFile())files.push(path);
     }
   }
-  for(const name of ['media','themes','extensions','imports','logs','archives','custom','site-builds'])visit(join(root,name));
+  for(const name of ['media','public','themes','extensions','imports','logs','archives','custom','site-builds'])visit(join(root,name));
   for(const name of ['site.json','program.json','cli-token','account.key','start.bat'])if(existsSync(join(root,name)))files.push(join(root,name));
   return files;
 }

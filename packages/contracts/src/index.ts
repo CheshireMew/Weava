@@ -407,3 +407,4 @@ export type { SiteInfo } from './site-info.ts';
 
 export * from './media-rules.ts';
 export * from './writing.ts';
+export {commentSchema,type ArticleComment} from './engagement.ts';

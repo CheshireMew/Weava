@@ -1,7 +1,12 @@
 import { entrySchema, WeavaError, type Entry } from '@weava/contracts';
 import { equalJson } from '../../runtime-common/src/json.ts';
 import { renderDocument } from './documents.ts';
-import type { Site } from './site.ts';
+import type { EntryRepository } from './entry-repository.ts';
+import type { SiteContent } from './site-content.ts';
+interface RevisionSite {
+  entryStore: EntryRepository;
+  saveEntry: SiteContent['saveEntry'];
+}
 
 const plainObject = (value: any): value is Record<string, any> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -12,20 +17,10 @@ function editable(value: Entry) {
   const { updatedAt, ...rest } = entrySchema.parse(value);
   return rest;
 }
-export function entryRevision(site: Site, id: string, version: number) {
-  const row = site.store.raw
-    .prepare(
-      "SELECT data,created_at,label FROM revisions WHERE scope='entry' AND id=? AND revision=?",
-    )
-    .get(id, version) as any;
+export function entryRevision(site: RevisionSite, id: string, version: number) {
+  const row = site.entryStore.revisionRecord(id, version);
   if (!row) throw new WeavaError('版本不存在。', 404);
-  return {
-    id,
-    revision: version,
-    value: entrySchema.parse(JSON.parse(row.data)),
-    createdAt: row.created_at,
-    label: row.label,
-  };
+  return { ...row, value: entrySchema.parse(row.value) };
 }
 export interface EntryChange {
   path: string;
@@ -52,7 +47,7 @@ export function entryChanges(before: Entry, after: Entry): EntryChange[] {
   return changes;
 }
 export function mergeEntry(
-  site: Site,
+  site: RevisionSite,
   id: string,
   baseRevision: number,
   value: Entry,
@@ -76,7 +71,7 @@ export function mergeEntry(
           label: '尚未保存到网站的草稿',
         }
       : entryRevision(site, id, baseRevision);
-  const remote = site.store.get('entry', id);
+  const remote = site.entryStore.get(id);
   if (!remote) throw new WeavaError('内容不存在。', 404);
   const local = entrySchema.parse(value);
   if (local.id !== id) throw new WeavaError('内容编号与合并目标不一致。');
@@ -135,7 +130,7 @@ export function mergeEntry(
   };
 }
 export function saveMergedEntry(
-  site: Site,
+  site: RevisionSite,
   input: {
     id: string;
     baseRevision: number;
@@ -144,18 +139,16 @@ export function saveMergedEntry(
     choices?: Record<string, 'local' | 'remote'>;
   },
 ) {
-  return site.store.raw
-    .transaction(() => {
-      const plan = mergeEntry(site, input.id, input.baseRevision, input.value, input.choices);
-      if (plan.remote.revision !== input.currentRevision)
-        throw new WeavaError('服务器内容再次变化，请重新比较。', 409);
-      if (
-        plan.conflicts.some(
-          (conflict) => !['local', 'remote'].includes(input.choices?.[conflict.path] ?? ''),
-        )
+  return site.entryStore.transaction(() => {
+    const plan = mergeEntry(site, input.id, input.baseRevision, input.value, input.choices);
+    if (plan.remote.revision !== input.currentRevision)
+      throw new WeavaError('服务器内容再次变化，请重新比较。', 409);
+    if (
+      plan.conflicts.some(
+        (conflict) => !['local', 'remote'].includes(input.choices?.[conflict.path] ?? ''),
       )
-        throw new WeavaError('请为每处冲突选择保留内容。', 409);
-      return site.saveEntry(plan.merged, plan.remote.revision);
-    })
-    .immediate();
+    )
+      throw new WeavaError('请为每处冲突选择保留内容。', 409);
+    return site.saveEntry(plan.merged, plan.remote.revision);
+  });
 }

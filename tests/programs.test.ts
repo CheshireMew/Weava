@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { selected as selectedManaged } from '../packages/manager/src/state.ts';
 import { saveInstallation } from '../packages/manager/src/state.ts';
 import { onlineWorkspace } from '../packages/manager/src/operations.ts';
-const base='D:/Tools/cache/weava/tests/programs-'+Date.now();let sequence=0;const sites:Site[]=[];
+const base=(process.env.WEAVA_TEST_OUTPUT??'D:/Tools/cache/weava/tests')+'/programs-'+Date.now();let sequence=0;const sites:Site[]=[];
 function fixture(check=''){
   const root=join(base,String(sequence++)),siteRoot=join(root,'site'),programRoot=join(root,'program'),backupRoot=join(root,'backups');mkdirSync(root,{recursive:true});
   const site=new Site(siteRoot);sites.push(site);site.saveEntry(entrySchema.parse({id:'page',kind:'page',title:'升级前内容',path:'/page/',status:'published'}),null);site.publish();
@@ -24,6 +24,20 @@ function fixture(check=''){
 }
 afterEach(()=>sites.splice(0).forEach((site)=>{try{site.close();}catch{}}));
 describe('versioned program upgrade and recovery',()=>{
+  it.each(['program.json', 'site.json'])('keeps managed %s selections out of every legacy upgrade mutation', async file => {
+    const root=resolve(base,'managed-boundary-'+file);mkdirSync(root,{recursive:true});
+    const pointer=JSON.stringify({version:2,programId:'managed',siteBuildId:'current',installationRoot:'manager'});
+    writeFileSync(join(root,file),pointer);
+    const journal=JSON.stringify({version:1,target:root,status:'complete',plan:{target:root}});
+    writeFileSync(root+'.upgrade.json',journal);
+    await expect(checkProgramUpgrade(root,'missing-candidate',join(root,'checks'))).rejects.toThrow(/site update/);
+    await expect(applyProgramUpgrade({version:1,target:root} as any)).rejects.toThrow(/site update/);
+    expect(()=>recoverProgramUpgrade(root)).toThrow(/site recover/);
+    expect(()=>recoverProgramUpgrade(root,true)).toThrow(/site recover/);
+    expect(readFileSync(join(root,file),'utf8')).toBe(pointer);
+    expect(readFileSync(root+'.upgrade.json','utf8')).toBe(journal);
+    expect(existsSync(join(root,'checks'))).toBe(false);
+  });
   it('stages binary theme assets for offline checks while leaving user media and raw imports in place',async()=>{
     const root=join(base,'theme-preflight'),home=join(root,'installation'),site=new Site(join(root,'site'));sites.push(site);
     saveInstallation(home,{version:1,id:'test',node:process.execPath,sitesRoot:root,backupRoot:join(root,'checks'),programs:{},sites:{}});

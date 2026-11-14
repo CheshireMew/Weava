@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import {walk,atomicJson} from '../../runtime-common/src/files.ts';
 import {uuid,now} from '../../runtime-common/src/identity.ts';
 import {inside} from '../../runtime-common/src/paths.ts';
+import {mediaFile,mediaIdentity} from './paths.ts';
 import {Site} from './site.ts';
 import {WeavaError,VERSION} from '@weava/contracts';
 import {assertMaintenanceAvailable,withInstanceMaintenance} from './instance-access.ts';
@@ -40,6 +41,7 @@ async function validateRestoredSite(root:string){
         if(request.job_id){const job=site.job(request.job_id);if(['queued','running'].includes(job.status))site.updateJob(job.id,{status:'failed',workerPid:undefined,errorStatus:409,message:'网站已从备份恢复，请重新选择导入文件。'});}
       }
       site.store.raw.prepare('UPDATE staged_requests SET active_until=0,expires=0').run();
+      site.recoverJobs({ restored: true });
     }).immediate();
     if(site.store.raw.pragma('integrity_check',{simple:true})!=='ok')throw new WeavaError('恢复数据库校验失败。');
     if(routes.build){
@@ -65,23 +67,36 @@ export async function createBackup(site: Site, base: string, label = '手动备�
   const id = now().replace(/[:.]/g, '-') + '-' + uuid().slice(0, 8),
     folder = join(root, id);
   mkdirSync(folder, { recursive: true });
-  await site.store.raw.backup(join(folder, 'weava.sqlite'));
-  const analytics = join(site.root, 'analytics.sqlite');
-  if (existsSync(analytics)) {
-    const db = new Database(analytics);
-    try {
-      await db.backup(join(folder, 'analytics.sqlite'));
-    } finally {
-      db.close();
+  if(site.store.raw.inTransaction)throw new WeavaError('请在当前写入事务完成后开始备份。',409);
+  const databases=['weava.sqlite','analytics.sqlite','business.sqlite'].filter(name=>existsSync(join(site.root,name)));
+  // WAL readers remain available. Hold all database write reservations together;
+  // media deletion also takes this reservation before moving any referenced file.
+  const fence=new Database(join(site.root,'weava.sqlite'),{fileMustExist:true});
+  const inventory=()=>siteFiles(site.root).sort().map(file=>{
+    const stat=lstatSync(file);
+    return {file,size:stat.size,mtime:stat.mtimeMs,ctime:stat.ctimeMs,ino:stat.ino};
+  });
+  try {
+    fence.pragma('busy_timeout=5000');
+    for(const [index,name]of databases.slice(1).entries())fence.prepare('ATTACH DATABASE ? AS snapshot_'+index).run(join(site.root,name));
+    fence.exec('BEGIN IMMEDIATE');
+    const sources=inventory();
+    for(const name of databases){
+      const db=new Database(join(site.root,name),{readonly:true,fileMustExist:true});
+      try{await db.backup(join(folder,name));}finally{db.close();}
     }
-  }
-  const business=join(site.root,'business.sqlite');
-  if(existsSync(business)){const db=new Database(business);try{await db.backup(join(folder,'business.sqlite'));}finally{db.close();}}
-    for (const file of siteFiles(site.root)) {
+    for (const {file} of sources) {
       const target = join(folder, relative(site.root, file));
       mkdirSync(resolve(target, '..'), { recursive: true });
       copyFileSync(file, target);
     }
+    if(JSON.stringify(sources)!==JSON.stringify(inventory())||databases.length!==['weava.sqlite','analytics.sqlite','business.sqlite'].filter(name=>existsSync(join(site.root,name))).length)
+      throw new WeavaError('备份期间网站文件发生变化，本次备份未完成，请重试。',409);
+    verifyBackupContents(folder);
+  } finally {
+    if(fence.inTransaction)fence.exec('ROLLBACK');
+    fence.close();
+  }
   const files = walk(folder).map((file) => ({
     path: relative(folder, file).replaceAll('\\', '/'),
     hash: digestFile(file),
@@ -111,7 +126,7 @@ export function verifyBackup(folder: string) {
   }
   if (!manifest.files.some((item: { path: string }) => item.path === 'weava.sqlite'))
     throw new WeavaError('备份清单缺少站点数据库。');
-  verifyDatabase(join(folder, 'weava.sqlite'));
+  verifyBackupContents(folder,paths);
   return manifest;
 }
 function verifyDatabase(file: string) {
@@ -122,6 +137,25 @@ function verifyDatabase(file: string) {
       db.pragma('integrity_check', { simple: true }) !== 'ok') throw new WeavaError('备份数据库结构或完整性无效。');
   } finally { db.close(); }
 }
+function verifyBackupContents(folder:string,manifestPaths?:Set<string>){
+  verifyDatabase(join(folder,'weava.sqlite'));
+  for(const name of ['analytics.sqlite','business.sqlite'])if(existsSync(join(folder,name))){
+    const db=new Database(join(folder,name),{readonly:true,fileMustExist:true});
+    try{if(db.pragma('integrity_check',{simple:true})!=='ok')throw new WeavaError('备份数据库完整性无效：'+name);}finally{db.close();}
+  }
+  const db=new Database(join(folder,'weava.sqlite'),{readonly:true,fileMustExist:true});
+  try{
+    for(const row of db.prepare("SELECT data FROM records WHERE scope IN ('media','media-variant')").iterate() as Iterable<{data:string}>){
+      const value=JSON.parse(row.data);
+      for(const url of [value.url,...(value.derivatives??[]).map((item:{url:string})=>item.url)]){
+        if(typeof url!=='string'||!url.startsWith('/media/'))continue;
+        const path=mediaIdentity(url),file=mediaFile(folder,path),stat=lstatSync(file,{throwIfNoEntry:false});
+        if(!stat?.isFile()||stat.isSymbolicLink()||manifestPaths&&!manifestPaths.has(relative(folder,file).replaceAll('\\','/').toLowerCase()))
+          throw new WeavaError('备份缺少媒体记录引用的文件：'+url);
+      }
+    }
+  }finally{db.close();}
+}
 export function copyVerifiedBackup(folder: string, target: string) {
   const manifest = verifyBackup(folder);
   mkdirSync(target, { recursive: true });
@@ -131,7 +165,7 @@ export function copyVerifiedBackup(folder: string, target: string) {
     copyFileSync(inside(folder, item.path), destination);
     if (digestFile(destination) !== item.hash) throw new WeavaError('复制期间备份文件发生变化：' + item.path);
   }
-  verifyDatabase(join(target, 'weava.sqlite'));
+  verifyBackupContents(target);
 }
 export async function restoreBackup(folder: string, target: string, backupRoot: string) {
   verifyBackup(folder);

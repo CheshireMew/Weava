@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { defaultSettings, entrySchema, type PublishedEntry } from '@weava/contracts';
 import { applySiteInfo, resolveSiteInfo } from '../packages/core/src/site-info.ts';
 import { adminPanel, panelUrl } from '../apps/admin/src/admin-location.ts';
+import { EntryRepository } from '../packages/core/src/entry-repository.ts';
 
 const time = '2026-11-04T00:00:00.000Z';
 const entry = (id: string, path: string): PublishedEntry => ({ ...entrySchema.parse({ id, kind: 'page', title: id, path, status: 'published', blocks: [{ id: 'old', type: 'richtext', props: { text: '旧内容' } }] }), html: '<p>旧内容</p>', revisionId: 4, modifiedAt: time });
@@ -39,6 +40,7 @@ it('reads legacy information into simple settings without writing or converting 
   const about = { ...entrySchema.parse({ id: 'about', kind: 'page', title: '关于', path: '/about/', status: 'published', document: { version: 1, format: 'markdown', source: '第一段。\n\n第二段。' } }) };
   const friends = entrySchema.parse({ id: 'friends', kind: 'page', title: '友情链接', path: '/friendlink/', status: 'published', blocks: [{ id: 'body', type: 'richtext', props: { text: '<a href="https://example.com/"><h6>示例网站</h6><p>网站介绍</p></a>' } }] });
   const write = vi.fn(), site = { settings: () => ({ value: defaultSettings }), store: { put: write, raw: { prepare: () => ({ all: () => [about, friends].map(value => ({ data: JSON.stringify(value) })) }) } } } as any;
+  site.entryStore = new EntryRepository(site.store);
   const resolved = resolveSiteInfo(site);
   expect(resolved.about).toMatchObject({ path: '/about/', text: '第一段。\n\n第二段。' });
   expect(resolved.friends!.links).toEqual([{ name: '示例网站', url: 'https://example.com/', description: '网站介绍' }]);

@@ -25,13 +25,15 @@ export function maintenanceReferences(site:Site, ignoreVariantMetadata = false){
       for(;;){
         const rows=db.prepare(`SELECT s.rowid n,${id} id,${stamp} stamp,s.data FROM content.${kind} s LEFT JOIN sources c ON c.kind=? AND c.id=${id} WHERE s.rowid>? AND (${condition}) AND (c.stamp IS NULL OR c.stamp<>${stamp}) ORDER BY s.rowid LIMIT 64`).all(kind,after) as {n:number;id:string;stamp:string;data:string}[];
         if(!rows.length)break;
-        db.transaction(()=>{for(const row of rows)put(kind,row.id,row.stamp,mediaReferencesIn(row.data));}).immediate();after=rows.at(-1)!.n;
+        // Only the cache is writable. BEGIN IMMEDIATE would also reserve the
+        // attached content database, deadlocking a deletion that already owns it.
+        db.transaction(()=>{for(const row of rows)put(kind,row.id,row.stamp,mediaReferencesIn(row.data));})();after=rows.at(-1)!.n;
       }
       db.prepare(`DELETE FROM sources WHERE kind=? AND id NOT IN(SELECT ${id} FROM content.${kind} s WHERE ${condition})`).run(kind);
     }
     const archives=walk(join(site.root,'archives','history')).filter(file=>/\.jsonl$/.test(file)),known=new Set(archives);
     for(const file of archives){const info=statSync(file),stamp=info.size+':'+info.mtimeMs,old=db.prepare("SELECT stamp FROM sources WHERE kind='archive' AND id=?").get(file) as {stamp:string}|undefined;if(old?.stamp===stamp)continue;
-      db.transaction(()=>{source.run('archive',file,stamp);remove.run('archive',file);for(const row of jsonLines(file))for(const path of mediaReferencesIn(typeof row.data==='string'?row.data:JSON.stringify(row)))insert.run('archive',file,path);}).immediate();
+      db.transaction(()=>{source.run('archive',file,stamp);remove.run('archive',file);for(const row of jsonLines(file))for(const path of mediaReferencesIn(typeof row.data==='string'?row.data:JSON.stringify(row)))insert.run('archive',file,path);})();
     }
     for(const row of db.prepare("SELECT id FROM sources WHERE kind='archive'").all() as {id:string}[])if(!known.has(row.id))db.prepare("DELETE FROM sources WHERE kind='archive' AND id=?").run(row.id);
     const filter = ignoreVariantMetadata

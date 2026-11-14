@@ -1,0 +1,53 @@
+.block-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 11px 0;
+  overflow: hidden;
+}
+.block-row.selected {
+  border-color: var(--control-line);
+}
+.block-row-head {
+  display: flex;
+  align-items: center;
+  background: var(--surface-soft);
+  padding-right: 7px;
+}
+.block-row-head button {
+  border: 0;
+  background: none;
+  padding: 7px;
+}
+.block-row-head .block-select {
+  flex: 1;
+  justify-content: flex-start;
+  font-size: 0.857rem;
+  text-align: left;
+  color: var(--ink-muted);
+  padding: 14px;
+  min-width: 0;
+}
+.block-select strong {
+  color: var(--ink-muted);
+  font-size: 0.929rem;
+}
+.block-select span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.block-properties {
+  padding: 8px 17px 20px;
+}
+.block-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+.block-add select {
+  width: 150px;
+}
+.block-add button {
+  font-size: 0.929rem;
+}

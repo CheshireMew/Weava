@@ -38,6 +38,8 @@ export class ExtensionManager {
   );
   private changing = false;
   private started = new Set<Extension>();
+  private stopped = false;
+  get isStopped() { return this.stopped; }
   constructor(
     private site: Site,
     _services: Record<string, any>,
@@ -116,6 +118,7 @@ export class ExtensionManager {
     };
   }
   private async activate() {
+    this.stopped = false;
     this.diagnostics = this.members.map((member) =>
       this.snapshotDiagnostic(member, this.configured(member) ? 'blocked' : 'disabled'),
     );
@@ -272,6 +275,7 @@ export class ExtensionManager {
     this.started.clear();
     this.active = [];
     clearCapabilities(this.site);
+    this.stopped = true;
     if (errors.length) throw new WeavaError('扩展停止失败：' + errors.join('；'));
   }
 }

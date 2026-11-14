@@ -45,7 +45,7 @@ export function useContentLibrary(
     format: tab === 'notes' ? 'note' : 'article',
     q: searchTerm,
     status: 'all',
-    ...(tab === 'notes' ? {} : {group: status}),
+    ...(tab === 'notes' || status === 'all' ? {} : {group: status}),
     visibility: tab === 'notes' ? 'all' : visibility,
     type: tab === 'notes' ? '' : selectedType,
     page: String(libraryPage),

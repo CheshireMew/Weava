@@ -98,7 +98,9 @@ export async function serveHost(home:string){
     if(action==='start')return start(args.id,args.validation===true,args.port,args.probeToken);
     if(action==='activate'||action==='initialize'){
       const state=managed.get(args.id);if(!state)throw new Error('网站未运行。');
-      await control(state,action==='initialize'?'initialize':'resume');return view(args.id,state);
+      await control(state,action==='initialize'?'initialize':'resume');
+      if(action==='activate')state.launch={...state.launch,validation:false,probeToken:undefined};
+      return view(args.id,state);
     }
     if(action==='stop')return stop(args.id,args.timeoutMs);
     if(action==='restart'){await stop(args.id,args.timeoutMs);return start(args.id);}

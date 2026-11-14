@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { entrySchema } from '@weava/contracts';
 import { duplicateContent, deleteContent,restoreTrashedContent,purgeTrashedContent } from '../packages/core/src/entry-actions.ts';
 import {entryCover} from '../packages/core/src/entry-cover.ts';
+import { EntryRepository } from '../packages/core/src/entry-repository.ts';
 
 // The action boundary only needs records and their list index; use SQLite in memory.
 const databases: Database.Database[] = [];
@@ -30,7 +31,7 @@ function fixture() {
   put('type', 'post', { pathPrefix: '/posts/' }); put('entry', original.id, original);
   db.prepare('INSERT INTO entry_list VALUES(?)').run(original.id);
   const site = {
-    store, activeJobs: vi.fn(() => [] as any[]),
+    store, entryStore: new EntryRepository(store as any), activeJobs: vi.fn(() => [] as any[]),
     saveEntry: vi.fn((value: any) => {
       const parsed = entrySchema.parse(value); put('entry', value.id, parsed);
       db.prepare('INSERT INTO entry_list VALUES(?)').run(value.id);

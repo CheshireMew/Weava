@@ -152,6 +152,31 @@ it('never exposes articles while switching to notes or waiting for a delayed not
  await act(async()=>resolveNotes!({items:[row],total:1,pages:1}));expect(host.textContent).toBe(row.id);expect(model.libraryLoading).toBe(false);
  vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>path.startsWith('entries/query')?{items:[],total:0,pages:0}:[]);
 });
+it('loads all article states without a group restriction and preserves sorting and pagination',async()=>{
+ let model:any;
+ const items=['published','scheduled','draft'].map(id=>({id,value:{title:id}}));
+ const state=contentWorkspaceFixture({types:[{id:'post',value:{id:'post'}}]});
+ vi.mocked(api).mockImplementation(async(path:string):Promise<any>=>{
+  const group=new URLSearchParams(path.split('?')[1]).get('group');
+  const selected=group?items.filter(item=>item.id===group):items;
+  return {items:selected,total:selected.length,pages:3,page:1,pageSize:25};
+ });
+ function View(){model=useContentLibrary(state,'content',vi.fn());return <div>{model.items.map((item:any)=><span key={item.id}>{item.id}</span>)}</div>;}
+ await act(async()=>root.render(<View/>));
+ await act(async()=>model.setLibraryPage(3));
+ await act(async()=>model.setStatus('all'));
+ expect(model.libraryPage).toBe(1);
+ expect(model.items.map((item:any)=>item.id)).toEqual(['published','scheduled','draft']);
+ const request=()=>new URLSearchParams(String(vi.mocked(api).mock.calls.at(-1)![0]).split('?')[1]);
+ expect(request().has('group')).toBe(false);
+ expect(request().get('status')).toBe('all');
+ expect(request().get('format')).toBe('article');
+ await act(async()=>model.setLibrarySort('title'));
+ await act(async()=>model.setLibraryPage(2));
+ expect(request().has('group')).toBe(false);
+ expect(request().get('sort')).toBe('title');
+ expect(request().get('page')).toBe('2');
+});
 it('restores each library view and keeps cached articles usable during a background refresh',async()=>{
  vi.useFakeTimers();
  try {
