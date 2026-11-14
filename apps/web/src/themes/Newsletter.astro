@@ -230,6 +230,7 @@ const discussion = interactive ? engagement.summary(entry!.id,/^[a-f0-9]{64}$/.t
     {footerRegion ? <footer class="nl-wrap" set:html={footerRegion} /> : <footer class="nl-footer nl-wrap"><a href="/">{settings.name}</a><nav aria-label={t("页脚")}><a href="/">{t("首页")}</a><a href={archiveUrl}>{t("归档")}</a><a href="/rss.xml">RSS</a>{feedLinks(entry, release).slice(1).map((link) => <a href={link.url}>{link.title} RSS</a>)}<a href="/sitemap.xml">{t("站点地图")}</a></nav><span>{settings.footer}</span></footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {!preview && (isArticle||isNoteEntry||isGuestbook) && <script src="/weava-article.js" defer is:inline />}
+    {!preview && isArticle && <script src="/weava-article-copy.js" defer is:inline />}
     {features.includes('analytics') && !preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   {(!preview || Astro.url.searchParams.get('embedded') !== '1') && <script src="/weava-code.js" defer is:inline />}
   </body>

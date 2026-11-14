@@ -124,7 +124,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
       {entry?.kind === 'content' && <Advertisement settings={settings} position="articleTop" />}
       {
         isNotesIndex?<section><h1>{entry!.title}</h1><NotesTimeline release={release} items={notesPage.items} page={notesPage.page} pages={notesPage.pages} previous={notesLinks.previous} next={notesLinks.next}/></section>:entry && (
-          <div class="page-body">{entry.template==='guestbook'&&<h1>{entry.title}</h1>}<Fragment set:html={content}/></div>
+          <div class="page-body" data-article-body={entry.kind==='content'?true:undefined}>{entry.template==='guestbook'&&<h1>{entry.title}</h1>}<Fragment set:html={content}/></div>
         )
       }
       {entry?.kind === 'content' && <Advertisement settings={settings} position="articleBottom" />}
@@ -172,6 +172,7 @@ const discussion=interactive?engagement.summary(entry!.id,/^[a-f0-9]{64}$/.test(
     </footer>}
     {!preview && <script src="/weava-ui.js" defer is:inline />}
     {interactive&&<script src="/weava-article.js" defer is:inline />}
+    {!preview && entry?.kind === 'content' && <script src="/weava-article-copy.js" defer is:inline />}
     {features.includes('analytics') && !preview && !privateArticle && !missing && <script src="/weava-analytics.js" defer is:inline />}
   {(!preview || Astro.url.searchParams.get('embedded') !== '1') && <script src="/weava-code.js" defer is:inline />}
   </body>

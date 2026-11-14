@@ -51,4 +51,5 @@ const related=article?recommendedEntries(entry,release,3):[];
 {footer?<Fragment set:html={footer}/>:<footer class="site-footer"><div class="footer-main"><a class="brand" href="/">{c.brandTitle||s.name}</a><div>{(c.footerLinks||[]).map((link: {url:string;label:string})=><a href={link.url}>{link.label}</a>)}<a href="/rss.xml">RSS</a></div></div><div class="footer-bottom"><span>{s.footer}</span></div></footer>}
 <dialog class="search-dialog" id="library-search"><form method="get" action="/search/" class="search-field"><input name="q" type="search" placeholder={t("搜索资料")} aria-label={t("搜索资料")}/><button class="button dark">{t("搜索")}</button><button type="button" data-library-close aria-label={t("关闭搜索")}>×</button></form></dialog>
 {!preview&&<script src="/weava-library.js" defer is:inline/>}{interactive&&<script src="/weava-article.js" defer is:inline/>}{features.includes('analytics')&&!preview&&!privateArticle&&!missing&&<script src="/weava-analytics.js" defer is:inline/>}<script src="/weava-code.js" defer is:inline/>
+{!preview && article && <script src="/weava-article-copy.js" defer is:inline />}
 </body></html>
